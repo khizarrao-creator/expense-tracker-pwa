@@ -173,7 +173,7 @@ export const getCategories = async (type?: 'income' | 'expense'): Promise<Catego
 export const addCategory = async (name: string, type: 'income' | 'expense', icon: string = '') => {
   const id = uuidv4();
   await runWithBindings(
-    `INSERT INTO categories (id, name, type, icon, created_at) VALUES (?, ?, ?, ?, ?)`,
+    `INSERT INTO categories (id, name, type, icon, created_at, synced) VALUES (?, ?, ?, ?, ?, 0)`,
     [id, name, type, icon, new Date().toISOString()]
   );
   return id;
@@ -191,7 +191,7 @@ export const getAccounts = async (): Promise<Account[]> => {
 export const addAccount = async (name: string, type: string, initial_balance: number = 0) => {
   const id = uuidv4();
   await runWithBindings(
-    `INSERT INTO accounts (id, name, type, initial_balance, created_at) VALUES (?, ?, ?, ?, ?)`,
+    `INSERT INTO accounts (id, name, type, initial_balance, created_at, synced) VALUES (?, ?, ?, ?, ?, 0)`,
     [id, name, type, initial_balance, new Date().toISOString()]
   );
   return id;
@@ -207,7 +207,7 @@ export const updateAccount = async (id: string, data: Partial<Omit<Account, 'id'
   const setClause = fields.map(f => `${f} = ?`).join(', ');
   
   await runWithBindings(
-    `UPDATE accounts SET ${setClause} WHERE id = ?`,
+    `UPDATE accounts SET ${setClause}, synced = 0 WHERE id = ?`,
     [...values, id]
   );
 };

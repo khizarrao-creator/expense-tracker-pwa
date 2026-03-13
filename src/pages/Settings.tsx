@@ -1,37 +1,22 @@
 import React, { useState, useEffect } from 'react';
 import { getTransactions } from '../db/queries';
 import { runWithBindings } from '../db/sqlite';
-import { Download, Trash2, Moon, Sun, Monitor } from 'lucide-react';
+import { Download, Trash2, Moon, Sun, Monitor, CloudSync } from 'lucide-react';
 import { useCurrency } from '../contexts/CurrencyContext';
+import { useTheme } from '../contexts/ThemeContext';
+import { useSync } from '../contexts/SyncContext';
 import { toast } from 'sonner';
 import ConfirmModal from '../components/ConfirmModal';
 
 const Settings: React.FC = () => {
   const { currency, setCurrency, currencies } = useCurrency();
-  const [theme, setTheme] = useState<'light' | 'dark' | 'system'>('system');
+  const { theme, setTheme } = useTheme();
+  const { forceSync, isSyncing, lastSynced } = useSync();
   const [showClearConfirm, setShowClearConfirm] = useState(false);
-
-  useEffect(() => {
-    const savedTheme = localStorage.getItem('theme') || 'system';
-    setTheme(savedTheme as any);
-  }, []);
 
   const handleThemeChange = (newTheme: 'light' | 'dark' | 'system') => {
     setTheme(newTheme);
-    localStorage.setItem('theme', newTheme);
-    
-    if (newTheme === 'dark') {
-      document.documentElement.classList.add('dark');
-    } else if (newTheme === 'light') {
-      document.documentElement.classList.remove('dark');
-    } else {
-      // System
-      if (window.matchMedia('(prefers-color-scheme: dark)').matches) {
-        document.documentElement.classList.add('dark');
-      } else {
-        document.documentElement.classList.remove('dark');
-      }
-    }
+    toast.success(`${newTheme.charAt(0).toUpperCase() + newTheme.slice(1)} theme applied`);
   };
 
   const exportData = async () => {
@@ -151,7 +136,33 @@ const Settings: React.FC = () => {
       </div>
 
       <div className="bg-card p-6 rounded-2xl shadow-sm border border-border">
-        <h2 className="text-lg font-semibold mb-4 border-b border-border pb-4">Data Management</h2>
+        <h2 className="text-lg font-semibold mb-4 border-b border-border pb-4">Account & Sync</h2>
+        
+        <div className="space-y-4">
+          <div className="flex items-center justify-between">
+            <div>
+              <h3 className="font-medium text-foreground">Synchronize Data</h3>
+              <p className="text-sm text-muted-foreground">
+                Last synced: {lastSynced ? lastSynced.toLocaleTimeString() : 'Never'}
+              </p>
+            </div>
+            <button
+              onClick={forceSync}
+              disabled={isSyncing}
+              className={`flex items-center gap-2 px-4 py-2 rounded-lg font-medium transition-all ${
+                isSyncing 
+                  ? 'bg-muted text-muted-foreground' 
+                  : 'bg-primary/10 text-primary hover:bg-primary/20'
+              }`}
+            >
+              <CloudSync size={18} className={isSyncing ? 'animate-spin' : ''} />
+              {isSyncing ? 'Syncing...' : 'Sync Now'}
+            </button>
+          </div>
+        </div>
+      </div>
+
+      <div className="bg-card p-6 rounded-2xl shadow-sm border border-border">
         
         <div className="space-y-4">
           <div className="flex items-center justify-between">

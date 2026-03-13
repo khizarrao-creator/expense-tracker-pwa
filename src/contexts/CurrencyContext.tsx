@@ -28,11 +28,30 @@ export const CurrencyProvider: React.FC<{ children: React.ReactNode }> = ({ chil
   const [currency, setCurrencyState] = useState<Currency>(currencies[0]); // Default PKR
 
   useEffect(() => {
-    const savedCode = localStorage.getItem('currency');
-    if (savedCode) {
-      const found = currencies.find(c => c.code === savedCode);
-      if (found) setCurrencyState(found);
-    }
+    const loadCurrency = () => {
+      const savedCode = localStorage.getItem('currency');
+      if (savedCode) {
+        const found = currencies.find(c => c.code === savedCode);
+        if (found) setCurrencyState(found);
+      }
+    };
+    
+    loadCurrency();
+
+    // Listen for sync changes
+    const handleStorage = (e: StorageEvent) => {
+      if (e.key === 'currency') loadCurrency();
+    };
+    window.addEventListener('storage', handleStorage);
+    
+    // Custom event for internal sync refreshes
+    const handleSync = () => loadCurrency();
+    window.addEventListener('app-sync-complete', handleSync);
+
+    return () => {
+      window.removeEventListener('storage', handleStorage);
+      window.removeEventListener('app-sync-complete', handleSync);
+    };
   }, []);
 
   const setCurrency = (code: string) => {

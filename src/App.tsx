@@ -4,6 +4,7 @@ import { AuthProvider, useAuth } from './contexts/AuthContext';
 import { SQLiteProvider } from './contexts/SQLiteContext';
 import { SyncProvider } from './contexts/SyncContext';
 import { CurrencyProvider } from './contexts/CurrencyContext';
+import { ThemeProvider } from './contexts/ThemeContext';
 import { Toaster } from 'sonner';
 import Layout from './components/Layout';
 import Login from './pages/Login';
@@ -39,20 +40,22 @@ const App: React.FC = () => {
         <SQLiteProvider>
           <SyncProvider>
             <CurrencyProvider>
-              <Toaster position="top-center" richColors closeButton visibleToasts={3} />
-              <Routes>
-                <Route path="/login" element={<Login />} />
-                
-                <Route path="/" element={<ProtectedRoute><Layout /></ProtectedRoute>}>
-                  <Route index element={<Dashboard />} />
-                  <Route path="transactions" element={<Transactions />} />
-                  <Route path="add" element={<AddTransaction />} />
-                  <Route path="edit/:id" element={<AddTransaction />} />
-                  <Route path="categories" element={<Categories />} />
-                  <Route path="accounts" element={<Accounts />} />
-                  <Route path="settings" element={<Settings />} />
-                </Route>
-              </Routes>
+              <ThemeProvider>
+                <Toaster position="top-center" richColors closeButton visibleToasts={3} />
+                <Routes>
+                  <Route path="/login" element={<Login />} />
+                  
+                  <Route path="/" element={<ProtectedRoute><Layout /></ProtectedRoute>}>
+                    <Route index element={<Dashboard />} />
+                    <Route path="transactions" element={<Transactions />} />
+                    <Route path="add" element={<AddTransaction />} />
+                    <Route path="edit/:id" element={<AddTransaction />} />
+                    <Route path="categories" element={<Categories />} />
+                    <Route path="accounts" element={<Accounts />} />
+                    <Route path="settings" element={<Settings />} />
+                  </Route>
+                </Routes>
+              </ThemeProvider>
             </CurrencyProvider>
           </SyncProvider>
         </SQLiteProvider>

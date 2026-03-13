@@ -36,6 +36,9 @@ export const SyncProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
       const now = new Date();
       localStorage.setItem(`lastSync_${user.uid}`, now.toISOString());
       setLastSynced(now);
+      
+      // Dispatch event to notify other contexts (like Currency/Theme)
+      window.dispatchEvent(new CustomEvent('app-sync-complete'));
     } catch (error) {
       console.error('Sync process failed:', error);
     } finally {

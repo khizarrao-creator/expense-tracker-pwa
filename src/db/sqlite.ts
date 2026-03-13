@@ -39,14 +39,25 @@ const saveDB = async () => {
 const initializeSchema = async () => {
   if (!db) return;
 
-  const schema = `
+  // 1. Create tables with basic columns first (for new users)
+  db.run(`
     CREATE TABLE IF NOT EXISTS accounts (
       id TEXT PRIMARY KEY,
       name TEXT NOT NULL,
-      type TEXT, -- 'bank', 'wallet', 'cash'
+      type TEXT,
       initial_balance REAL DEFAULT 0,
       color TEXT,
-      created_at TEXT NOT NULL
+      created_at TEXT NOT NULL,
+      synced INTEGER DEFAULT 0
+    );
+
+    CREATE TABLE IF NOT EXISTS categories (
+      id TEXT PRIMARY KEY,
+      name TEXT NOT NULL,
+      type TEXT NOT NULL CHECK(type IN ('income', 'expense')) DEFAULT 'expense',
+      icon TEXT,
+      created_at TEXT NOT NULL,
+      synced INTEGER DEFAULT 0
     );
 
     CREATE TABLE IF NOT EXISTS transactions (
@@ -65,31 +76,59 @@ const initializeSchema = async () => {
       FOREIGN KEY (account_id) REFERENCES accounts(id),
       FOREIGN KEY (to_account_id) REFERENCES accounts(id)
     );
+  `);
 
-    CREATE TABLE IF NOT EXISTS categories (
-      id TEXT PRIMARY KEY,
-      name TEXT NOT NULL,
-      type TEXT NOT NULL CHECK(type IN ('income', 'expense')),
-      icon TEXT,
-      created_at TEXT NOT NULL
-    );
+  // 2. Robust Migrations (Add missing columns one by one for existing users)
+  const migrations = [
+    "ALTER TABLE transactions ADD COLUMN type TEXT CHECK(type IN ('income', 'expense', 'transfer'));",
+    "ALTER TABLE transactions ADD COLUMN description TEXT;",
+    "ALTER TABLE transactions ADD COLUMN payment_method TEXT;",
+    "ALTER TABLE transactions ADD COLUMN account_id TEXT;",
+    "ALTER TABLE transactions ADD COLUMN to_account_id TEXT;",
+    "ALTER TABLE transactions ADD COLUMN synced INTEGER DEFAULT 0;",
+    
+    "ALTER TABLE accounts ADD COLUMN synced INTEGER DEFAULT 0;",
+    "ALTER TABLE accounts ADD COLUMN type TEXT;",
+    "ALTER TABLE accounts ADD COLUMN initial_balance REAL DEFAULT 0;",
+    "ALTER TABLE accounts ADD COLUMN color TEXT;",
 
-    CREATE INDEX IF NOT EXISTS idx_transactions_date ON transactions(date);
-    CREATE INDEX IF NOT EXISTS idx_transactions_synced ON transactions(synced);
-  `;
-  
-  db.run(schema);
+    "ALTER TABLE categories ADD COLUMN type TEXT CHECK(type IN ('income', 'expense')) DEFAULT 'expense';",
+    "ALTER TABLE categories ADD COLUMN icon TEXT;",
+    "ALTER TABLE categories ADD COLUMN synced INTEGER DEFAULT 0;"
+  ];
 
-  // Migration: Add account_id and to_account_id to transactions if they don't exist
-  try {
-    db.run("ALTER TABLE transactions ADD COLUMN account_id TEXT;");
-  } catch (e) {}
-  try {
-    db.run("ALTER TABLE transactions ADD COLUMN to_account_id TEXT;");
-  } catch (e) {}
+  for (const m of migrations) {
+    try { db.run(m); } catch (e) { /* Column likely already exists */ }
+  }
 
-  // Robust Migration: Update 'type' CHECK constraint to include 'transfer'
-  // SQLite doesn't support ALTER TABLE for constraints, so we use the recreate-and-copy pattern
+  // 3. Create missing indexes
+  const indexQueries = [
+    "CREATE INDEX IF NOT EXISTS idx_accounts_synced ON accounts(synced);",
+    "CREATE INDEX IF NOT EXISTS idx_categories_synced ON categories(synced);",
+    "CREATE INDEX IF NOT EXISTS idx_categories_type ON categories(type);",
+    "CREATE INDEX IF NOT EXISTS idx_transactions_date ON transactions(date);",
+    "CREATE INDEX IF NOT EXISTS idx_transactions_synced ON transactions(synced);",
+    "CREATE INDEX IF NOT EXISTS idx_transactions_account ON transactions(account_id);"
+  ];
+
+  for (const idx of indexQueries) {
+    try { db.run(idx); } catch (e) { /* Index likely exists */ }
+  }
+
+  // 4. Force a one-time re-sync for all users to ensure missing fields (like account_id) are pushed
+  const hasReSynced = localStorage.getItem('re_synced_v3');
+  if (!hasReSynced) {
+    try {
+      const now = new Date().toISOString();
+      db.run("UPDATE transactions SET synced = 0, updated_at = ?;", [now]);
+      db.run("UPDATE accounts SET synced = 0;");
+      db.run("UPDATE categories SET synced = 0;");
+      localStorage.setItem('re_synced_v3', 'true');
+      console.log("Marked all records for re-sync and touched timestamps.");
+    } catch (e) {}
+  }
+
+  // 5. Robust Migration: Update 'type' CHECK constraint to include 'transfer'
   const tableInfo = db.exec("SELECT sql FROM sqlite_master WHERE type='table' AND name='transactions'")[0];
   const currentSql = tableInfo ? (tableInfo.values[0][0] as string) : "";
   
@@ -109,16 +148,14 @@ const initializeSchema = async () => {
         to_account_id TEXT,
         created_at TEXT NOT NULL,
         updated_at TEXT NOT NULL,
-        synced INTEGER DEFAULT 0,
-        FOREIGN KEY (account_id) REFERENCES accounts(id),
-        FOREIGN KEY (to_account_id) REFERENCES accounts(id)
+        synced INTEGER DEFAULT 0
       );
-      INSERT INTO transactions_new SELECT id, type, amount, category, description, date, payment_method, account_id, to_account_id, created_at, updated_at, synced FROM transactions;
+      INSERT INTO transactions_new (id, type, amount, category, description, date, payment_method, account_id, to_account_id, created_at, updated_at, synced)
+      SELECT id, type, amount, category, description, date, payment_method, account_id, to_account_id, created_at, updated_at, 0 FROM transactions;
       DROP TABLE transactions;
       ALTER TABLE transactions_new RENAME TO transactions;
       COMMIT;
     `);
-    console.log("Migration complete.");
   }
 
   // Now create index for account_id since we ensure it exists

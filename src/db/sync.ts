@@ -60,14 +60,14 @@ export const pullFromFirestore = async (userId: string, lastSyncTimestamp: strin
       `, [data.id, data.type, data.amount, data.category, data.description, data.date, data.payment_method, data.account_id, data.to_account_id, data.created_at, data.updated_at]);
     }
 
-    // 2. Pull All Accounts
+    // 2. Pull All Accounts (Small dataset, usually safe to pull all)
     const accSnapshot = await getDocs(collection(firestore, `users/${userId}/accounts`));
     for (const docSnapshot of accSnapshot.docs) {
       const data = docSnapshot.data();
       await runWithBindings(`
         INSERT OR REPLACE INTO accounts (id, name, type, initial_balance, color, created_at, synced)
-        VALUES (?, ?, ?, ?, ?, ?, 1)
-      `, [data.id, data.name, data.type, data.initial_balance, data.color, data.created_at]);
+        VALUES (?, ?, ?, ?, ?, ?, ?)
+      `, [data.id, data.name, data.type, data.initial_balance, data.color, data.created_at, 1]);
     }
 
     // 3. Pull All Categories
@@ -76,8 +76,8 @@ export const pullFromFirestore = async (userId: string, lastSyncTimestamp: strin
       const data = docSnapshot.data();
       await runWithBindings(`
         INSERT OR REPLACE INTO categories (id, name, type, icon, created_at, synced)
-        VALUES (?, ?, ?, ?, ?, 1)
-      `, [data.id, data.name, data.type, data.icon, data.created_at]);
+        VALUES (?, ?, ?, ?, ?, ?)
+      `, [data.id, data.name, data.type, data.icon, data.created_at, 1]);
     }
 
     // 4. Pull Settings

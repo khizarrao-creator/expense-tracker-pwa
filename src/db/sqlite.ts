@@ -85,6 +85,7 @@ const initializeSchema = async () => {
     "ALTER TABLE transactions ADD COLUMN payment_method TEXT;",
     "ALTER TABLE transactions ADD COLUMN account_id TEXT;",
     "ALTER TABLE transactions ADD COLUMN to_account_id TEXT;",
+    "ALTER TABLE transactions ADD COLUMN updated_at TEXT;",
     "ALTER TABLE transactions ADD COLUMN synced INTEGER DEFAULT 0;",
     
     "ALTER TABLE accounts ADD COLUMN synced INTEGER DEFAULT 0;",
@@ -116,15 +117,15 @@ const initializeSchema = async () => {
   }
 
   // 4. Force a one-time re-sync for all users to ensure missing fields (like account_id) are pushed
-  const hasReSynced = localStorage.getItem('re_synced_v3');
+  const hasReSynced = localStorage.getItem('re_synced_v4');
   if (!hasReSynced) {
     try {
       const now = new Date().toISOString();
-      db.run("UPDATE transactions SET synced = 0, updated_at = ?;", [now]);
+      db.run("UPDATE transactions SET synced = 0, updated_at = COALESCE(updated_at, ?);", [now]);
       db.run("UPDATE accounts SET synced = 0;");
       db.run("UPDATE categories SET synced = 0;");
-      localStorage.setItem('re_synced_v3', 'true');
-      console.log("Marked all records for re-sync and touched timestamps.");
+      localStorage.setItem('re_synced_v4', 'true');
+      console.log("Marked all records for v4 re-sync.");
     } catch (e) {}
   }
 

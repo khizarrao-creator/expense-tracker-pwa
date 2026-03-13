@@ -2,9 +2,14 @@ import React, { useState, useEffect } from 'react';
 import { getTransactions } from '../db/queries';
 import { runWithBindings } from '../db/sqlite';
 import { Download, Trash2, Moon, Sun, Monitor } from 'lucide-react';
+import { useCurrency } from '../contexts/CurrencyContext';
+import { toast } from 'sonner';
+import ConfirmModal from '../components/ConfirmModal';
 
 const Settings: React.FC = () => {
+  const { currency, setCurrency, currencies } = useCurrency();
   const [theme, setTheme] = useState<'light' | 'dark' | 'system'>('system');
+  const [showClearConfirm, setShowClearConfirm] = useState(false);
 
   useEffect(() => {
     const savedTheme = localStorage.getItem('theme') || 'system';
@@ -33,11 +38,11 @@ const Settings: React.FC = () => {
     try {
       const data = await getTransactions(10000);
       const csv = [
-        ['ID', 'Type', 'Amount', 'Category', 'Description', 'Date', 'Payment Method', 'Created At'],
+        ['ID', 'Type', 'Amount', 'Category', 'Description', 'Date', 'Bank/Account', 'Payment Method', 'Created At'],
         ...data.map(t => [
-          t.id, t.type, t.amount, t.category, t.description, t.date, t.payment_method, t.created_at
+          t.id, t.type, t.amount, t.category, t.description, t.date, t.account_name || 'N/A', t.payment_method, t.created_at
         ])
-      ].map(e => e.join(',')).join('\n');
+      ].map(row => row.map(cell => `"${cell}"`).join(',')).join('\n');
 
       const blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' });
       const url = URL.createObjectURL(blob);
@@ -47,32 +52,68 @@ const Settings: React.FC = () => {
       document.body.appendChild(link);
       link.click();
       document.body.removeChild(link);
+      toast.success('Data exported successfully');
     } catch (error) {
       console.error('Failed to export', error);
-      alert('Export failed.');
+      toast.error('Export failed');
     }
   };
 
-  const clearLocalDatabase = async () => {
-    if (window.confirm('WARNING: Are you sure you want to clear your local database? Make sure your data is synced or exported!')) {
-      if (window.prompt('Type "DELETE" to confirm.') === 'DELETE') {
-        try {
-          // In wa-sqlite, just truncating tables is easiest
-          await runWithBindings('DELETE FROM transactions');
-          await runWithBindings('DELETE FROM categories');
-          alert('Local database cleared successfully.');
-          window.location.reload();
-        } catch (error) {
-          console.error(error);
-          alert('Failed to clear database');
-        }
-      }
+  const clearLocalDatabase = () => {
+    setShowClearConfirm(true);
+  };
+
+  const confirmClearDatabase = async () => {
+    try {
+      await runWithBindings('DELETE FROM transactions');
+      await runWithBindings('DELETE FROM accounts');
+      await runWithBindings('DELETE FROM categories');
+      toast.success('Database cleared. Reloading...');
+      setTimeout(() => {
+        window.location.reload();
+      }, 1500);
+    } catch (error) {
+      console.error(error);
+      toast.error('Failed to clear database');
+    } finally {
+      setShowClearConfirm(false);
     }
   };
 
   return (
     <div className="max-w-xl mx-auto space-y-8">
       <h1 className="text-2xl font-bold">Settings</h1>
+
+      <ConfirmModal
+        isOpen={showClearConfirm}
+        title="Clear Database?"
+        message="WARNING: This will permanently erase ALL local data including transactions, accounts, and custom categories. This cannot be undone."
+        onConfirm={confirmClearDatabase}
+        onCancel={() => setShowClearConfirm(false)}
+        variant="danger"
+        confirmText="Clear Everything"
+      />
+
+      <div className="bg-card p-6 rounded-2xl shadow-sm border border-border">
+        <h2 className="text-lg font-semibold mb-4 border-b border-border pb-4">Currency</h2>
+        <div className="grid grid-cols-2 sm:grid-cols-3 gap-3">
+          {currencies.map((c) => (
+            <button
+              key={c.code}
+              onClick={() => {
+                setCurrency(c.code);
+                toast.success(`Currency changed to ${c.code}`);
+              }}
+              className={`flex flex-col items-center justify-center p-4 rounded-xl border-2 transition-all ${
+                currency.code === c.code ? 'border-primary bg-primary/5 text-primary' : 'border-border text-muted-foreground hover:bg-muted'
+              }`}
+            >
+              <span className="text-xl font-bold mb-1">{c.symbol}</span>
+              <span className="text-xs font-medium uppercase">{c.code}</span>
+            </button>
+          ))}
+        </div>
+      </div>
 
       <div className="bg-card p-6 rounded-2xl shadow-sm border border-border">
         <h2 className="text-lg font-semibold mb-4 border-b border-border pb-4">Appearance</h2>

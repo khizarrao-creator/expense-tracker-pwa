@@ -40,22 +40,36 @@ const initializeSchema = async () => {
   if (!db) return;
 
   const schema = `
+    CREATE TABLE IF NOT EXISTS accounts (
+      id TEXT PRIMARY KEY,
+      name TEXT NOT NULL,
+      type TEXT, -- 'bank', 'wallet', 'cash'
+      initial_balance REAL DEFAULT 0,
+      color TEXT,
+      created_at TEXT NOT NULL
+    );
+
     CREATE TABLE IF NOT EXISTS transactions (
       id TEXT PRIMARY KEY,
-      type TEXT CHECK(type IN ('income', 'expense')),
+      type TEXT CHECK(type IN ('income', 'expense', 'transfer')),
       amount REAL NOT NULL,
       category TEXT NOT NULL,
       description TEXT,
       date TEXT NOT NULL,
       payment_method TEXT,
+      account_id TEXT,
+      to_account_id TEXT,
       created_at TEXT NOT NULL,
       updated_at TEXT NOT NULL,
-      synced INTEGER DEFAULT 0
+      synced INTEGER DEFAULT 0,
+      FOREIGN KEY (account_id) REFERENCES accounts(id),
+      FOREIGN KEY (to_account_id) REFERENCES accounts(id)
     );
 
     CREATE TABLE IF NOT EXISTS categories (
       id TEXT PRIMARY KEY,
       name TEXT NOT NULL,
+      type TEXT NOT NULL CHECK(type IN ('income', 'expense')),
       icon TEXT,
       created_at TEXT NOT NULL
     );
@@ -65,6 +79,110 @@ const initializeSchema = async () => {
   `;
   
   db.run(schema);
+
+  // Migration: Add account_id and to_account_id to transactions if they don't exist
+  try {
+    db.run("ALTER TABLE transactions ADD COLUMN account_id TEXT;");
+  } catch (e) {}
+  try {
+    db.run("ALTER TABLE transactions ADD COLUMN to_account_id TEXT;");
+  } catch (e) {}
+
+  // Robust Migration: Update 'type' CHECK constraint to include 'transfer'
+  // SQLite doesn't support ALTER TABLE for constraints, so we use the recreate-and-copy pattern
+  const tableInfo = db.exec("SELECT sql FROM sqlite_master WHERE type='table' AND name='transactions'")[0];
+  const currentSql = tableInfo ? (tableInfo.values[0][0] as string) : "";
+  
+  if (currentSql && !currentSql.includes("'transfer'")) {
+    console.log("Migrating transactions table to support 'transfer' type...");
+    db.run(`
+      BEGIN TRANSACTION;
+      CREATE TABLE transactions_new (
+        id TEXT PRIMARY KEY,
+        type TEXT CHECK(type IN ('income', 'expense', 'transfer')),
+        amount REAL NOT NULL,
+        category TEXT NOT NULL,
+        description TEXT,
+        date TEXT NOT NULL,
+        payment_method TEXT,
+        account_id TEXT,
+        to_account_id TEXT,
+        created_at TEXT NOT NULL,
+        updated_at TEXT NOT NULL,
+        synced INTEGER DEFAULT 0,
+        FOREIGN KEY (account_id) REFERENCES accounts(id),
+        FOREIGN KEY (to_account_id) REFERENCES accounts(id)
+      );
+      INSERT INTO transactions_new SELECT id, type, amount, category, description, date, payment_method, account_id, to_account_id, created_at, updated_at, synced FROM transactions;
+      DROP TABLE transactions;
+      ALTER TABLE transactions_new RENAME TO transactions;
+      COMMIT;
+    `);
+    console.log("Migration complete.");
+  }
+
+  // Now create index for account_id since we ensure it exists
+  db.run("CREATE INDEX IF NOT EXISTS idx_transactions_account ON transactions(account_id);");
+
+  // Seed default accounts if empty
+  const accountsCount = db.exec("SELECT COUNT(*) as count FROM accounts")[0].values[0][0];
+  if (accountsCount === 0) {
+    const now = new Date().toISOString();
+    const defaultAccounts = [
+      { id: 'cash-id', name: 'Cash', type: 'wallet' },
+      { id: 'sadapay-id', name: 'SadaPay', type: 'bank' },
+      { id: 'meezan-id', name: 'Meezan Bank', type: 'bank' },
+      { id: 'hbl-id', name: 'HBL', type: 'bank' },
+      { id: 'bank-al-habib-id', name: 'Bank AL Habib', type: 'bank' },
+      { id: 'jazzcash-id', name: 'JazzCash', type: 'wallet' },
+      { id: 'easypaisa-id', name: 'Easypaisa', type: 'wallet' },
+      { id: 'nayapay-id', name: 'NayaPay', type: 'bank' }
+    ];
+
+    for (const acc of defaultAccounts) {
+      db.run(
+        "INSERT INTO accounts (id, name, type, initial_balance, created_at) VALUES (?, ?, ?, 0, ?)",
+        [acc.id, acc.name, acc.type, now]
+      );
+    }
+  }
+
+  // Migration: Add type to categories if it doesn't exist
+  try {
+    db.run("ALTER TABLE categories ADD COLUMN type TEXT CHECK(type IN ('income', 'expense')) DEFAULT 'expense';");
+    db.run("CREATE INDEX IF NOT EXISTS idx_categories_type ON categories(type);");
+  } catch (e) {}
+
+  // Seed default categories if empty
+  const catsCount = db.exec("SELECT COUNT(*) as count FROM categories")[0].values[0][0];
+  if (catsCount === 0) {
+    const now = new Date().toISOString();
+    const expenseDefaults = ['Food', 'Transport', 'Bills', 'Shopping', 'Entertainment', 'Health', 'Other'];
+    const incomeDefaults = ['Salary', 'Business', 'Bonus', 'Gift', 'Investment', 'Other'];
+    
+    for (const name of expenseDefaults) {
+      db.run(
+        "INSERT INTO categories (id, name, type, icon, created_at) VALUES (?, ?, 'expense', ?, ?)",
+        [crypto.randomUUID(), name, '', now]
+      );
+    }
+    for (const name of incomeDefaults) {
+      db.run(
+        "INSERT INTO categories (id, name, type, icon, created_at) VALUES (?, ?, 'income', ?, ?)",
+        [crypto.randomUUID(), name, '', now]
+      );
+    }
+  } else {
+    // Cleanup duplicates if any exist from previous bug (now including type in grouping)
+    db.run(`
+      DELETE FROM categories 
+      WHERE id NOT IN (
+        SELECT MIN(id) 
+        FROM categories 
+        GROUP BY name, type
+      )
+    `);
+  }
 };
 
 export const executeQuery = async (query: string, params: any[] = []) => {

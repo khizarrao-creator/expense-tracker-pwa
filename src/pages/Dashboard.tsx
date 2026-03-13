@@ -1,14 +1,18 @@
 import React, { useEffect, useState } from 'react';
-import { getSummary, getExpensesByCategory } from '../db/queries';
-import { Doughnut } from 'react-chartjs-2';
+import { getSummary, getExpensesByCategory, getNetWorth, getPaymentMethodStats } from '../db/queries';
+import { Doughnut, Pie } from 'react-chartjs-2';
 import { Chart as ChartJS, ArcElement, Tooltip, Legend } from 'chart.js';
-import { ArrowDownIcon, ArrowUpIcon, Wallet } from 'lucide-react';
+import { ArrowDownIcon, ArrowUpIcon, Wallet, PiggyBank } from 'lucide-react';
+import { useCurrency } from '../contexts/CurrencyContext';
 
 ChartJS.register(ArcElement, Tooltip, Legend);
 
 const Dashboard: React.FC = () => {
+  const { formatAmount } = useCurrency();
   const [summary, setSummary] = useState({ income: 0, expense: 0, balance: 0 });
-  const [chartData, setChartData] = useState<any>(null);
+  const [netWorth, setNetWorth] = useState(0);
+  const [categoryChart, setCategoryChart] = useState<any>(null);
+  const [paymentChart, setPaymentChart] = useState<any>(null);
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
@@ -21,28 +25,40 @@ const Dashboard: React.FC = () => {
       const year = now.getFullYear().toString();
       const month = (now.getMonth() + 1).toString();
 
-      const sum = await getSummary();
+      const [sum, nw, cats, payments] = await Promise.all([
+        getSummary(),
+        getNetWorth(),
+        getExpensesByCategory(year, month),
+        getPaymentMethodStats()
+      ]);
+
       setSummary({
         income: sum.income || 0,
         expense: sum.expense || 0,
         balance: (sum.income || 0) - (sum.expense || 0)
       });
+      setNetWorth(nw);
 
-      const categoriesData = await getExpensesByCategory(year, month);
-      
-      if (categoriesData && categoriesData.length > 0) {
-        setChartData({
-          labels: categoriesData.map((d: any) => d.category),
-          datasets: [
-            {
-              data: categoriesData.map((d: any) => d.total),
-              backgroundColor: [
-                '#3b82f6', '#ef4444', '#10b981', '#f59e0b', '#8b5cf6', '#ec4899', '#6b7280'
-              ],
-              borderWidth: 0,
-              hoverOffset: 4
-            }
-          ]
+      if (cats && cats.length > 0) {
+        setCategoryChart({
+          labels: cats.map((d: any) => d.category),
+          datasets: [{
+            data: cats.map((d: any) => d.total),
+            backgroundColor: ['#3b82f6', '#ef4444', '#10b981', '#f59e0b', '#8b5cf6', '#ec4899', '#6b7280'],
+            borderWidth: 0,
+            hoverOffset: 4
+          }]
+        });
+      }
+
+      if (payments && payments.length > 0) {
+        setPaymentChart({
+          labels: payments.map((d: any) => d.payment_method),
+          datasets: [{
+            data: payments.map((d: any) => d.total),
+            backgroundColor: ['#6366f1', '#8b5cf6', '#d946ef', '#f43f5e'],
+            borderWidth: 0
+          }]
         });
       }
     } catch (error) {
@@ -51,6 +67,8 @@ const Dashboard: React.FC = () => {
       setLoading(false);
     }
   };
+
+  const savingsRate = summary.income > 0 ? ((summary.income - summary.expense) / summary.income) * 100 : 0;
 
   if (loading) {
     return (
@@ -62,57 +80,72 @@ const Dashboard: React.FC = () => {
 
   return (
     <div className="space-y-6">
-      <h1 className="text-2xl font-bold">Dashboard</h1>
-      
-      {/* Summary Cards */}
-      <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-        <div className="bg-card p-6 rounded-2xl shadow-sm border border-border">
-          <div className="flex items-center justify-between mb-4 text-muted-foreground">
-            <span className="font-medium">Total Balance</span>
-            <Wallet size={20} />
+      <h1 className="text-2xl font-bold">Financial Overview</h1>
+
+      {/* Primary Stats */}
+      <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
+        <div className="bg-primary text-primary-foreground p-6 rounded-2xl shadow-lg">
+          <div className="flex items-center justify-between mb-2 opacity-80">
+            <span className="text-sm font-medium">Net Worth</span>
+            <Wallet size={18} />
           </div>
-          <p className={`text-3xl font-bold ${summary.balance < 0 ? 'text-destructive' : ''}`}>
-            ${summary.balance.toFixed(2)}
-          </p>
+          <p className="text-3xl font-black">{formatAmount(netWorth)}</p>
         </div>
 
         <div className="bg-card p-6 rounded-2xl shadow-sm border border-border">
-          <div className="flex items-center justify-between mb-4 text-emerald-500">
-            <span className="font-medium">Total Income</span>
-            <div className="bg-emerald-500/10 p-1 rounded-full">
-              <ArrowUpIcon size={16} />
-            </div>
+          <div className="flex items-center justify-between mb-2 text-emerald-500">
+            <span className="text-sm font-medium">Monthly Income</span>
+            <ArrowUpIcon size={18} />
           </div>
-          <p className="text-3xl font-bold">
-            ${summary.income.toFixed(2)}
-          </p>
+          <p className="text-2xl font-bold">{formatAmount(summary.income)}</p>
         </div>
 
         <div className="bg-card p-6 rounded-2xl shadow-sm border border-border">
-          <div className="flex items-center justify-between mb-4 text-destructive">
-            <span className="font-medium">Total Expenses</span>
-            <div className="bg-destructive/10 p-1 rounded-full">
-              <ArrowDownIcon size={16} />
-            </div>
+          <div className="flex items-center justify-between mb-2 text-destructive">
+            <span className="text-sm font-medium">Monthly Expense</span>
+            <ArrowDownIcon size={18} />
           </div>
-          <p className="text-3xl font-bold">
-            ${summary.expense.toFixed(2)}
-          </p>
+          <p className="text-2xl font-bold">{formatAmount(summary.expense)}</p>
+        </div>
+
+        <div className="bg-card p-6 rounded-2xl shadow-sm border border-border">
+          <div className="flex items-center justify-between mb-2 text-primary">
+            <span className="text-sm font-medium">Savings Rate</span>
+            <PiggyBank size={18} />
+          </div>
+          <p className="text-2xl font-bold">{savingsRate.toFixed(1)}%</p>
         </div>
       </div>
 
-      {/* Chart Section */}
-      <div className="bg-card p-6 rounded-2xl shadow-sm border border-border mt-8">
-        <h2 className="text-lg font-semibold mb-6">Current Month Expenses</h2>
-        <div className="h-64 flex justify-center items-center">
-          {chartData ? (
-            <Doughnut 
-              data={chartData} 
-              options={{ maintainAspectRatio: false, cutout: '70%' }} 
-            />
-          ) : (
-            <p className="text-muted-foreground text-sm">No expenses recorded this month.</p>
-          )}
+      <div className="grid grid-cols-1 md:grid-cols-2 gap-6 mt-8">
+        {/* Category Chart */}
+        <div className="bg-card p-6 rounded-2xl shadow-sm border border-border">
+          <h2 className="text-lg font-semibold mb-6">Expenses by Category</h2>
+          <div className="h-64 flex justify-center items-center">
+            {categoryChart ? (
+              <Doughnut
+                data={categoryChart}
+                options={{ maintainAspectRatio: false, cutout: '70%', plugins: { legend: { position: 'bottom', labels: { usePointStyle: true, padding: 20 } } } }}
+              />
+            ) : (
+              <p className="text-muted-foreground text-sm">No data this month.</p>
+            )}
+          </div>
+        </div>
+
+        {/* Payment Method Chart */}
+        <div className="bg-card p-6 rounded-2xl shadow-sm border border-border">
+          <h2 className="text-lg font-semibold mb-6 text-center">Payment Methods</h2>
+          <div className="h-64 flex justify-center items-center">
+            {paymentChart ? (
+              <Pie
+                data={paymentChart}
+                options={{ maintainAspectRatio: false, plugins: { legend: { position: 'bottom', labels: { usePointStyle: true, padding: 20 } } } }}
+              />
+            ) : (
+              <p className="text-muted-foreground text-sm">No data recorded.</p>
+            )}
+          </div>
         </div>
       </div>
     </div>
@@ -120,3 +153,4 @@ const Dashboard: React.FC = () => {
 };
 
 export default Dashboard;
+

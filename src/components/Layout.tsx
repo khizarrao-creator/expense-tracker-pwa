@@ -1,6 +1,6 @@
 import React from 'react';
 import { Outlet, Link, useLocation } from 'react-router-dom';
-import { LayoutDashboard, List, PlusCircle, LayoutList, Settings, LogOut, CloudSync } from 'lucide-react';
+import { LayoutDashboard, List, PlusCircle, LayoutList, Settings, LogOut, CloudSync, Landmark } from 'lucide-react';
 import { useAuth } from '../contexts/AuthContext';
 import { useSync } from '../contexts/SyncContext';
 
@@ -13,6 +13,7 @@ const Layout: React.FC = () => {
     { name: 'Dashboard', path: '/', icon: LayoutDashboard },
     { name: 'Transactions', path: '/transactions', icon: List },
     { name: 'Add', path: '/add', icon: PlusCircle },
+    { name: 'Accounts', path: '/accounts', icon: Landmark },
     { name: 'Categories', path: '/categories', icon: LayoutList },
     { name: 'Settings', path: '/settings', icon: Settings },
   ];

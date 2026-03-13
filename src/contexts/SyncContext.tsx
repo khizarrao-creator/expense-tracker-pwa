@@ -24,49 +24,54 @@ export const SyncProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
 
   const performSync = async () => {
     if (!user || isSyncing || !navigator.onLine) return;
-
+    setIsSyncing(true);
     try {
-      setIsSyncing(true);
       const lastSyncStr = localStorage.getItem(`lastSync_${user.uid}`) || new Date('2000-01-01').toISOString();
-      
-      // Pull first, then push
       await pullFromFirestore(user.uid, lastSyncStr);
       await pushToFirestore(user.uid);
       
       const now = new Date();
       localStorage.setItem(`lastSync_${user.uid}`, now.toISOString());
       setLastSynced(now);
-      
-      // Dispatch event to notify other contexts (like Currency/Theme)
       window.dispatchEvent(new CustomEvent('app-sync-complete'));
     } catch (error) {
-      console.error('Sync process failed:', error);
+      console.error('Sync failed:', error);
+    } finally {
+      setIsSyncing(false);
+    }
+  };
+
+  const forceSync = async () => {
+    if (!user || isSyncing) return;
+    setIsSyncing(true);
+    try {
+      const epoch = new Date('2000-01-01').toISOString();
+      await pushToFirestore(user.uid);
+      await pullFromFirestore(user.uid, epoch);
+      
+      const now = new Date();
+      localStorage.setItem(`lastSync_${user.uid}`, now.toISOString());
+      setLastSynced(now);
+      window.dispatchEvent(new CustomEvent('app-sync-complete'));
+    } catch (error) {
+      console.error('Force sync failed:', error);
     } finally {
       setIsSyncing(false);
     }
   };
 
   useEffect(() => {
-    // Sync on initial load/auth change
     performSync();
-
-    // Sync when coming online
-    const handleOnline = () => performSync();
-    window.addEventListener('online', handleOnline);
-
-    // Periodic sync (every 5 minutes)
-    const interval = setInterval(() => {
-      performSync();
-    }, 5 * 60 * 1000);
-
+    window.addEventListener('online', performSync);
+    const interval = setInterval(performSync, 5 * 60 * 1000);
     return () => {
-      window.removeEventListener('online', handleOnline);
+      window.removeEventListener('online', performSync);
       clearInterval(interval);
     };
   }, [user]);
 
   return (
-    <SyncContext.Provider value={{ isSyncing, lastSynced, forceSync: performSync }}>
+    <SyncContext.Provider value={{ isSyncing, lastSynced, forceSync }}>
       {children}
     </SyncContext.Provider>
   );

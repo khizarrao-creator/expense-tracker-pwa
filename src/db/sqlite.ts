@@ -117,15 +117,16 @@ const initializeSchema = async () => {
   }
 
   // 4. Force a one-time re-sync for all users to ensure missing fields (like account_id) are pushed
-  const hasReSynced = localStorage.getItem('re_synced_v4');
+  const hasReSynced = localStorage.getItem('re_synced_v5');
   if (!hasReSynced) {
     try {
       const now = new Date().toISOString();
-      db.run("UPDATE transactions SET synced = 0, updated_at = COALESCE(updated_at, ?);", [now]);
+      // MUST update updated_at to "now" so other devices see this as a NEW update during their PULL
+      db.run("UPDATE transactions SET synced = 0, updated_at = ?;", [now]);
       db.run("UPDATE accounts SET synced = 0;");
       db.run("UPDATE categories SET synced = 0;");
-      localStorage.setItem('re_synced_v4', 'true');
-      console.log("Marked all records for v4 re-sync.");
+      localStorage.setItem('re_synced_v5', 'true');
+      console.log("Marked all records for v5 re-sync with fresh timestamps.");
     } catch (e) {}
   }
 

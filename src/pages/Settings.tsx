@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState } from 'react';
 import { getTransactions } from '../db/queries';
 import { runWithBindings } from '../db/sqlite';
 import { Download, Trash2, Moon, Sun, Monitor, CloudSync } from 'lucide-react';

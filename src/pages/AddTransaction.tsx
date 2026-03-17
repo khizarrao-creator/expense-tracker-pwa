@@ -5,6 +5,8 @@ import { useNavigate, useParams } from 'react-router-dom';
 import { Landmark } from 'lucide-react';
 import { useCurrency } from '../contexts/CurrencyContext';
 import { toast } from 'sonner';
+import { syncManager } from '../db/SyncManager';
+import { v4 as uuidv4 } from 'uuid';
 
 const AddTransaction: React.FC = () => {
   const navigate = useNavigate();
@@ -77,7 +79,12 @@ const AddTransaction: React.FC = () => {
     }
 
     try {
+      const trxId = id || uuidv4();
+      const now = new Date().toISOString();
+      const deviceId = localStorage.getItem('deviceId') || 'unknown';
+      
       const trxData = {
+        id: trxId,
         type,
         amount: Number(amount),
         category: type === 'transfer' ? 'Transfer' : category,
@@ -85,21 +92,29 @@ const AddTransaction: React.FC = () => {
         date,
         payment_method: paymentMethod,
         account_id: accountId || null,
-        to_account_id: type === 'transfer' ? toAccountId : null
+        to_account_id: type === 'transfer' ? toAccountId : null,
+        created_at: now,
+        updated_at: now,
+        deviceId
       };
 
       if (id) {
-        await updateTransaction(id, trxData);
+        await syncManager.performOperation('transaction_update', trxData, () => 
+          updateTransaction(id, trxData)
+        );
       } else {
-        await addTransaction(
-          trxData.type,
-          trxData.amount,
-          trxData.category,
-          trxData.description,
-          trxData.date,
-          trxData.payment_method,
-          trxData.account_id,
-          trxData.to_account_id
+        await syncManager.performOperation('transaction_add', trxData, () => 
+          addTransaction(
+            trxData.type,
+            trxData.amount,
+            trxData.category,
+            trxData.description,
+            trxData.date,
+            trxData.payment_method,
+            trxData.account_id,
+            trxData.to_account_id,
+            trxData.id
+          )
         );
       }
       toast.success(id ? 'Transaction updated successfully' : 'Transaction saved successfully');
@@ -111,6 +126,7 @@ const AddTransaction: React.FC = () => {
   };
 
   if (loading) return <div className="text-center py-10">Loading transaction...</div>;
+
 
   return (
     <div className="max-w-md mx-auto space-y-6">

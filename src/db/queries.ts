@@ -23,14 +23,31 @@ export interface Account {
   initial_balance: number;
   color: string;
   created_at: string;
+  updated_at: string;
+  deviceId: string | null;
 }
 
 export interface Category {
   id: string;
   name: string;
+  type: 'income' | 'expense';
   icon: string;
   created_at: string;
+  updated_at: string;
+  deviceId: string | null;
 }
+
+export const addToSyncQueue = async (type: string, payload: any) => {
+  const id = uuidv4();
+  const timestamp = new Date().toISOString();
+  const deviceId = localStorage.getItem('deviceId') || 'unknown';
+  
+  await runWithBindings(
+    `INSERT INTO sync_queue (id, type, payload, timestamp, deviceId, status) VALUES (?, ?, ?, ?, ?, 'pending')`,
+    [id, type, JSON.stringify(payload), timestamp, deviceId]
+  );
+  return id;
+};
 
 export const addTransaction = async (
   type: 'income' | 'expense' | 'transfer',
@@ -40,15 +57,17 @@ export const addTransaction = async (
   date: string,
   payment_method: string = '',
   account_id: string | null = null,
-  to_account_id: string | null = null
+  to_account_id: string | null = null,
+  providedId?: string
 ) => {
-  const id = uuidv4();
+  const id = providedId || uuidv4();
   const now = new Date().toISOString();
+  const deviceId = localStorage.getItem('deviceId') || 'unknown';
   
   await runWithBindings(
-    `INSERT INTO transactions (id, type, amount, category, description, date, payment_method, account_id, to_account_id, created_at, updated_at, synced) 
-     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 0)`,
-    [id, type, amount, category, description, date, payment_method, account_id, to_account_id, now, now]
+    `INSERT INTO transactions (id, type, amount, category, description, date, payment_method, account_id, to_account_id, created_at, updated_at, deviceId, synced) 
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 0)`,
+    [id, type, amount, category, description ?? null, date, payment_method ?? '', account_id ?? null, to_account_id ?? null, now, now, deviceId]
   );
   return id;
 };
@@ -58,13 +77,21 @@ export const updateTransaction = async (
   data: Partial<Omit<Transaction, 'id' | 'created_at' | 'synced'>>
 ) => {
   const now = new Date().toISOString();
-  const fields = Object.keys(data);
-  const values = Object.values(data);
+  const deviceId = localStorage.getItem('deviceId') || 'unknown';
+  
+  // Sanitize data to replace undefined with null
+  const sanitizedData: any = {};
+  Object.keys(data).forEach(key => {
+    sanitizedData[key] = (data as any)[key] ?? null;
+  });
+
+  const fields = Object.keys(sanitizedData);
+  const values = Object.values(sanitizedData);
   
   const setClause = fields.map(f => `${f} = ?`).join(', ');
   await runWithBindings(
-    `UPDATE transactions SET ${setClause}, updated_at = ?, synced = 0 WHERE id = ?`,
-    [...values, now, id]
+    `UPDATE transactions SET ${setClause}, updated_at = ?, deviceId = ?, synced = 0 WHERE id = ?`,
+    [...values, now, deviceId, id]
   );
 };
 
@@ -170,11 +197,13 @@ export const getCategories = async (type?: 'income' | 'expense'): Promise<Catego
   return await executeQuery(`SELECT * FROM categories ORDER BY name ASC`);
 };
 
-export const addCategory = async (name: string, type: 'income' | 'expense', icon: string = '') => {
-  const id = uuidv4();
+export const addCategory = async (name: string, type: 'income' | 'expense', icon: string = '', providedId?: string) => {
+  const id = providedId || uuidv4();
+  const now = new Date().toISOString();
+  const deviceId = localStorage.getItem('deviceId') || 'unknown';
   await runWithBindings(
-    `INSERT INTO categories (id, name, type, icon, created_at, synced) VALUES (?, ?, ?, ?, ?, 0)`,
-    [id, name, type, icon, new Date().toISOString()]
+    `INSERT INTO categories (id, name, type, icon, created_at, updated_at, deviceId, synced) VALUES (?, ?, ?, ?, ?, ?, ?, 0)`,
+    [id, name, type, icon ?? '', now, now, deviceId]
   );
   return id;
 };
@@ -188,11 +217,13 @@ export const getAccounts = async (): Promise<Account[]> => {
   return await executeQuery(`SELECT * FROM accounts ORDER BY name ASC`);
 };
 
-export const addAccount = async (name: string, type: string, initial_balance: number = 0) => {
-  const id = uuidv4();
+export const addAccount = async (name: string, type: string, initial_balance: number = 0, providedId?: string) => {
+  const id = providedId || uuidv4();
+  const now = new Date().toISOString();
+  const deviceId = localStorage.getItem('deviceId') || 'unknown';
   await runWithBindings(
-    `INSERT INTO accounts (id, name, type, initial_balance, created_at, synced) VALUES (?, ?, ?, ?, ?, 0)`,
-    [id, name, type, initial_balance, new Date().toISOString()]
+    `INSERT INTO accounts (id, name, type, initial_balance, created_at, updated_at, deviceId, synced) VALUES (?, ?, ?, ?, ?, ?, ?, 0)`,
+    [id, name, type, initial_balance ?? 0, now, now, deviceId]
   );
   return id;
 };
@@ -202,13 +233,22 @@ export const deleteAccount = async (id: string) => {
 };
 
 export const updateAccount = async (id: string, data: Partial<Omit<Account, 'id' | 'created_at'>>) => {
-  const fields = Object.keys(data);
-  const values = Object.values(data);
+  const now = new Date().toISOString();
+  const deviceId = localStorage.getItem('deviceId') || 'unknown';
+  
+  // Sanitize data
+  const sanitizedData: any = {};
+  Object.keys(data).forEach(key => {
+    sanitizedData[key] = (data as any)[key] ?? null;
+  });
+
+  const fields = Object.keys(sanitizedData);
+  const values = Object.values(sanitizedData);
   const setClause = fields.map(f => `${f} = ?`).join(', ');
   
   await runWithBindings(
-    `UPDATE accounts SET ${setClause}, synced = 0 WHERE id = ?`,
-    [...values, id]
+    `UPDATE accounts SET ${setClause}, updated_at = ?, deviceId = ?, synced = 0 WHERE id = ?`,
+    [...values, now, deviceId, id]
   );
 };
 

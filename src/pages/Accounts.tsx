@@ -4,6 +4,8 @@ import { Wallet, Landmark, Plus, Trash2, Edit2, Check, X } from 'lucide-react';
 import { useCurrency } from '../contexts/CurrencyContext';
 import { toast } from 'sonner';
 import ConfirmModal from '../components/ConfirmModal';
+import { syncManager } from '../db/SyncManager';
+import { v4 as uuidv4 } from 'uuid';
 
 const Accounts: React.FC = () => {
   const { formatAmount } = useCurrency();
@@ -40,7 +42,24 @@ const Accounts: React.FC = () => {
     if (!newName) return;
 
     try {
-      await addAccount(newName, newType, Number(newBalance));
+      const accountId = uuidv4();
+      const now = new Date().toISOString();
+      const deviceId = localStorage.getItem('deviceId') || 'unknown';
+      
+      const accountData = {
+        id: accountId,
+        name: newName,
+        type: newType,
+        initial_balance: Number(newBalance),
+        created_at: now,
+        updated_at: now,
+        deviceId
+      };
+
+      await syncManager.performOperation('account_add', accountData, () => 
+        addAccount(newName, newType, Number(newBalance), accountId)
+      );
+
       setNewName('');
       setNewBalance('0');
       setShowAddForm(false);
@@ -74,7 +93,19 @@ const Accounts: React.FC = () => {
       return;
     }
     try {
-      await updateAccount(id, { initial_balance: Number(editBalance) });
+      const now = new Date().toISOString();
+      const deviceId = localStorage.getItem('deviceId') || 'unknown';
+      const updateData = {
+        id,
+        initial_balance: Number(editBalance),
+        updated_at: now,
+        deviceId
+      };
+
+      await syncManager.performOperation('account_update', updateData, () => 
+        updateAccount(id, { initial_balance: Number(editBalance) })
+      );
+
       setEditingId(null);
       loadAccounts();
       toast.success('Initial balance updated');

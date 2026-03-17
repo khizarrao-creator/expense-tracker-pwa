@@ -48,6 +48,8 @@ const initializeSchema = async () => {
       initial_balance REAL DEFAULT 0,
       color TEXT,
       created_at TEXT NOT NULL,
+      updated_at TEXT NOT NULL,
+      deviceId TEXT,
       synced INTEGER DEFAULT 0
     );
 
@@ -57,6 +59,8 @@ const initializeSchema = async () => {
       type TEXT NOT NULL CHECK(type IN ('income', 'expense')) DEFAULT 'expense',
       icon TEXT,
       created_at TEXT NOT NULL,
+      updated_at TEXT NOT NULL,
+      deviceId TEXT,
       synced INTEGER DEFAULT 0
     );
 
@@ -72,14 +76,31 @@ const initializeSchema = async () => {
       to_account_id TEXT,
       created_at TEXT NOT NULL,
       updated_at TEXT NOT NULL,
+      deviceId TEXT,
       synced INTEGER DEFAULT 0,
       FOREIGN KEY (account_id) REFERENCES accounts(id),
       FOREIGN KEY (to_account_id) REFERENCES accounts(id)
+    );
+
+    CREATE TABLE IF NOT EXISTS sync_queue (
+      id TEXT PRIMARY KEY,
+      type TEXT NOT NULL,
+      payload TEXT NOT NULL,
+      timestamp TEXT NOT NULL,
+      deviceId TEXT NOT NULL,
+      status TEXT DEFAULT 'pending'
     );
   `);
 
   // 2. Robust Migrations (Add missing columns one by one for existing users)
   const migrations = [
+    "ALTER TABLE transactions ADD COLUMN deviceId TEXT;",
+    "ALTER TABLE accounts ADD COLUMN updated_at TEXT;",
+    "ALTER TABLE accounts ADD COLUMN deviceId TEXT;",
+    "ALTER TABLE categories ADD COLUMN updated_at TEXT;",
+    "ALTER TABLE categories ADD COLUMN deviceId TEXT;",
+    
+    // Previous columns just in case
     "ALTER TABLE transactions ADD COLUMN type TEXT CHECK(type IN ('income', 'expense', 'transfer'));",
     "ALTER TABLE transactions ADD COLUMN description TEXT;",
     "ALTER TABLE transactions ADD COLUMN payment_method TEXT;",
@@ -109,24 +130,23 @@ const initializeSchema = async () => {
     "CREATE INDEX IF NOT EXISTS idx_categories_type ON categories(type);",
     "CREATE INDEX IF NOT EXISTS idx_transactions_date ON transactions(date);",
     "CREATE INDEX IF NOT EXISTS idx_transactions_synced ON transactions(synced);",
-    "CREATE INDEX IF NOT EXISTS idx_transactions_account ON transactions(account_id);"
+    "CREATE INDEX IF NOT EXISTS idx_transactions_account ON transactions(account_id);",
+    "CREATE INDEX IF NOT EXISTS idx_sync_queue_status ON sync_queue(status);"
   ];
 
   for (const idx of indexQueries) {
     try { db.run(idx); } catch (e) { /* Index likely exists */ }
   }
 
-  // 4. Force a one-time re-sync for all users to ensure missing fields (like account_id) are pushed
-  const hasReSynced = localStorage.getItem('re_synced_v5');
+  // 4. Force a one-time re-sync if needed (skipped if already re-synced v6)
+  const hasReSynced = localStorage.getItem('re_synced_v6');
   if (!hasReSynced) {
     try {
       const now = new Date().toISOString();
-      // MUST update updated_at to "now" so other devices see this as a NEW update during their PULL
-      db.run("UPDATE transactions SET synced = 0, updated_at = ?;", [now]);
-      db.run("UPDATE accounts SET synced = 0;");
-      db.run("UPDATE categories SET synced = 0;");
-      localStorage.setItem('re_synced_v5', 'true');
-      console.log("Marked all records for v5 re-sync with fresh timestamps.");
+      db.run("UPDATE transactions SET updated_at = ? WHERE updated_at IS NULL;", [now]);
+      db.run("UPDATE accounts SET updated_at = ? WHERE updated_at IS NULL;", [now]);
+      db.run("UPDATE categories SET updated_at = ? WHERE updated_at IS NULL;", [now]);
+      localStorage.setItem('re_synced_v6', 'true');
     } catch (e) {}
   }
 
@@ -150,10 +170,11 @@ const initializeSchema = async () => {
         to_account_id TEXT,
         created_at TEXT NOT NULL,
         updated_at TEXT NOT NULL,
+        deviceId TEXT,
         synced INTEGER DEFAULT 0
       );
-      INSERT INTO transactions_new (id, type, amount, category, description, date, payment_method, account_id, to_account_id, created_at, updated_at, synced)
-      SELECT id, type, amount, category, description, date, payment_method, account_id, to_account_id, created_at, updated_at, 0 FROM transactions;
+      INSERT INTO transactions_new (id, type, amount, category, description, date, payment_method, account_id, to_account_id, created_at, updated_at, deviceId, synced)
+      SELECT id, type, amount, category, description, date, payment_method, account_id, to_account_id, created_at, COALESCE(updated_at, created_at), deviceId, 0 FROM transactions;
       DROP TABLE transactions;
       ALTER TABLE transactions_new RENAME TO transactions;
       COMMIT;
@@ -180,8 +201,8 @@ const initializeSchema = async () => {
 
     for (const acc of defaultAccounts) {
       db.run(
-        "INSERT INTO accounts (id, name, type, initial_balance, created_at) VALUES (?, ?, ?, 0, ?)",
-        [acc.id, acc.name, acc.type, now]
+        "INSERT INTO accounts (id, name, type, initial_balance, created_at, updated_at) VALUES (?, ?, ?, 0, ?, ?)",
+        [acc.id, acc.name, acc.type, now, now]
       );
     }
   }
@@ -201,14 +222,14 @@ const initializeSchema = async () => {
     
     for (const name of expenseDefaults) {
       db.run(
-        "INSERT INTO categories (id, name, type, icon, created_at) VALUES (?, ?, 'expense', ?, ?)",
-        [crypto.randomUUID(), name, '', now]
+        "INSERT INTO categories (id, name, type, icon, created_at, updated_at) VALUES (?, ?, 'expense', ?, ?, ?)",
+        [crypto.randomUUID(), name, '', now, now]
       );
     }
     for (const name of incomeDefaults) {
       db.run(
-        "INSERT INTO categories (id, name, type, icon, created_at) VALUES (?, ?, 'income', ?, ?)",
-        [crypto.randomUUID(), name, '', now]
+        "INSERT INTO categories (id, name, type, icon, created_at, updated_at) VALUES (?, ?, 'income', ?, ?, ?)",
+        [crypto.randomUUID(), name, '', now, now]
       );
     }
   } else {

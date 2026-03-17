@@ -17,6 +17,15 @@ const Dashboard: React.FC = () => {
 
   useEffect(() => {
     loadData();
+
+    const handleSyncComplete = () => {
+      loadData();
+    };
+
+    window.addEventListener('app-sync-complete', handleSyncComplete);
+    return () => {
+      window.removeEventListener('app-sync-complete', handleSyncComplete);
+    };
   }, []);
 
   const loadData = async () => {

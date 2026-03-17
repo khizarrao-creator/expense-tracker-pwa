@@ -20,6 +20,15 @@ const Transactions: React.FC = () => {
 
   useEffect(() => {
     loadTransactions();
+
+    const handleSyncComplete = () => {
+      loadTransactions();
+    };
+
+    window.addEventListener('app-sync-complete', handleSyncComplete);
+    return () => {
+      window.removeEventListener('app-sync-complete', handleSyncComplete);
+    };
   }, []);
 
   const loadTransactions = async () => {
@@ -113,7 +122,7 @@ const Transactions: React.FC = () => {
       ) : (
         <div className="space-y-3">
           {filteredTransactions.map((trx) => (
-            <div key={trx.id} className="bg-card p-4 rounded-xl border border-border flex items-center justify-between hover:shadow-md transition-shadow group">
+            <div key={trx.id} className={`bg-card p-4 rounded-xl border border-border flex items-center justify-between hover:shadow-md transition-shadow group ${trx.synced === 0 ? 'opacity-60' : ''}`}>
               <div className="flex items-center gap-4">
                 <div className={`p-3 rounded-full ${trx.type === 'income' ? 'bg-emerald-500/10 text-emerald-500' :
                     trx.type === 'transfer' ? 'bg-blue-500/10 text-blue-500' :
@@ -122,7 +131,12 @@ const Transactions: React.FC = () => {
                   {trx.type === 'income' ? <TrendingUp size={24} /> : trx.type === 'transfer' ? <Landmark size={24} /> : <TrendingDown size={24} />}
                 </div>
                 <div>
-                  <h3 className="font-semibold text-foreground">{trx.description || trx.category}</h3>
+                  <div className="flex items-center gap-2">
+                    <h3 className="font-semibold text-foreground">{trx.description || trx.category}</h3>
+                    {trx.synced === 0 && (
+                      <span className="text-[10px] bg-muted px-1.5 py-0.5 rounded text-muted-foreground animate-pulse">Syncing...</span>
+                    )}
+                  </div>
                   <div className="flex items-center flex-wrap gap-2 text-xs text-muted-foreground">
                     <span className="capitalize">{trx.type === 'transfer' ? 'Bank Transfer' : trx.category}</span>
                     <span>•</span>

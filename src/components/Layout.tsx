@@ -6,7 +6,7 @@ import { useSync } from '../contexts/SyncContext';
 
 const Layout: React.FC = () => {
   const { signOut } = useAuth();
-  const { isSyncing, lastSynced } = useSync();
+  const { isSyncing, lastSynced, isOnline } = useSync();
   const location = useLocation();
 
   const navItems = [
@@ -37,6 +37,12 @@ const Layout: React.FC = () => {
             </span>
             Expense PWA
           </h1>
+          {!isOnline && (
+            <div className="mt-2 text-[10px] bg-destructive/10 text-destructive px-2 py-1 rounded-full font-bold flex items-center gap-1">
+              <div className="w-1.5 h-1.5 bg-destructive rounded-full animate-pulse" />
+              OFFLINE MODE
+            </div>
+          )}
         </div>
         
         <nav className="flex-1 px-4 space-y-2 overflow-y-auto">
@@ -79,7 +85,12 @@ const Layout: React.FC = () => {
       <main className="flex-1 flex flex-col h-screen overflow-hidden">
         {/* Mobile Header */}
         <header className="md:hidden bg-card border-b border-border p-4 flex items-center justify-between z-10">
-          <h1 className="text-xl font-bold text-primary">Expense PWA</h1>
+          <div className="flex flex-col">
+            <h1 className="text-xl font-bold text-primary">Expense PWA</h1>
+            {!isOnline && (
+              <span className="text-[10px] text-destructive font-bold uppercase tracking-wider">Offline</span>
+            )}
+          </div>
           <div className="flex items-center gap-3">
              <CloudSync size={20} className={isSyncing ? 'animate-spin text-primary' : 'text-muted-foreground'} />
              <button onClick={handleSignOut} className="text-muted-foreground">

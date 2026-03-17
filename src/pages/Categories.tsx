@@ -4,6 +4,8 @@ import type { Category } from '../db/queries';
 import { LayoutList, Plus, Trash2 } from 'lucide-react';
 import { toast } from 'sonner';
 import ConfirmModal from '../components/ConfirmModal';
+import { syncManager } from '../db/SyncManager';
+import { v4 as uuidv4 } from 'uuid';
 
 const Categories: React.FC = () => {
   const [categories, setCategories] = useState<Category[]>([]);
@@ -35,7 +37,24 @@ const Categories: React.FC = () => {
     if (!newCategory.trim()) return;
 
     try {
-      await addCategory(newCategory.trim(), activeType);
+      const categoryId = uuidv4();
+      const now = new Date().toISOString();
+      const deviceId = localStorage.getItem('deviceId') || 'unknown';
+      
+      const categoryData = {
+        id: categoryId,
+        name: newCategory.trim(),
+        type: activeType,
+        icon: '',
+        created_at: now,
+        updated_at: now,
+        deviceId
+      };
+
+      await syncManager.performOperation('category_add', categoryData, () => 
+        addCategory(newCategory.trim(), activeType, '', categoryId)
+      );
+
       setNewCategory('');
       loadCategories();
       toast.success('Category added successfully');

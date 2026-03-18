@@ -14,6 +14,12 @@ import AddTransaction from './pages/AddTransaction';
 import Categories from './pages/Categories';
 import Settings from './pages/Settings';
 import Accounts from './pages/Accounts';
+import Goals from './pages/Goals';
+import Investments from './pages/Investments';
+import Reminders from './pages/Reminders';
+import More from './pages/More';
+import Calculator from './pages/Calculator';
+import Converter from './pages/Converter';
 
 const ProtectedRoute: React.FC<{ children: React.ReactNode }> = ({ children }) => {
   const { user, loading } = useAuth();
@@ -52,6 +58,12 @@ const App: React.FC = () => {
                     <Route path="edit/:id" element={<AddTransaction />} />
                     <Route path="categories" element={<Categories />} />
                     <Route path="accounts" element={<Accounts />} />
+                    <Route path="goals" element={<Goals />} />
+                    <Route path="reminders" element={<Reminders />} />
+                    <Route path="investments" element={<Investments />} />
+                    <Route path="more" element={<More />} />
+                    <Route path="calculator" element={<Calculator />} />
+                    <Route path="converter" element={<Converter />} />
                     <Route path="settings" element={<Settings />} />
                   </Route>
                 </Routes>

@@ -3,7 +3,9 @@ import {
   collection, 
   doc, 
   setDoc, 
-  onSnapshot
+  onSnapshot,
+  getDocs,
+  deleteDoc
 } from 'firebase/firestore';
 import { executeQuery, runWithBindings } from './sqlite';
 import { v4 as uuidv4 } from 'uuid';
@@ -70,11 +72,43 @@ class SyncManager {
   private async startSync() {
     if (!this.userId) return;
     
+    // 0. Auto-repair: Find any items marked synced=0 that aren't in the queue
+    await this.repairMissingSyncItems();
+    
     // 1. Initial push of any pending items
     await this.processQueue();
     
     // 2. Setup Real-time Listeners
     this.setupListeners();
+  }
+
+  private async repairMissingSyncItems() {
+    console.log('[SyncManager] Scanning for orphaned unsynced items...');
+    const collections = ['transactions', 'accounts', 'categories', 'goals', 'investments', 'reminders'];
+    
+    for (const col of collections) {
+      try {
+        const unsynced = await executeQuery(`SELECT * FROM ${col} WHERE synced = 0`);
+        for (const item of unsynced) {
+          // Check if already in queue
+          const inQueue = await executeQuery(`SELECT id FROM sync_queue WHERE payload LIKE ?`, [`%"id":"${item.id}"%`]);
+          if (inQueue.length === 0) {
+            console.log(`[SyncManager] Repairing: Adding ${col} ${item.id} to queue`);
+            const type = col === 'goals' ? 'goal_add' : 
+                         col === 'investments' ? 'investment_add' :
+                         col === 'reminders' ? 'reminder_add' :
+                         col.slice(0, -1) + '_add';
+            
+            await runWithBindings(
+              `INSERT INTO sync_queue (id, type, payload, timestamp, deviceId, status) VALUES (?, ?, ?, ?, ?, 'pending')`,
+              [uuidv4(), type, JSON.stringify(item), new Date().toISOString(), this.deviceId]
+            );
+          }
+        }
+      } catch (e) {
+        console.error(`[SyncManager] Repair failed for ${col}:`, e);
+      }
+    }
   }
 
   private stopSync() {
@@ -86,7 +120,7 @@ class SyncManager {
     if (!this.userId) return;
     this.stopSync();
 
-    const collections = ['transactions', 'accounts', 'categories'];
+    const collections = ['transactions', 'accounts', 'categories', 'goals', 'investments', 'reminders'];
     
     collections.forEach(colName => {
       const colRef = collection(firestore, `users/${this.userId}/${colName}`);
@@ -157,6 +191,51 @@ class SyncManager {
         data.updated_at, 
         data.deviceId ?? null
       ]);
+    } else if (collection === 'goals') {
+      await runWithBindings(`
+        INSERT OR REPLACE INTO goals (id, name, target_amount, category_id, deadline, created_at, updated_at, deviceId, synced)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, 1)
+      `, [
+        data.id,
+        data.name,
+        data.target_amount,
+        data.category_id ?? null,
+        data.deadline ?? null,
+        data.created_at,
+        data.updated_at,
+        data.deviceId ?? null
+      ]);
+    } else if (collection === 'investments') {
+      await runWithBindings(`
+        INSERT OR REPLACE INTO investments (id, name, type, units, average_buy_price, current_price, created_at, updated_at, deviceId, synced)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 1)
+      `, [
+        data.id,
+        data.name,
+        data.type,
+        data.units ?? 0,
+        data.average_buy_price ?? 0,
+        data.current_price ?? 0,
+        data.created_at,
+        data.updated_at,
+        data.deviceId ?? null
+      ]);
+    } else if (collection === 'reminders') {
+      await runWithBindings(`
+        INSERT OR REPLACE INTO reminders (id, title, amount, due_date, frequency, category_id, status, created_at, updated_at, deviceId, synced)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 1)
+      `, [
+        data.id,
+        data.title,
+        data.amount,
+        data.due_date,
+        data.frequency,
+        data.category_id ?? null,
+        data.status ?? 'pending',
+        data.created_at,
+        data.updated_at,
+        data.deviceId ?? null
+      ]);
     }
   }
 
@@ -187,8 +266,20 @@ class SyncManager {
           console.log(`[SyncManager] Successfully pushed ${payload.id}`);
           await runWithBindings(`DELETE FROM sync_queue WHERE id = ?`, [op.id]);
           
-          const table = op.type.split('_')[0] + 's';
-          if (['transactions', 'accounts', 'categories'].includes(table)) {
+          if (op.type.endsWith('_delete')) {
+            console.log(`[SyncManager] Delete operation completed for ${payload.id}`);
+            window.dispatchEvent(new CustomEvent('app-sync-complete'));
+            continue;
+          }
+
+          const tablePrefix = op.type.split('_')[0];
+          let table = '';
+          if (tablePrefix === 'goal') table = 'goals';
+          else if (tablePrefix === 'investment') table = 'investments';
+          else if (tablePrefix === 'reminder') table = 'reminders';
+          else table = tablePrefix + 's';
+
+          if (['transactions', 'accounts', 'categories', 'goals', 'investments', 'reminders'].includes(table)) {
             console.log(`[SyncManager] Updating ${table} local record ${payload.id} to synced=1`);
             await runWithBindings(`UPDATE ${table} SET synced = 1 WHERE id = ?`, [payload.id]);
             // Verify and notify UI
@@ -224,6 +315,12 @@ class SyncManager {
         docRef = doc(firestore, `users/${this.userId}/accounts/${payload.id}`);
       } else if (type.startsWith('category')) {
         docRef = doc(firestore, `users/${this.userId}/categories/${payload.id}`);
+      } else if (type.startsWith('goal')) {
+        docRef = doc(firestore, `users/${this.userId}/goals/${payload.id}`);
+      } else if (type.startsWith('investment')) {
+        docRef = doc(firestore, `users/${this.userId}/investments/${payload.id}`);
+      } else if (type.startsWith('reminder')) {
+        docRef = doc(firestore, `users/${this.userId}/reminders/${payload.id}`);
       } else if (type === 'settings') {
         docRef = doc(firestore, `users/${this.userId}/config/preferences`);
       } else {
@@ -231,7 +328,11 @@ class SyncManager {
         return false;
       }
 
-      await setDoc(docRef, { ...payload, syncedAt: new Date().toISOString() }, { merge: true });
+      if (type.endsWith('_delete')) {
+        await deleteDoc(docRef);
+      } else {
+        await setDoc(docRef, { ...payload, syncedAt: new Date().toISOString() }, { merge: true });
+      }
       return true;
     } catch (error) {
       console.error(`[SyncManager] Firestore push failed for ${type}:`, error);
@@ -246,8 +347,20 @@ class SyncManager {
     if (this.isOnline && this.userId) {
       const success = await this.pushToFirestore(type, payload);
       if (success) {
-        const table = type.split('_')[0] + 's';
-        if (['transactions', 'accounts', 'categories'].includes(table)) {
+        if (type.endsWith('_delete')) {
+          console.log(`[SyncManager] Direct delete push success for ${payload.id}`);
+          window.dispatchEvent(new CustomEvent('app-sync-complete'));
+          return;
+        }
+
+        const tablePrefix = type.split('_')[0];
+        let table = '';
+        if (tablePrefix === 'goal') table = 'goals';
+        else if (tablePrefix === 'investment') table = 'investments';
+        else if (tablePrefix === 'reminder') table = 'reminders';
+        else table = tablePrefix + 's';
+
+        if (['transactions', 'accounts', 'categories', 'goals', 'investments', 'reminders'].includes(table)) {
           console.log(`[SyncManager] Direct push success. Updating ${table} local record ${payload.id} to synced=1`);
           await runWithBindings(`UPDATE ${table} SET synced = 1 WHERE id = ?`, [payload.id]);
         }
@@ -265,6 +378,25 @@ class SyncManager {
       `INSERT INTO sync_queue (id, type, payload, timestamp, deviceId, status) VALUES (?, ?, ?, ?, ?, 'pending')`,
       [uuidv4(), type, JSON.stringify(payload), timestamp, deviceId]
     );
+  }
+
+  public async wipeRemoteData() {
+    if (!this.userId) return;
+
+    const collections = ['transactions', 'accounts', 'categories', 'goals', 'investments', 'reminders', 'config'];
+    
+    for (const colName of collections) {
+      try {
+        const colRef = collection(firestore, `users/${this.userId}/${colName}`);
+        const snapshot = await getDocs(colRef);
+        
+        const deletePromises = snapshot.docs.map(doc => deleteDoc(doc.ref));
+        await Promise.all(deletePromises);
+        console.log(`[SyncManager] Wiped collection: ${colName}`);
+      } catch (error) {
+        console.error(`[SyncManager] Failed to wipe collection ${colName}:`, error);
+      }
+    }
   }
 }
 

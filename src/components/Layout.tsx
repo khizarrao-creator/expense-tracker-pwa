@@ -1,6 +1,6 @@
 import React from 'react';
 import { Outlet, Link, useLocation } from 'react-router-dom';
-import { LayoutDashboard, List, PlusCircle, LayoutList, Settings, LogOut, CloudSync, Landmark } from 'lucide-react';
+import { LayoutDashboard, List, PlusCircle, Settings, LogOut, CloudSync, Landmark, Book, LayoutGrid } from 'lucide-react';
 import { useAuth } from '../contexts/AuthContext';
 import { useSync } from '../contexts/SyncContext';
 
@@ -14,7 +14,7 @@ const Layout: React.FC = () => {
     { name: 'Transactions', path: '/transactions', icon: List },
     { name: 'Add', path: '/add', icon: PlusCircle },
     { name: 'Accounts', path: '/accounts', icon: Landmark },
-    { name: 'Categories', path: '/categories', icon: LayoutList },
+    { name: 'More', path: '/more', icon: LayoutGrid },
     { name: 'Settings', path: '/settings', icon: Settings },
   ];
 
@@ -31,11 +31,11 @@ const Layout: React.FC = () => {
       {/* Desktop Sidebar */}
       <aside className="hidden md:flex flex-col w-64 bg-card border-r border-border">
         <div className="p-6">
-          <h1 className="text-2xl font-bold text-primary flex items-center gap-2">
-            <span className="bg-primary text-primary-foreground p-1 rounded-md">
-              <List size={20} />
+          <h1 className="text-2xl font-bold tracking-tight text-primary flex items-center gap-2">
+            <span className="bg-primary text-primary-foreground p-1 rounded-md shadow-sm">
+              <Book size={20} />
             </span>
-            Expense PWA
+            Ledger
           </h1>
           {!isOnline && (
             <div className="mt-2 text-[10px] bg-destructive/10 text-destructive px-2 py-1 rounded-full font-bold flex items-center gap-1">
@@ -86,7 +86,7 @@ const Layout: React.FC = () => {
         {/* Mobile Header */}
         <header className="md:hidden bg-card border-b border-border p-4 flex items-center justify-between z-10">
           <div className="flex flex-col">
-            <h1 className="text-xl font-bold text-primary">Expense PWA</h1>
+            <h1 className="text-xl font-bold tracking-tight text-primary">Ledger</h1>
             {!isOnline && (
               <span className="text-[10px] text-destructive font-bold uppercase tracking-wider">Offline</span>
             )}

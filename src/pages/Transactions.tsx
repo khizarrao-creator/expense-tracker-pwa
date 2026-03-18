@@ -122,35 +122,35 @@ const Transactions: React.FC = () => {
       ) : (
         <div className="space-y-3">
           {filteredTransactions.map((trx) => (
-            <div key={trx.id} className={`bg-card p-4 rounded-xl border border-border flex items-center justify-between hover:shadow-md transition-shadow group ${trx.synced === 0 ? 'opacity-60' : ''}`}>
-              <div className="flex items-center gap-4">
-                <div className={`p-3 rounded-full ${trx.type === 'income' ? 'bg-emerald-500/10 text-emerald-500' :
+            <div key={trx.id} className={`bg-card p-4 rounded-xl border border-border flex flex-col sm:flex-row sm:items-center justify-between gap-3 sm:gap-4 hover:shadow-md transition-shadow group ${trx.synced === 0 ? 'opacity-60' : ''}`}>
+              <div className="flex items-start sm:items-center gap-3 md:gap-4 w-full sm:w-auto min-w-0">
+                <div className={`shrink-0 p-3 rounded-full ${trx.type === 'income' ? 'bg-emerald-500/10 text-emerald-500' :
                     trx.type === 'transfer' ? 'bg-blue-500/10 text-blue-500' :
                       'bg-destructive/10 text-destructive'
                   }`}>
                   {trx.type === 'income' ? <TrendingUp size={24} /> : trx.type === 'transfer' ? <Landmark size={24} /> : <TrendingDown size={24} />}
                 </div>
-                <div>
+                <div className="flex-1 min-w-0">
                   <div className="flex items-center gap-2">
-                    <h3 className="font-semibold text-foreground">{trx.description || trx.category}</h3>
+                    <h3 className="font-semibold text-foreground truncate">{trx.description || trx.category}</h3>
                     {trx.synced === 0 && (
-                      <span className="text-[10px] bg-muted px-1.5 py-0.5 rounded text-muted-foreground animate-pulse">Syncing...</span>
+                      <span className="shrink-0 text-[10px] bg-muted px-1.5 py-0.5 rounded text-muted-foreground animate-pulse">Syncing...</span>
                     )}
                   </div>
-                  <div className="flex items-center flex-wrap gap-2 text-xs text-muted-foreground">
+                  <div className="flex flex-wrap items-center gap-x-2 gap-y-1 text-xs text-muted-foreground mt-1">
                     <span className="capitalize">{trx.type === 'transfer' ? 'Bank Transfer' : trx.category}</span>
-                    <span>•</span>
+                    <span className="hidden xs:inline">•</span>
                     <span>{format(new Date(trx.date), 'MMM d, yyyy')}</span>
                     {trx.account_name && (
                       <>
-                        <span>•</span>
-                        <span className="flex items-center gap-1 bg-muted px-1.5 py-0.5 rounded text-foreground/70">
-                          <Landmark size={10} />
-                          {trx.account_name}
+                        <span className="hidden xs:inline">•</span>
+                        <span className="flex items-center gap-1 bg-muted px-1.5 py-0.5 rounded text-foreground/70 truncate max-w-[120px] xs:max-w-none">
+                          <Landmark size={10} className="shrink-0" />
+                          <span className="truncate">{trx.account_name}</span>
                           {trx.type === 'transfer' && trx.to_account_name && (
                             <>
-                              <Plus size={10} className="mx-0.5 rotate-45" />
-                              {trx.to_account_name}
+                              <Plus size={10} className="mx-0.5 rotate-45 shrink-0" />
+                              <span className="truncate">{trx.to_account_name}</span>
                             </>
                           )}
                         </span>
@@ -160,24 +160,24 @@ const Transactions: React.FC = () => {
                 </div>
               </div>
 
-              <div className="flex items-center gap-2 md:gap-4">
-                <span className={`font-bold text-lg mr-2 ${trx.type === 'income' ? 'text-emerald-500' :
+              <div className="flex items-center justify-between sm:justify-end w-full sm:w-auto pt-3 sm:pt-0 border-t sm:border-0 border-border mt-2 sm:mt-0">
+                <span className={`font-bold text-lg md:mr-2 ${trx.type === 'income' ? 'text-emerald-500' :
                     trx.type === 'transfer' ? 'text-blue-500' :
                       'text-foreground'
                   }`}>
                   {trx.type === 'income' ? '+' : trx.type === 'transfer' ? '⇄' : '-'}{formatAmount(trx.amount)}
                 </span>
-                <div className="flex opacity-0 group-hover:opacity-100 transition-opacity">
+                <div className="flex sm:opacity-0 group-hover:opacity-100 transition-opacity gap-1">
                   <button
                     onClick={() => navigate(`/edit/${trx.id}`)}
-                    className="p-2 text-muted-foreground hover:text-primary hover:bg-primary/10 rounded-lg transition-colors"
+                    className="p-2 text-muted-foreground hover:text-primary hover:bg-primary/10 rounded-lg transition-colors bg-muted sm:bg-transparent"
                     title="Edit"
                   >
                     <Edit2 size={18} />
                   </button>
                   <button
                     onClick={() => handleDelete(trx.id)}
-                    className="p-2 text-muted-foreground hover:text-destructive hover:bg-destructive/10 rounded-lg transition-colors"
+                    className="p-2 text-muted-foreground hover:text-destructive hover:bg-destructive/10 rounded-lg transition-colors bg-muted sm:bg-transparent"
                     title="Delete"
                   >
                     <Trash2 size={18} />

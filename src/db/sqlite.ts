@@ -90,6 +90,45 @@ const initializeSchema = async () => {
       deviceId TEXT NOT NULL,
       status TEXT DEFAULT 'pending'
     );
+
+    CREATE TABLE IF NOT EXISTS goals (
+      id TEXT PRIMARY KEY,
+      name TEXT NOT NULL,
+      target_amount REAL NOT NULL,
+      category_id TEXT,
+      deadline TEXT,
+      created_at TEXT NOT NULL,
+      updated_at TEXT NOT NULL,
+      deviceId TEXT,
+      synced INTEGER DEFAULT 0
+    );
+
+    CREATE TABLE IF NOT EXISTS investments (
+      id TEXT PRIMARY KEY,
+      name TEXT NOT NULL,
+      type TEXT NOT NULL, -- Gold, Stock, Crypto, Cash
+      units REAL DEFAULT 0,
+      average_buy_price REAL DEFAULT 0,
+      current_price REAL DEFAULT 0,
+      created_at TEXT NOT NULL,
+      updated_at TEXT NOT NULL,
+      deviceId TEXT,
+      synced INTEGER DEFAULT 0
+    );
+
+    CREATE TABLE IF NOT EXISTS reminders (
+      id TEXT PRIMARY KEY,
+      title TEXT NOT NULL,
+      amount REAL NOT NULL,
+      due_date TEXT NOT NULL,
+      frequency TEXT NOT NULL, -- One-time, Monthly, Yearly
+      category_id TEXT,
+      status TEXT DEFAULT 'pending', -- pending, paid
+      created_at TEXT NOT NULL,
+      updated_at TEXT NOT NULL,
+      deviceId TEXT,
+      synced INTEGER DEFAULT 0
+    );
   `);
 
   // 2. Robust Migrations (Add missing columns one by one for existing users)

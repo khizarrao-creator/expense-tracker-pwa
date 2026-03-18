@@ -9,9 +9,9 @@ export default defineConfig({
       registerType: 'autoUpdate',
       includeAssets: ['favicon.ico', 'apple-touch-icon.png', 'mask-icon.svg'],
       manifest: {
-        name: 'Expense Tracker PWA',
-        short_name: 'Expenses',
-        description: 'Offline-first expense tracker',
+        name: 'Ledger PWA',
+        short_name: 'Ledger',
+        description: 'Elite financial tracking',
         theme_color: '#ffffff',
         icons: [
           {

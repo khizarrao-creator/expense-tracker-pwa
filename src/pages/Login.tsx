@@ -21,9 +21,9 @@ const Login: React.FC = () => {
           <div className="bg-primary/10 p-4 rounded-full mb-4">
             <Wallet size={48} className="text-primary" />
           </div>
-          <h1 className="text-3xl font-bold bg-clip-text text-transparent bg-gradient-to-r from-primary to-accent">Expense Tracker</h1>
+          <h1 className="text-3xl font-bold bg-clip-text text-transparent bg-gradient-to-r from-primary to-accent tracking-tight">Ledger</h1>
           <p className="text-muted-foreground mt-2 text-center text-sm font-medium">
-            Offline-first financial tracking.<br />Always available, anywhere.
+            Elite financial tracking.<br />Secure, offline, always available.
           </p>
         </div>
 

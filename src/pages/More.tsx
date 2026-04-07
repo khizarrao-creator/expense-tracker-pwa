@@ -1,6 +1,6 @@
 import React from 'react';
 import { Link } from 'react-router-dom';
-import { Target, Bell, TrendingUp, ChevronRight, Calculator as CalcIcon, DollarSign } from 'lucide-react';
+import { Target, Bell, TrendingUp, ChevronRight, Calculator as CalcIcon, DollarSign, CheckSquare } from 'lucide-react';
 
 const More: React.FC = () => {
   const moreOptions = [
@@ -43,6 +43,14 @@ const More: React.FC = () => {
       icon: DollarSign,
       color: 'text-cyan-500',
       bgColor: 'bg-cyan-500/10'
+    },
+    {
+      name: 'Task Manager',
+      description: 'Organize your daily activities and to-dos',
+      path: '/tasks',
+      icon: CheckSquare,
+      color: 'text-violet-500',
+      bgColor: 'bg-violet-500/10'
     }
   ];
 

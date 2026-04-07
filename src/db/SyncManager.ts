@@ -72,6 +72,9 @@ class SyncManager {
   private async startSync() {
     if (!this.userId) return;
     
+    // Auto-heal corrupted "categorie_add" items from queue poisoning
+    try { await runWithBindings(`UPDATE sync_queue SET type = 'category_add' WHERE type = 'categorie_add'`); } catch(e) {}
+
     // 0. Auto-repair: Find any items marked synced=0 that aren't in the queue
     await this.repairMissingSyncItems();
     
@@ -84,7 +87,7 @@ class SyncManager {
 
   private async repairMissingSyncItems() {
     console.log('[SyncManager] Scanning for orphaned unsynced items...');
-    const collections = ['transactions', 'accounts', 'categories', 'goals', 'investments', 'reminders'];
+    const collections = ['transactions', 'accounts', 'categories', 'goals', 'investments', 'reminders', 'tasks'];
     
     for (const col of collections) {
       try {
@@ -97,6 +100,8 @@ class SyncManager {
             const type = col === 'goals' ? 'goal_add' : 
                          col === 'investments' ? 'investment_add' :
                          col === 'reminders' ? 'reminder_add' :
+                         col === 'categories' ? 'category_add' :
+                         col === 'tasks' ? 'task_add' :
                          col.slice(0, -1) + '_add';
             
             await runWithBindings(
@@ -120,15 +125,16 @@ class SyncManager {
     if (!this.userId) return;
     this.stopSync();
 
-    const collections = ['transactions', 'accounts', 'categories', 'goals', 'investments', 'reminders'];
+    const collections = ['transactions', 'accounts', 'categories', 'goals', 'investments', 'reminders', 'tasks'];
     
     collections.forEach(colName => {
       const colRef = collection(firestore, `users/${this.userId}/${colName}`);
       const unsubscribe = onSnapshot(colRef, (snapshot) => {
         snapshot.docChanges().forEach(async (change) => {
           const data = change.doc.data();
-          // Avoid feedback loops: if this change was made by THIS device, don't overwrite local DB
-          if (data.deviceId === this.deviceId && change.type === 'added') {
+          // Avoid feedback loops: if this change was made by THIS device,
+          // skip both 'added' and 'modified' — we already have the latest local data.
+          if (data.deviceId === this.deviceId && (change.type === 'added' || change.type === 'modified')) {
             return; 
           }
           
@@ -193,14 +199,15 @@ class SyncManager {
       ]);
     } else if (collection === 'goals') {
       await runWithBindings(`
-        INSERT OR REPLACE INTO goals (id, name, target_amount, category_id, deadline, created_at, updated_at, deviceId, synced)
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?, 1)
+        INSERT OR REPLACE INTO goals (id, name, target_amount, category_id, deadline, linked_accounts, created_at, updated_at, deviceId, synced)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 1)
       `, [
         data.id,
         data.name,
         data.target_amount,
         data.category_id ?? null,
         data.deadline ?? null,
+        data.linked_accounts ?? null,
         data.created_at,
         data.updated_at,
         data.deviceId ?? null
@@ -232,6 +239,24 @@ class SyncManager {
         data.frequency,
         data.category_id ?? null,
         data.status ?? 'pending',
+        data.created_at,
+        data.updated_at,
+        data.deviceId ?? null
+      ]);
+    } else if (collection === 'tasks') {
+      await runWithBindings(`
+        INSERT OR REPLACE INTO tasks (id, title, description, status, due_date, due_time, reminder_enabled, reminder_offset, reminder_sent, created_at, updated_at, deviceId, synced)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 1)
+      `, [
+        data.id,
+        data.title,
+        data.description ?? '',
+        data.status ?? 'pending',
+        data.due_date ?? null,
+        data.due_time ?? null,
+        data.reminder_enabled ?? 0,
+        data.reminder_offset ?? 5,
+        data.reminder_sent ?? 0,
         data.created_at,
         data.updated_at,
         data.deviceId ?? null
@@ -277,9 +302,10 @@ class SyncManager {
           if (tablePrefix === 'goal') table = 'goals';
           else if (tablePrefix === 'investment') table = 'investments';
           else if (tablePrefix === 'reminder') table = 'reminders';
+          else if (tablePrefix === 'category' || tablePrefix === 'categorie') table = 'categories';
           else table = tablePrefix + 's';
 
-          if (['transactions', 'accounts', 'categories', 'goals', 'investments', 'reminders'].includes(table)) {
+          if (['transactions', 'accounts', 'categories', 'goals', 'investments', 'reminders', 'tasks'].includes(table)) {
             console.log(`[SyncManager] Updating ${table} local record ${payload.id} to synced=1`);
             await runWithBindings(`UPDATE ${table} SET synced = 1 WHERE id = ?`, [payload.id]);
             // Verify and notify UI
@@ -321,6 +347,8 @@ class SyncManager {
         docRef = doc(firestore, `users/${this.userId}/investments/${payload.id}`);
       } else if (type.startsWith('reminder')) {
         docRef = doc(firestore, `users/${this.userId}/reminders/${payload.id}`);
+      } else if (type.startsWith('task')) {
+        docRef = doc(firestore, `users/${this.userId}/tasks/${payload.id}`);
       } else if (type === 'settings') {
         docRef = doc(firestore, `users/${this.userId}/config/preferences`);
       } else {
@@ -358,9 +386,10 @@ class SyncManager {
         if (tablePrefix === 'goal') table = 'goals';
         else if (tablePrefix === 'investment') table = 'investments';
         else if (tablePrefix === 'reminder') table = 'reminders';
+        else if (tablePrefix === 'category' || tablePrefix === 'categorie') table = 'categories';
         else table = tablePrefix + 's';
 
-        if (['transactions', 'accounts', 'categories', 'goals', 'investments', 'reminders'].includes(table)) {
+        if (['transactions', 'accounts', 'categories', 'goals', 'investments', 'reminders', 'tasks'].includes(table)) {
           console.log(`[SyncManager] Direct push success. Updating ${table} local record ${payload.id} to synced=1`);
           await runWithBindings(`UPDATE ${table} SET synced = 1 WHERE id = ?`, [payload.id]);
         }
@@ -383,7 +412,7 @@ class SyncManager {
   public async wipeRemoteData() {
     if (!this.userId) return;
 
-    const collections = ['transactions', 'accounts', 'categories', 'goals', 'investments', 'reminders', 'config'];
+    const collections = ['transactions', 'accounts', 'categories', 'goals', 'investments', 'reminders', 'tasks', 'config'];
     
     for (const colName of collections) {
       try {

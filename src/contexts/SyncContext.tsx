@@ -55,8 +55,6 @@ export const SyncProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
       setLastSynced(new Date());
     } catch (error) {
       console.error('Force sync failed:', error);
-    } finally {
-      setIsSyncing(false);
     }
   };
 

@@ -1,4 +1,5 @@
 import React, { useState, useRef } from 'react';
+import * as XLSX from 'xlsx';
 import { getTransactions, exportAllData, importAllData, clearAllData } from '../db/queries';
 import { Download, Moon, Sun, Monitor, CloudSync, FileJson, Upload, AlertTriangle, LayoutList, ChevronRight } from 'lucide-react';
 import { useNavigate } from 'react-router-dom';
@@ -19,6 +20,8 @@ const Settings: React.FC = () => {
   
   const [showClearConfirm, setShowClearConfirm] = useState(false);
   const [showMasterWipeConfirm, setShowMasterWipeConfirm] = useState(false);
+  const [showImportConfirm, setShowImportConfirm] = useState(false);
+  const [pendingImportData, setPendingImportData] = useState<any>(null);
   const [isWiping, setIsWiping] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
 
@@ -30,12 +33,21 @@ const Settings: React.FC = () => {
   const exportCSV = async () => {
     try {
       const data = await getTransactions(10000);
-      const csv = [
-        ['ID', 'Type', 'Amount', 'Category', 'Description', 'Date', 'Bank/Account', 'Payment Method', 'Created At'],
-        ...data.map(t => [
-          t.id, t.type, t.amount, t.category, t.description, t.date, t.account_name || 'N/A', t.payment_method, t.created_at
-        ])
-      ].map(row => row.map(cell => `"${cell}"`).join(',')).join('\n');
+      
+      const worksheetData = data.map(t => ({
+        'ID': t.id,
+        'Type': t.type,
+        'Amount': t.amount,
+        'Category': t.category,
+        'Description': t.description,
+        'Date': t.date,
+        'Bank/Account': t.account_name || 'N/A',
+        'Payment Method': t.payment_method,
+        'Created At': t.created_at
+      }));
+
+      const worksheet = XLSX.utils.json_to_sheet(worksheetData);
+      const csv = XLSX.utils.sheet_to_csv(worksheet);
 
       const blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' });
       const url = URL.createObjectURL(blob);
@@ -49,6 +61,34 @@ const Settings: React.FC = () => {
     } catch (error) {
       console.error('Failed to export CSV', error);
       toast.error('CSV Export failed');
+    }
+  };
+
+  const exportXLSX = async () => {
+    try {
+      const data = await getTransactions(10000);
+      
+      const worksheetData = data.map(t => ({
+        'ID': t.id,
+        'Type': t.type,
+        'Amount': t.amount,
+        'Category': t.category,
+        'Description': t.description,
+        'Date': t.date,
+        'Bank/Account': t.account_name || 'N/A',
+        'Payment Method': t.payment_method,
+        'Created At': t.created_at
+      }));
+
+      const worksheet = XLSX.utils.json_to_sheet(worksheetData);
+      const workbook = XLSX.utils.book_new();
+      XLSX.utils.book_append_sheet(workbook, worksheet, 'Transactions');
+      
+      XLSX.writeFile(workbook, `expense_tracker_export_${new Date().toISOString().split('T')[0]}.xlsx`);
+      toast.success('XLSX exported successfully');
+    } catch (error) {
+      console.error('Failed to export XLSX', error);
+      toast.error('XLSX Export failed');
     }
   };
 
@@ -72,26 +112,70 @@ const Settings: React.FC = () => {
     }
   };
 
-  const handleJsonImport = async (e: React.ChangeEvent<HTMLInputElement>) => {
+  const handleDataImport = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (!file) return;
 
     try {
-      const text = await file.text();
-      const data = JSON.parse(text);
+      toast.loading('Analyzing file...', { id: 'importProcess' });
+      const extension = file.name.split('.').pop()?.toLowerCase();
       
-      const confirmImport = confirm("This will merge the imported data with your existing records. Proceed?");
-      if (!confirmImport) return;
+      if (extension === 'json') {
+        const text = await file.text();
+        const data = JSON.parse(text);
+        setPendingImportData(data);
+      } else if (extension === 'csv' || extension === 'xlsx') {
+        const dataBuffer = await file.arrayBuffer();
+        const workbook = XLSX.read(dataBuffer, { type: 'array' });
+        const firstSheetName = workbook.SheetNames[0];
+        const worksheet = workbook.Sheets[firstSheetName];
+        const json = XLSX.utils.sheet_to_json<any>(worksheet);
+        
+        const deviceId = localStorage.getItem('deviceId') || 'unknown';
+        const transactions = json.map((row: any) => ({
+          id: row['ID'] || crypto.randomUUID(),
+          type: row['Type']?.toLowerCase() || 'expense',
+          amount: parseFloat(row['Amount']) || 0,
+          category: row['Category'] || 'Other',
+          description: row['Description'] || '',
+          date: row['Date'] || new Date().toISOString().split('T')[0],
+          payment_method: row['Payment Method'] || '',
+          created_at: row['Created At'] || new Date().toISOString(),
+          updated_at: new Date().toISOString(),
+          deviceId
+        }));
 
-      await importAllData(data);
+        setPendingImportData({ transactions });
+      } else {
+        toast.dismiss('importProcess');
+        toast.error('Unsupported file format');
+        return;
+      }
+      
+      toast.dismiss('importProcess');
+      setShowImportConfirm(true);
+    } catch (error) {
+      console.error('Import failed', error);
+      toast.dismiss('importProcess');
+      toast.error('Invalid or corrupted file');
+    } finally {
+      if (fileInputRef.current) fileInputRef.current.value = '';
+    }
+  };
+
+  const confirmImportData = async () => {
+    if (!pendingImportData) return;
+    try {
+      await importAllData(pendingImportData);
       toast.success('Data imported successfully. Syncing...');
       forceSync();
       setTimeout(() => window.location.reload(), 2000);
     } catch (error) {
       console.error('Import failed', error);
-      toast.error('Invalid backup file');
+      toast.error('Failed to import data');
     } finally {
-      if (fileInputRef.current) fileInputRef.current.value = '';
+      setPendingImportData(null);
+      setShowImportConfirm(false);
     }
   };
 
@@ -164,6 +248,16 @@ const Settings: React.FC = () => {
         onCancel={() => setShowMasterWipeConfirm(false)}
         variant="danger"
         confirmText="Yes, Wipe Everything"
+      />
+
+      <ConfirmModal
+        isOpen={showImportConfirm}
+        title="Import Backup Data?"
+        message="This will merge the imported data with your existing records. Duplicate IDs will be overwritten. Proceed?"
+        onConfirm={confirmImportData}
+        onCancel={() => { setShowImportConfirm(false); setPendingImportData(null); }}
+        variant="danger"
+        confirmText="Import & Merge"
       />
 
       {/* Currency & Appearance sections remain same but with updated styles if needed */}
@@ -276,9 +370,9 @@ const Settings: React.FC = () => {
               <input 
                 type="file" 
                 ref={fileInputRef} 
-                onChange={handleJsonImport} 
+                onChange={handleDataImport} 
                 className="hidden" 
-                accept=".json"
+                accept=".json,.csv,.xlsx"
               />
             </div>
           </div>
@@ -288,13 +382,22 @@ const Settings: React.FC = () => {
               <h3 className="font-medium">Export CSV</h3>
               <p className="text-sm text-muted-foreground">Download transactions for spreadsheet apps</p>
             </div>
-            <button
-              onClick={exportCSV}
-              className="flex items-center gap-2 px-4 py-2 bg-muted text-foreground font-medium rounded-lg hover:bg-muted/80 transition-colors text-sm"
-            >
-              <Download size={16} />
-              CSV
-            </button>
+            <div className="flex gap-2">
+              <button
+                onClick={exportCSV}
+                className="flex items-center gap-2 px-4 py-2 bg-muted text-foreground font-medium rounded-lg hover:bg-muted/80 transition-colors text-sm"
+              >
+                <Download size={16} />
+                CSV
+              </button>
+              <button
+                onClick={exportXLSX}
+                className="flex items-center gap-2 px-4 py-2 bg-muted text-foreground font-medium rounded-lg hover:bg-muted/80 transition-colors text-sm"
+              >
+                <Download size={16} />
+                XLSX
+              </button>
+            </div>
           </div>
 
           <div className="pt-4 border-t border-border flex flex-col sm:flex-row sm:items-center justify-between gap-4">

@@ -6,6 +6,7 @@ import { SyncProvider } from './contexts/SyncContext';
 import { CurrencyProvider } from './contexts/CurrencyContext';
 import { ThemeProvider } from './contexts/ThemeContext';
 import { Toaster } from 'sonner';
+import { useTaskReminders } from './hooks/useTaskReminders';
 import Layout from './components/Layout';
 import Login from './pages/Login';
 import Dashboard from './pages/Dashboard';
@@ -20,6 +21,7 @@ import Reminders from './pages/Reminders';
 import More from './pages/More';
 import Calculator from './pages/Calculator';
 import Converter from './pages/Converter';
+import Tasks from './pages/Tasks';
 
 const ProtectedRoute: React.FC<{ children: React.ReactNode }> = ({ children }) => {
   const { user, loading } = useAuth();
@@ -40,6 +42,9 @@ const ProtectedRoute: React.FC<{ children: React.ReactNode }> = ({ children }) =
 };
 
 const App: React.FC = () => {
+  // Global hooks
+  useTaskReminders();
+
   return (
     <BrowserRouter>
       <AuthProvider>
@@ -64,6 +69,7 @@ const App: React.FC = () => {
                     <Route path="more" element={<More />} />
                     <Route path="calculator" element={<Calculator />} />
                     <Route path="converter" element={<Converter />} />
+                    <Route path="tasks" element={<Tasks />} />
                     <Route path="settings" element={<Settings />} />
                   </Route>
                 </Routes>

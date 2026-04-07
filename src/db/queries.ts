@@ -81,6 +81,11 @@ export const addTransaction = async (
   return id;
 };
 
+const TRANSACTION_UPDATABLE_FIELDS = new Set([
+  'type', 'amount', 'category', 'description', 'date',
+  'payment_method', 'account_id', 'to_account_id', 'updated_at', 'deviceId'
+]);
+
 export const updateTransaction = async (
   id: string,
   data: Partial<Omit<Transaction, 'id' | 'created_at' | 'synced'>>
@@ -90,7 +95,9 @@ export const updateTransaction = async (
   
   const sanitizedData: any = {};
   Object.keys(data).forEach(key => {
-    sanitizedData[key] = (data as any)[key] ?? null;
+    if (TRANSACTION_UPDATABLE_FIELDS.has(key)) {
+      sanitizedData[key] = (data as any)[key] ?? null;
+    }
   });
 
   const trxData = { id, ...sanitizedData, updated_at: now, deviceId };
@@ -157,22 +164,15 @@ export const getSummary = async () => {
 export const getNetWorth = async () => {
   const accountSummaries = await getSummaryByAccount();
   return accountSummaries.reduce((acc: number, curr: any) => {
-    return acc + (curr.initial_balance || 0) + (curr.income || 0) - (curr.expense || 0);
+    return acc 
+      + (curr.initial_balance || 0) 
+      + (curr.income || 0) 
+      - (curr.expense || 0)
+      + (curr.transfer_in || 0)
+      - (curr.transfer_out || 0);
   }, 0);
 };
 
-export const getMonthlyTrend = async (months: number = 6) => {
-  return await runWithBindings(`
-    SELECT 
-      strftime('%Y-%m', date) as month,
-      SUM(CASE WHEN type = 'income' THEN amount ELSE 0 END) as income,
-      SUM(CASE WHEN type = 'expense' THEN amount ELSE 0 END) as expense
-    FROM transactions
-    GROUP BY month
-    ORDER BY month DESC
-    LIMIT ?
-  `, [months]);
-};
 
 export const getPaymentMethodStats = async () => {
   return await executeQuery(`
@@ -195,6 +195,124 @@ export const getExpensesByCategory = async (year: string, month: string) => {
   `, [likeStr]);
 };
 
+export type ChartPeriod = 'day' | 'week' | 'month';
+
+const getPeriodDateFilter = (period: ChartPeriod): string => {
+  const now = new Date();
+  if (period === 'day') {
+    const y = now.getFullYear();
+    const m = String(now.getMonth() + 1).padStart(2, '0');
+    const d = String(now.getDate()).padStart(2, '0');
+    return `${y}-${m}-${d}`;
+  }
+  if (period === 'week') {
+    const weekAgo = new Date(now);
+    weekAgo.setDate(now.getDate() - 6);
+    const y = weekAgo.getFullYear();
+    const m = String(weekAgo.getMonth() + 1).padStart(2, '0');
+    const d = String(weekAgo.getDate()).padStart(2, '0');
+    return `${y}-${m}-${d}`;
+  }
+  // month
+  const y = now.getFullYear();
+  const m = String(now.getMonth() + 1).padStart(2, '0');
+  return `${y}-${m}-01`;
+};
+
+export const getExpensesByCategoryByPeriod = async (period: ChartPeriod) => {
+  const fromDate = getPeriodDateFilter(period);
+  return await runWithBindings(`
+    SELECT category, SUM(amount) as total 
+    FROM transactions 
+    WHERE type = 'expense' AND date >= ? 
+    GROUP BY category 
+    ORDER BY total DESC
+  `, [fromDate]);
+};
+
+export const getPaymentMethodStatsByPeriod = async (period: ChartPeriod) => {
+  const fromDate = getPeriodDateFilter(period);
+  return await runWithBindings(`
+    SELECT payment_method, SUM(amount) as total
+    FROM transactions
+    WHERE type = 'expense' AND date >= ?
+    GROUP BY payment_method
+    ORDER BY total DESC
+  `, [fromDate]);
+};
+
+// --- Budgets ---
+
+export interface Budget {
+  category: string;
+  amount: number;
+  updated_at: string;
+}
+
+export const getBudgets = async (): Promise<Budget[]> => {
+  return await executeQuery(`SELECT * FROM budgets ORDER BY category ASC`);
+};
+
+export const setBudget = async (category: string, amount: number) => {
+  const now = new Date().toISOString();
+  await executeQuery(
+    `INSERT INTO budgets (category, amount, updated_at) VALUES (?, ?, ?)
+     ON CONFLICT(category) DO UPDATE SET amount = excluded.amount, updated_at = excluded.updated_at`,
+    [category, amount, now]
+  );
+};
+
+export const deleteBudget = async (category: string) => {
+  await executeQuery(`DELETE FROM budgets WHERE category = ?`, [category]);
+};
+
+export interface BudgetVsActualRow {
+  category: string;
+  spent: number;
+  budget: number;
+  pct: number;
+}
+
+export const getBudgetVsActual = async (year: string, month: string): Promise<BudgetVsActualRow[]> => {
+  const likeStr = `${year}-${month.padStart(2, '0')}-%`;
+  const rows = await runWithBindings(`
+    SELECT 
+      b.category,
+      COALESCE(SUM(t.amount), 0) as spent,
+      b.amount as budget
+    FROM budgets b
+    LEFT JOIN transactions t 
+      ON t.category = b.category 
+      AND t.type = 'expense' 
+      AND t.date LIKE ?
+    GROUP BY b.category
+    ORDER BY b.category ASC
+  `, [likeStr]);
+
+  return rows.map((r: any) => ({
+    category: r.category,
+    spent: r.spent,
+    budget: r.budget,
+    pct: r.budget > 0 ? (r.spent / r.budget) * 100 : 0,
+  }));
+};
+
+export interface DailySpend {
+  date: string;
+  total: number;
+}
+
+export const getDailySpendingForMonth = async (year: string, month: string): Promise<DailySpend[]> => {
+  const likeStr = `${year}-${month.padStart(2, '0')}-%`;
+  return await runWithBindings(`
+    SELECT date, SUM(amount) as total
+    FROM transactions
+    WHERE type = 'expense' AND date LIKE ?
+    GROUP BY date
+    ORDER BY date ASC
+  `, [likeStr]);
+};
+
 export const deleteTransaction = async (id: string) => {
   await syncManager.performOperation('transaction_delete', { id }, () =>
     runWithBindings(`DELETE FROM transactions WHERE id = ?`, [id])
@@ -210,16 +328,18 @@ export const getCategories = async (type?: 'income' | 'expense'): Promise<Catego
 };
 
 export const addCategory = async (name: string, type: 'income' | 'expense', icon: string = '', providedId?: string) => {
+  if (!name || !name.trim()) throw new Error('Category name is required');
+  const trimmedName = name.trim();
   const id = providedId || uuidv4();
   const now = new Date().toISOString();
   const deviceId = localStorage.getItem('deviceId') || 'unknown';
   
-  const catData = { id, name, type, icon, created_at: now, updated_at: now, deviceId };
+  const catData = { id, name: trimmedName, type, icon, created_at: now, updated_at: now, deviceId };
 
   await syncManager.performOperation('category_add', catData, () =>
     runWithBindings(
       `INSERT INTO categories (id, name, type, icon, created_at, updated_at, deviceId, synced) VALUES (?, ?, ?, ?, ?, ?, ?, 0)`,
-      [id, name, type, icon ?? '', now, now, deviceId]
+      [id, trimmedName, type, icon ?? '', now, now, deviceId]
     )
   );
   return id;
@@ -267,13 +387,19 @@ export const deleteAccount = async (id: string) => {
   );
 };
 
+const ACCOUNT_UPDATABLE_FIELDS = new Set([
+  'name', 'type', 'initial_balance', 'color', 'updated_at', 'deviceId'
+]);
+
 export const updateAccount = async (id: string, data: Partial<Omit<Account, 'id' | 'created_at'>>) => {
   const now = new Date().toISOString();
   const deviceId = localStorage.getItem('deviceId') || 'unknown';
 
   const sanitizedData: any = {};
   Object.keys(data).forEach(key => {
-    sanitizedData[key] = (data as any)[key] ?? null;
+    if (ACCOUNT_UPDATABLE_FIELDS.has(key)) {
+      sanitizedData[key] = (data as any)[key] ?? null;
+    }
   });
 
   const accData = { id, ...sanitizedData, updated_at: now, deviceId };
@@ -377,6 +503,7 @@ export interface Goal {
   target_amount: number;
   category_id: string | null;
   deadline: string | null;
+  linked_accounts: string | null;
   created_at: string;
   updated_at: string;
   synced: number;
@@ -386,32 +513,53 @@ export const getGoals = async (): Promise<Goal[]> => {
   return await executeQuery(`SELECT * FROM goals ORDER BY created_at DESC`);
 };
 
-export const addGoal = async (name: string, target_amount: number, category_id: string | null = null, deadline: string | null = null, providedId?: string) => {
+export const addGoal = async (
+  name: string, 
+  target_amount: number, 
+  category_id: string | null = null, 
+  deadline: string | null = null, 
+  linked_accounts: string | null = null,
+  providedId?: string
+) => {
+  if (!name || !name.trim()) throw new Error('Goal name is required');
+  if (typeof target_amount !== 'number' || target_amount <= 0) throw new Error('Target amount must be a positive number');
+  const trimmedName = name.trim();
   const id = providedId || uuidv4();
   const now = new Date().toISOString();
   const deviceId = localStorage.getItem('deviceId') || 'unknown';
 
-  const goalData = { id, name, target_amount, category_id, deadline, created_at: now, updated_at: now, deviceId };
+  const goalData = { id, name: trimmedName, target_amount, category_id, deadline, linked_accounts, created_at: now, updated_at: now, deviceId };
 
   await syncManager.performOperation('goal_add', goalData, () =>
     runWithBindings(
-      `INSERT INTO goals (id, name, target_amount, category_id, deadline, created_at, updated_at, deviceId, synced) 
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, 0)`,
-      [id, name, target_amount, category_id, deadline, now, now, deviceId]
+      `INSERT INTO goals (id, name, target_amount, category_id, deadline, linked_accounts, created_at, updated_at, deviceId, synced) 
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 0)`,
+      [id, trimmedName, target_amount, category_id, deadline, linked_accounts, now, now, deviceId]
     )
   );
   return id;
 };
 
+const GOAL_UPDATABLE_FIELDS = new Set([
+  'name', 'target_amount', 'category_id', 'deadline', 'linked_accounts', 'updated_at', 'deviceId'
+]);
+
 export const updateGoal = async (id: string, data: Partial<Omit<Goal, 'id' | 'created_at' | 'synced'>>) => {
   const now = new Date().toISOString();
   const deviceId = localStorage.getItem('deviceId') || 'unknown';
 
-  const fields = Object.keys(data);
-  const values = Object.values(data);
+  const sanitizedData: any = {};
+  Object.keys(data).forEach(key => {
+    if (GOAL_UPDATABLE_FIELDS.has(key)) {
+      sanitizedData[key] = (data as any)[key] ?? null;
+    }
+  });
+
+  const fields = Object.keys(sanitizedData);
+  const values = Object.values(sanitizedData);
   const setClause = fields.map(f => `${f} = ?`).join(', ');
 
-  const goalData = { id, ...data, updated_at: now, deviceId };
+  const goalData = { id, ...sanitizedData, updated_at: now, deviceId };
 
   await syncManager.performOperation('goal_update', goalData, () =>
     runWithBindings(
@@ -430,13 +578,14 @@ export const deleteGoal = async (id: string) => {
 // --- Data Portability ---
 
 export const exportAllData = async () => {
-  const [transactions, accounts, categories, goals, investments, reminders] = await Promise.all([
+  const [transactions, accounts, categories, goals, investments, reminders, tasks] = await Promise.all([
     executeQuery(`SELECT * FROM transactions`),
     executeQuery(`SELECT * FROM accounts`),
     executeQuery(`SELECT * FROM categories`),
     executeQuery(`SELECT * FROM goals`),
     executeQuery(`SELECT * FROM investments`),
-    executeQuery(`SELECT * FROM reminders`)
+    executeQuery(`SELECT * FROM reminders`),
+    executeQuery(`SELECT * FROM tasks`)
   ]);
 
   return {
@@ -447,7 +596,8 @@ export const exportAllData = async () => {
     categories,
     goals,
     investments,
-    reminders
+    reminders,
+    tasks
   };
 };
 
@@ -458,7 +608,11 @@ export const clearAllData = async () => {
   await executeQuery(`DELETE FROM goals`);
   await executeQuery(`DELETE FROM investments`);
   await executeQuery(`DELETE FROM reminders`);
+  await executeQuery(`DELETE FROM tasks`);
   await executeQuery(`DELETE FROM sync_queue`);
+  // Clear migration flags so they re-run correctly after a fresh wipe.
+  // deviceId, currency, and theme are intentionally preserved.
+  localStorage.removeItem('re_synced_v6');
 };
 
 export const importAllData = async (data: any) => {
@@ -500,8 +654,8 @@ export const importAllData = async (data: any) => {
   if (goals) {
     for (const g of goals) {
       await runWithBindings(
-        `INSERT OR REPLACE INTO goals (id, name, target_amount, category_id, deadline, created_at, updated_at, deviceId, synced) VALUES (?, ?, ?, ?, ?, ?, ?, ?, 0)`,
-        [g.id, g.name, g.target_amount, g.category_id, g.deadline, g.created_at, g.updated_at, g.deviceId]
+        `INSERT OR REPLACE INTO goals (id, name, target_amount, category_id, deadline, linked_accounts, created_at, updated_at, deviceId, synced) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 0)`,
+        [g.id, g.name, g.target_amount, g.category_id, g.deadline, g.linked_accounts ?? null, g.created_at, g.updated_at, g.deviceId]
       );
       await addToSyncQueue('goal_add', g);
     }
@@ -513,6 +667,8 @@ export const importAllData = async (data: any) => {
         `INSERT OR REPLACE INTO investments (id, name, type, units, average_buy_price, current_price, created_at, updated_at, deviceId, synced) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 0)`,
         [inv.id, inv.name, inv.type, inv.units, inv.average_buy_price, inv.current_price, inv.created_at, inv.updated_at, inv.deviceId]
       );
+      // Queue for sync
+      await addToSyncQueue('investment_add', inv);
     }
   }
 
@@ -522,6 +678,18 @@ export const importAllData = async (data: any) => {
         `INSERT OR REPLACE INTO reminders (id, title, amount, due_date, frequency, category_id, status, created_at, updated_at, deviceId, synced) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 0)`,
         [rem.id, rem.title, rem.amount, rem.due_date, rem.frequency, rem.category_id, rem.status, rem.created_at, rem.updated_at, rem.deviceId]
       );
+      // Queue for sync
+      await addToSyncQueue('reminder_add', rem);
+    }
+  }
+
+  if (data.tasks) {
+    for (const t of data.tasks) {
+      await runWithBindings(
+        `INSERT OR REPLACE INTO tasks (id, title, description, status, due_date, due_time, reminder_enabled, reminder_offset, reminder_sent, created_at, updated_at, deviceId, synced) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 0)`,
+        [t.id, t.title, t.description, t.status, t.due_date, t.due_time ?? null, t.reminder_enabled ?? 0, t.reminder_offset ?? 5, t.reminder_sent ?? 0, t.created_at, t.updated_at, t.deviceId]
+      );
+      await addToSyncQueue('task_add', t);
     }
   }
 };
@@ -567,15 +735,26 @@ export const addInvestment = async (
   return id;
 };
 
+const INVESTMENT_UPDATABLE_FIELDS = new Set([
+  'name', 'type', 'units', 'average_buy_price', 'current_price', 'updated_at', 'deviceId'
+]);
+
 export const updateInvestment = async (id: string, data: Partial<Omit<Investment, 'id' | 'created_at' | 'synced'>>) => {
   const now = new Date().toISOString();
   const deviceId = localStorage.getItem('deviceId') || 'unknown';
 
-  const fields = Object.keys(data);
-  const values = Object.values(data);
+  const sanitizedData: any = {};
+  Object.keys(data).forEach(key => {
+    if (INVESTMENT_UPDATABLE_FIELDS.has(key)) {
+      sanitizedData[key] = (data as any)[key] ?? null;
+    }
+  });
+
+  const fields = Object.keys(sanitizedData);
+  const values = Object.values(sanitizedData);
   const setClause = fields.map(f => `${f} = ?`).join(', ');
 
-  const updateData = { id, ...data, updated_at: now, deviceId };
+  const updateData = { id, ...sanitizedData, updated_at: now, deviceId };
 
   await syncManager.performOperation('investment_update', updateData, () =>
     runWithBindings(
@@ -693,5 +872,88 @@ export const markReminderAsPaid = async (reminder: Reminder, accountId: string) 
       `UPDATE reminders SET status = 'paid', updated_at = ?, deviceId = ?, synced = 0 WHERE id = ?`,
       [now, deviceId, reminder.id]
     )
+  );
+};
+
+// --- Tasks ---
+
+export interface Task {
+  id: string;
+  title: string;
+  description: string;
+  status: 'pending' | 'in_progress' | 'completed';
+  due_date: string | null;
+  due_time: string | null;
+  reminder_enabled: number;
+  reminder_offset: number;
+  reminder_sent: number;
+  created_at: string;
+  updated_at: string;
+  synced: number;
+}
+
+export const getTasks = async (): Promise<Task[]> => {
+  return await executeQuery(`SELECT * FROM tasks ORDER BY created_at DESC`);
+};
+
+export const addTask = async (
+  title: string,
+  description: string,
+  status: 'pending' | 'in_progress' | 'completed' = 'pending',
+  due_date: string | null = null,
+  due_time: string | null = null,
+  reminder_enabled: number = 0,
+  reminder_offset: number = 5,
+  providedId?: string
+) => {
+  if (!title || !title.trim()) throw new Error('Task title is required');
+  const id = providedId || uuidv4();
+  const now = new Date().toISOString();
+  const deviceId = localStorage.getItem('deviceId') || 'unknown';
+
+  const taskData = { id, title: title.trim(), description: description ?? '', status, due_date, due_time, reminder_enabled, reminder_offset, reminder_sent: 0, created_at: now, updated_at: now, deviceId };
+
+  await syncManager.performOperation('task_add', taskData, () =>
+    runWithBindings(
+      `INSERT INTO tasks (id, title, description, status, due_date, due_time, reminder_enabled, reminder_offset, reminder_sent, created_at, updated_at, deviceId, synced) 
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, 0, ?, ?, ?, 0)`,
+      [id, title.trim(), description ?? '', status, due_date, due_time, reminder_enabled, reminder_offset, now, now, deviceId]
+    )
+  );
+  return id;
+};
+
+const TASK_UPDATABLE_FIELDS = new Set([
+  'title', 'description', 'status', 'due_date', 'due_time', 'reminder_enabled', 'reminder_offset', 'reminder_sent', 'updated_at', 'deviceId'
+]);
+
+export const updateTask = async (id: string, data: Partial<Omit<Task, 'id' | 'created_at' | 'synced'>>) => {
+  const now = new Date().toISOString();
+  const deviceId = localStorage.getItem('deviceId') || 'unknown';
+
+  const sanitizedData: any = {};
+  Object.keys(data).forEach(key => {
+    if (TASK_UPDATABLE_FIELDS.has(key)) {
+      sanitizedData[key] = (data as any)[key] ?? null;
+    }
+  });
+
+  const fields = Object.keys(sanitizedData);
+  const values = Object.values(sanitizedData);
+  const setClause = fields.map(f => `${f} = ?`).join(', ');
+
+  const taskData = { id, ...sanitizedData, updated_at: now, deviceId };
+
+  await syncManager.performOperation('task_update', taskData, () =>
+    runWithBindings(
+      `UPDATE tasks SET ${setClause}, updated_at = ?, deviceId = ?, synced = 0 WHERE id = ?`,
+      [...values, now, deviceId, id]
+    )
+  );
+};
+
+export const deleteTask = async (id: string) => {
+  await syncManager.performOperation('task_delete', { id }, () =>
+    runWithBindings(`DELETE FROM tasks WHERE id = ?`, [id])
   );
 };

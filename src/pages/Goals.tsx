@@ -8,6 +8,7 @@ import { toast } from 'sonner';
 const Goals: React.FC = () => {
   const { formatAmount } = useCurrency();
   const [goals, setGoals] = useState<Goal[]>([]);
+  const [accountsList, setAccountsList] = useState<any[]>([]);
   const [showAddModal, setShowAddModal] = useState(false);
   const [loading, setLoading] = useState(true);
   const [totalBalance, setTotalBalance] = useState(0);
@@ -16,6 +17,7 @@ const Goals: React.FC = () => {
   const [newName, setNewName] = useState('');
   const [newTarget, setNewTarget] = useState('');
   const [newDeadline, setNewDeadline] = useState('');
+  const [newLinkedAccounts, setNewLinkedAccounts] = useState<string[]>([]);
 
   useEffect(() => {
     loadData();
@@ -30,6 +32,7 @@ const Goals: React.FC = () => {
         getSummaryByAccount()
       ]);
       setGoals(goalsList);
+      setAccountsList(accounts);
       
       const balance = accounts.reduce((acc, curr) => acc + (curr.initial_balance + curr.income - curr.expense), 0);
       setTotalBalance(balance);
@@ -45,13 +48,15 @@ const Goals: React.FC = () => {
     if (!newName || !newTarget) return;
 
     try {
-      await addGoal(newName, parseFloat(newTarget), null, newDeadline || null, crypto.randomUUID());
+      const linkedPayload = newLinkedAccounts.length > 0 ? JSON.stringify(newLinkedAccounts) : null;
+      await addGoal(newName, parseFloat(newTarget), null, newDeadline || null, linkedPayload, crypto.randomUUID());
       
       toast.success('Goal added successfully');
       setShowAddModal(false);
       setNewName('');
       setNewTarget('');
       setNewDeadline('');
+      setNewLinkedAccounts([]);
       loadData();
     } catch (error) {
       toast.error('Failed to add goal');
@@ -95,9 +100,27 @@ const Goals: React.FC = () => {
 
       <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
         {goals.map((goal) => {
-          // Progress is simplified for now: total net worth vs goal target
-          // In a more complex app, we might link specific accounts or categories to goals
-          const progress = Math.min((totalBalance / goal.target_amount) * 100, 100);
+          let currentBalance = 0;
+          
+          if (goal.linked_accounts) {
+            try {
+              const linkedIds = JSON.parse(goal.linked_accounts);
+              if (Array.isArray(linkedIds) && linkedIds.length > 0) {
+                currentBalance = accountsList
+                  .filter(a => linkedIds.includes(a.id))
+                  .reduce((acc, curr) => acc + (curr.initial_balance + curr.income - curr.expense), 0);
+              } else {
+                currentBalance = 0;
+              }
+            } catch (e) {
+              currentBalance = totalBalance; // fallback
+            }
+          } else {
+            // Legacy fallbacks
+            currentBalance = totalBalance;
+          }
+
+          const progress = Math.min((currentBalance / goal.target_amount) * 100, 100);
           const isCompleted = progress >= 100;
 
           return (
@@ -122,7 +145,7 @@ const Goals: React.FC = () => {
               <div className="space-y-3">
                 <div className="flex items-center justify-between text-sm">
                   <span className="font-medium text-muted-foreground">{progress.toFixed(0)}% Complete</span>
-                  <span className="font-bold">{formatAmount(totalBalance)}</span>
+                  <span className="font-bold">{formatAmount(currentBalance)}</span>
                 </div>
                 <div className="h-3 w-full bg-muted rounded-full overflow-hidden">
                   <div
@@ -141,9 +164,9 @@ const Goals: React.FC = () => {
                       : (isCompleted ? 'Goal Met!' : 'No deadline set')}
                   </span>
                 </div>
-                {!isCompleted && totalBalance > 0 && (
+                {!isCompleted && currentBalance > 0 && (
                   <div className="text-primary font-medium">
-                    Est: {new Date(Date.now() + ((goal.target_amount - totalBalance) / (totalBalance / 30 || 1)) * 24 * 60 * 60 * 1000).toLocaleDateString()}
+                    Est: {new Date(Date.now() + ((goal.target_amount - currentBalance) / (currentBalance / 30 || 1)) * 24 * 60 * 60 * 1000).toLocaleDateString()}
                   </div>
                 )}
               </div>
@@ -213,6 +236,32 @@ const Goals: React.FC = () => {
                   onChange={(e) => setNewDeadline(e.target.value)}
                   className="w-full bg-muted border-none rounded-2xl p-4 focus:ring-2 focus:ring-primary transition-all"
                 />
+              </div>
+
+              <div>
+                <label className="block text-sm font-medium mb-1.5 ml-1 flex justify-between">
+                  Linked Accounts
+                  <span className="text-xs text-muted-foreground font-normal">If empty, tracks net worth</span>
+                </label>
+                <div className="bg-muted p-4 rounded-2xl space-y-3 max-h-44 overflow-y-auto">
+                  {accountsList.map((acc) => (
+                    <label key={acc.id} className="flex items-center justify-between cursor-pointer group hover:bg-background/40 p-2 -mx-2 rounded-xl transition-colors">
+                      <span className="text-sm font-medium">{acc.name}</span>
+                      <div className="relative inline-flex items-center">
+                        <input
+                          type="checkbox"
+                          checked={newLinkedAccounts.includes(acc.id)}
+                          onChange={(e) => {
+                            if (e.target.checked) setNewLinkedAccounts(prev => [...prev, acc.id]);
+                            else setNewLinkedAccounts(prev => prev.filter(id => id !== acc.id));
+                          }}
+                          className="w-5 h-5 rounded border-border text-primary focus:ring-primary focus:ring-offset-background accent-primary transition-all cursor-pointer"
+                        />
+                      </div>
+                    </label>
+                  ))}
+                  {accountsList.length === 0 && <p className="text-xs text-muted-foreground text-center py-2">No accounts available.</p>}
+                </div>
               </div>
 
               <div className="pt-4 flex gap-3">

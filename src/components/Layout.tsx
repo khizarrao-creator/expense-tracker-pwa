@@ -108,7 +108,9 @@ const Layout: React.FC = () => {
       <nav className="md:hidden fixed bottom-0 w-full bg-card border-t border-border flex justify-around p-2 pb-safe z-20">
         {navItems.map((item) => {
           const Icon = item.icon;
-          const isActive = location.pathname === item.path;
+          const isActive = location.pathname === item.path || 
+            (item.path !== '/' && location.pathname.startsWith(item.path)) ||
+            (item.path === '/add' && location.pathname.startsWith('/edit'));
           return (
             <Link
               key={item.name}

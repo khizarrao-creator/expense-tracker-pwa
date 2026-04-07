@@ -2,8 +2,7 @@ import React, { useState, useEffect } from 'react';
 import { addTransaction, getTransaction, updateTransaction, getCategories, getAccounts } from '../db/queries';
 import type { Category, Account } from '../db/queries';
 import { useNavigate, useParams } from 'react-router-dom';
-import { Landmark, Camera, Loader2 } from 'lucide-react';
-import { createWorker } from 'tesseract.js';
+import { Landmark } from 'lucide-react';
 import { useCurrency } from '../contexts/CurrencyContext';
 import { toast } from 'sonner';
 import { syncManager } from '../db/SyncManager';
@@ -26,101 +25,7 @@ const AddTransaction: React.FC = () => {
   const [accountId, setAccountId] = useState('');
   const [toAccountId, setToAccountId] = useState('');
   const [loading, setLoading] = useState(false);
-  const [ocrLoading, setOcrLoading] = useState(false);
 
-  const handleScanReceipt = async (e: React.ChangeEvent<HTMLInputElement>) => {
-    const file = e.target.files?.[0];
-    if (!file) return;
-
-    setOcrLoading(true);
-    toast.info('Scanning receipt... this may take a few seconds');
-
-    try {
-      const worker = await createWorker('eng');
-      const { data: { text } } = await worker.recognize(file);
-      await worker.terminate();
-
-      console.log('--- OCR RAW START ---');
-      console.log(text);
-      console.log('--- OCR RAW END ---');
-      
-      const lines = text.split('\n').map(l => l.trim()).filter(l => l.length > 0);
-      console.log('--- OCR LINES ---');
-      lines.forEach((l, idx) => console.log(`${idx}: ${l}`));
-      
-      // regex for price (12.34, 1,234.56, etc)
-      const priceRegex = /(?:[$€£¥Rs]\s*)?(\d{1,6}[.,]\d{2})(?!\d)/g;
-      // regex for date to exclude
-      const generalDateRegex = /\d{1,4}[-/.]\d{1,2}[-/.]\d{1,4}/g;
-
-      const cleanVal = (str: string) => {
-        const val = str.replace(/[^\d.,]/g, '').replace(/,/g, '.');
-        const parts = val.split('.');
-        if (parts.length > 2) return parseFloat(parts.slice(0, -1).join('') + '.' + parts[parts.length - 1]);
-        return parseFloat(val);
-      };
-
-      let finalAmount = '';
-      let maxRelevance = 0;
-
-      for (let i = 0; i < lines.length; i++) {
-        const line = lines[i].toUpperCase();
-        // Skip lines that look like headers or specific non-data
-        if (line.includes('TEL:') || line.includes('PHONE') || line.includes('FAX')) continue;
-
-        const matches = lines[i].match(priceRegex);
-        if (!matches) continue;
-
-        for (const match of matches) {
-          // Check if this match is actually part of a date
-          const isDatePart = lines[i].match(generalDateRegex)?.some(d => d.includes(match));
-          if (isDatePart) continue;
-
-          let relevance = 1;
-          if (line.includes('TOTAL') || line.includes('PAYABLE') || line.includes('AMOUNT DUE')) relevance = 10;
-          else if (line.includes('SUM') || line.includes('SALE') || line.includes('NET')) relevance = 5;
-          else if (match.match(/[$€£¥Rs]/)) relevance = 3;
-
-          const val = cleanVal(match);
-          if (isNaN(val) || val <= 0 || val > 10000) continue;
-
-          if (relevance >= maxRelevance) {
-            finalAmount = val.toString();
-            maxRelevance = relevance;
-          }
-        }
-      }
-
-      if (finalAmount) {
-        setAmount(finalAmount);
-        toast.success(`Detected amount: ${finalAmount}`);
-      }
-
-      // 2. Date Detection
-      const dateRegex = /(\d{1,4}[-/.]\d{1,2}[-/.]\d{2,4})|(\d{1,2}\s[A-Z]{3,}\s\d{2,4})/gi;
-      const dateMatches = text.match(dateRegex);
-      
-      if (dateMatches) {
-        const now = new Date();
-        for (const match of dateMatches) {
-          const d = new Date(match.replace(/[-.]/g, '/'));
-          if (!isNaN(d.getTime())) {
-            const year = d.getFullYear();
-            if (year > 2015 && year <= now.getFullYear() + 1) {
-              setDate(d.toISOString().split('T')[0]);
-              break;
-            }
-          }
-        }
-      }
-
-    } catch (error) {
-      console.error('OCR Error:', error);
-      toast.error('Failed to scan receipt. Please enter manually.');
-    } finally {
-      setOcrLoading(false);
-    }
-  };
 
   useEffect(() => {
     const loadInitialData = async () => {
@@ -258,24 +163,7 @@ const AddTransaction: React.FC = () => {
 
         <form onSubmit={handleSubmit} className="space-y-4">
           <div>
-            <div className="flex items-center justify-between mb-1">
-              <label className="text-sm font-medium text-muted-foreground">Amount</label>
-              <label className="cursor-pointer text-primary hover:text-primary/80 transition-colors flex items-center gap-1.5 text-xs font-bold bg-primary/5 px-2 py-1 rounded-lg">
-                <input 
-                  type="file" 
-                  accept="image/*" 
-                  className="hidden" 
-                  onChange={handleScanReceipt} 
-                  disabled={ocrLoading}
-                />
-                {ocrLoading ? (
-                  <Loader2 size={14} className="animate-spin" />
-                ) : (
-                  <Camera size={14} />
-                )}
-                {ocrLoading ? 'Scanning...' : 'Scan Receipt'}
-              </label>
-            </div>
+            <label className="text-sm font-medium text-muted-foreground">Amount</label>
             <div className="relative">
               <span className="absolute left-4 top-1/2 -translate-y-1/2 text-muted-foreground font-medium">{currency.symbol}</span>
               <input

@@ -97,6 +97,7 @@ const initializeSchema = async () => {
       target_amount REAL NOT NULL,
       category_id TEXT,
       deadline TEXT,
+      linked_accounts TEXT,
       created_at TEXT NOT NULL,
       updated_at TEXT NOT NULL,
       deviceId TEXT,
@@ -129,10 +130,37 @@ const initializeSchema = async () => {
       deviceId TEXT,
       synced INTEGER DEFAULT 0
     );
+
+    CREATE TABLE IF NOT EXISTS budgets (
+      category TEXT PRIMARY KEY,
+      amount REAL NOT NULL,
+      updated_at TEXT NOT NULL
+    );
+
+    CREATE TABLE IF NOT EXISTS tasks (
+      id TEXT PRIMARY KEY,
+      title TEXT NOT NULL,
+      description TEXT,
+      status TEXT DEFAULT 'pending',
+      due_date TEXT,
+      due_time TEXT,
+      reminder_enabled INTEGER DEFAULT 0,
+      reminder_offset INTEGER DEFAULT 5,
+      reminder_sent INTEGER DEFAULT 0,
+      created_at TEXT NOT NULL,
+      updated_at TEXT NOT NULL,
+      deviceId TEXT,
+      synced INTEGER DEFAULT 0
+    );
   `);
 
   // 2. Robust Migrations (Add missing columns one by one for existing users)
   const migrations = [
+    "ALTER TABLE goals ADD COLUMN linked_accounts TEXT;",
+    "ALTER TABLE tasks ADD COLUMN due_time TEXT;",
+    "ALTER TABLE tasks ADD COLUMN reminder_enabled INTEGER DEFAULT 0;",
+    "ALTER TABLE tasks ADD COLUMN reminder_offset INTEGER DEFAULT 5;",
+    "ALTER TABLE tasks ADD COLUMN reminder_sent INTEGER DEFAULT 0;",
     "ALTER TABLE transactions ADD COLUMN deviceId TEXT;",
     "ALTER TABLE accounts ADD COLUMN updated_at TEXT;",
     "ALTER TABLE accounts ADD COLUMN deviceId TEXT;",
@@ -170,7 +198,8 @@ const initializeSchema = async () => {
     "CREATE INDEX IF NOT EXISTS idx_transactions_date ON transactions(date);",
     "CREATE INDEX IF NOT EXISTS idx_transactions_synced ON transactions(synced);",
     "CREATE INDEX IF NOT EXISTS idx_transactions_account ON transactions(account_id);",
-    "CREATE INDEX IF NOT EXISTS idx_sync_queue_status ON sync_queue(status);"
+    "CREATE INDEX IF NOT EXISTS idx_sync_queue_status ON sync_queue(status);",
+    "CREATE INDEX IF NOT EXISTS idx_tasks_status ON tasks(status);"
   ];
 
   for (const idx of indexQueries) {
@@ -229,13 +258,9 @@ const initializeSchema = async () => {
     const now = new Date().toISOString();
     const defaultAccounts = [
       { id: 'cash-id', name: 'Cash', type: 'wallet' },
-      { id: 'sadapay-id', name: 'SadaPay', type: 'bank' },
-      { id: 'meezan-id', name: 'Meezan Bank', type: 'bank' },
-      { id: 'hbl-id', name: 'HBL', type: 'bank' },
-      { id: 'bank-al-habib-id', name: 'Bank AL Habib', type: 'bank' },
-      { id: 'jazzcash-id', name: 'JazzCash', type: 'wallet' },
-      { id: 'easypaisa-id', name: 'Easypaisa', type: 'wallet' },
-      { id: 'nayapay-id', name: 'NayaPay', type: 'bank' }
+      { id: 'bank-id', name: 'Bank Account', type: 'bank' },
+      { id: 'savings-id', name: 'Savings', type: 'bank' },
+      { id: 'credit-id', name: 'Credit Card', type: 'credit' },
     ];
 
     for (const acc of defaultAccounts) {

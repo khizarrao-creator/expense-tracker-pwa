@@ -1,13 +1,22 @@
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useState, useCallback, useRef } from 'react';
 import {
   getSummary,
-  getExpensesByCategory,
+  getExpensesByCategoryByPeriod,
   getNetWorth,
-  getPaymentMethodStats,
+  getPaymentMethodStatsByPeriod,
   getMonthlyComparison,
   getBurnRate,
   getCategorySpikes,
-  calculatePortfolioValue
+  calculatePortfolioValue,
+  getBudgets,
+  setBudget,
+  deleteBudget,
+  getBudgetVsActual,
+  getDailySpendingForMonth,
+  getCategories,
+  type ChartPeriod,
+  type BudgetVsActualRow,
+  type DailySpend,
 } from '../db/queries';
 import { Doughnut, Pie, Bar } from 'react-chartjs-2';
 import {
@@ -19,192 +28,531 @@ import {
   LinearScale,
   BarElement
 } from 'chart.js';
-import { ArrowDownIcon, ArrowUpIcon, Wallet, Zap, TrendingUp, TrendingDown, Banknote } from 'lucide-react';
+import {
+  ArrowDownIcon, ArrowUpIcon, Wallet, Zap, TrendingUp, TrendingDown,
+  Banknote, AlertTriangle, ShieldCheck, Clock,
+  Pencil, Trash2, Plus, Check, X as XIcon
+} from 'lucide-react';
 import { useCurrency } from '../contexts/CurrencyContext';
 
 ChartJS.register(ArcElement, Tooltip, Legend, CategoryScale, LinearScale, BarElement);
 
+// ─── Period Toggle ──────────────────────────────────────────────────────────
+
+const PERIOD_OPTIONS: { label: string; value: ChartPeriod }[] = [
+  { label: 'Day', value: 'day' },
+  { label: 'Week', value: 'week' },
+  { label: 'Month', value: 'month' },
+];
+
+interface PeriodToggleProps {
+  value: ChartPeriod;
+  onChange: (p: ChartPeriod) => void;
+}
+
+const PeriodToggle: React.FC<PeriodToggleProps> = ({ value, onChange }) => (
+  <div className="flex gap-1 bg-muted rounded-lg p-1 shrink-0">
+    {PERIOD_OPTIONS.map((opt) => (
+      <button
+        key={opt.value}
+        onClick={() => onChange(opt.value)}
+        className={`px-2.5 py-1 text-xs font-semibold rounded-md transition-all duration-200 ${
+          value === opt.value
+            ? 'bg-primary text-primary-foreground shadow-sm'
+            : 'text-muted-foreground hover:text-foreground'
+        }`}
+      >
+        {opt.label}
+      </button>
+    ))}
+  </div>
+);
+
+// ─── Budget vs Actual ───────────────────────────────────────────────────────
+
+interface BudgetVsActualProps {
+  rows: BudgetVsActualRow[];
+  categories: string[];
+  formatAmount: (n: number) => string;
+  onSave: (cat: string, amount: number) => void;
+  onDelete: (cat: string) => void;
+}
+
+const BudgetVsActualPanel: React.FC<BudgetVsActualProps> = ({
+  rows, categories, formatAmount, onSave, onDelete
+}) => {
+  const [editingCat, setEditingCat] = useState<string | null>(null);
+  const [editVal, setEditVal] = useState('');
+  const [adding, setAdding] = useState(false);
+  const [newCat, setNewCat] = useState('');
+  const [newAmt, setNewAmt] = useState('');
+  const editRef = useRef<HTMLInputElement>(null);
+
+  const existingCats = new Set(rows.map(r => r.category));
+  const availableCats = categories.filter(c => !existingCats.has(c));
+
+  const startEdit = (cat: string, current: number) => {
+    setEditingCat(cat);
+    setEditVal(String(current));
+    setTimeout(() => editRef.current?.focus(), 50);
+  };
+
+  const commitEdit = (cat: string) => {
+    const amt = parseFloat(editVal);
+    if (!isNaN(amt) && amt > 0) onSave(cat, amt);
+    setEditingCat(null);
+  };
+
+  const commitAdd = () => {
+    const amt = parseFloat(newAmt);
+    if (newCat && !isNaN(amt) && amt > 0) {
+      onSave(newCat, amt);
+      setNewCat('');
+      setNewAmt('');
+      setAdding(false);
+    }
+  };
+
+  if (rows.length === 0 && !adding) {
+    return (
+      <div className="flex flex-col items-center justify-center py-8 gap-3">
+        <p className="text-muted-foreground text-sm">No budgets set yet.</p>
+        <button
+          onClick={() => setAdding(true)}
+          className="flex items-center gap-2 px-4 py-2 bg-primary text-primary-foreground text-sm font-semibold rounded-xl hover:opacity-90 transition"
+        >
+          <Plus size={15} /> Set First Budget
+        </button>
+      </div>
+    );
+  }
+
+  return (
+    <div className="space-y-3">
+      {rows.map(row => {
+        const isOver = row.pct > 100;
+        const barW = Math.min(row.pct, 100);
+        const barColor = isOver ? 'bg-destructive' : row.pct > 75 ? 'bg-amber-500' : 'bg-primary';
+        const pctColor = isOver ? 'text-destructive font-bold' : row.pct > 75 ? 'text-amber-500' : 'text-emerald-500';
+        const isEditing = editingCat === row.category;
+
+        return (
+          <div key={row.category} className={`p-3 rounded-xl border ${isOver ? 'border-destructive/30 bg-destructive/5' : 'border-border bg-muted/30'}`}>
+            <div className="flex items-center justify-between mb-2 gap-2">
+              <span className="text-sm font-semibold truncate">{row.category}</span>
+              <div className="flex items-center gap-1 shrink-0">
+                <span className={`text-xs ${pctColor}`}>{row.pct.toFixed(0)}%</span>
+                {isOver && <AlertTriangle size={12} className="text-destructive" />}
+                <button
+                  onClick={() => startEdit(row.category, row.budget)}
+                  className="p-1 rounded text-muted-foreground hover:text-foreground transition"
+                >
+                  <Pencil size={13} />
+                </button>
+                <button
+                  onClick={() => onDelete(row.category)}
+                  className="p-1 rounded text-muted-foreground hover:text-destructive transition"
+                >
+                  <Trash2 size={13} />
+                </button>
+              </div>
+            </div>
+
+            {/* Progress bar */}
+            <div className="w-full h-2 bg-muted rounded-full overflow-hidden mb-2">
+              <div
+                className={`h-full rounded-full transition-all duration-500 ${barColor}`}
+                style={{ width: `${barW}%` }}
+              />
+            </div>
+
+            {isEditing ? (
+              <div className="flex items-center gap-2 mt-1">
+                <input
+                  ref={editRef}
+                  type="number"
+                  value={editVal}
+                  onChange={e => setEditVal(e.target.value)}
+                  onKeyDown={e => { if (e.key === 'Enter') commitEdit(row.category); if (e.key === 'Escape') setEditingCat(null); }}
+                  className="flex-1 text-xs px-2 py-1 rounded-lg border border-border bg-background focus:outline-none focus:border-primary"
+                  placeholder="Budget amount"
+                />
+                <button onClick={() => commitEdit(row.category)} className="p-1 text-emerald-500 hover:opacity-80"><Check size={14} /></button>
+                <button onClick={() => setEditingCat(null)} className="p-1 text-muted-foreground hover:opacity-80"><XIcon size={14} /></button>
+              </div>
+            ) : (
+              <div className="flex justify-between text-xs text-muted-foreground">
+                <span>{formatAmount(row.spent)} spent</span>
+                <span>of {formatAmount(row.budget)}</span>
+              </div>
+            )}
+          </div>
+        );
+      })}
+
+      {/* Add budget row */}
+      {adding ? (
+        <div className="flex flex-wrap items-center gap-2 p-3 rounded-xl border border-border bg-muted/30">
+          <select
+            value={newCat}
+            onChange={e => setNewCat(e.target.value)}
+            className="flex-1 min-w-0 text-sm px-2 py-1.5 rounded-lg border border-border bg-background focus:outline-none focus:border-primary"
+          >
+            <option value="">Select category…</option>
+            {availableCats.map(c => <option key={c} value={c}>{c}</option>)}
+          </select>
+          <input
+            type="number"
+            value={newAmt}
+            onChange={e => setNewAmt(e.target.value)}
+            onKeyDown={e => { if (e.key === 'Enter') commitAdd(); if (e.key === 'Escape') setAdding(false); }}
+            placeholder="Budget"
+            className="w-28 text-sm px-2 py-1.5 rounded-lg border border-border bg-background focus:outline-none focus:border-primary"
+          />
+          <button onClick={commitAdd} className="p-1.5 rounded-lg text-emerald-500 hover:opacity-80"><Check size={16} /></button>
+          <button onClick={() => setAdding(false)} className="p-1.5 rounded-lg text-muted-foreground hover:opacity-80"><XIcon size={16} /></button>
+        </div>
+      ) : rows.length > 0 && availableCats.length > 0 && (
+        <button
+          onClick={() => setAdding(true)}
+          className="flex items-center gap-2 text-xs text-primary hover:opacity-80 transition font-medium py-1"
+        >
+          <Plus size={14} /> Add another budget
+        </button>
+      )}
+    </div>
+  );
+};
+
+// ─── Spending Heatmap ───────────────────────────────────────────────────────
+
+const DAY_LABELS = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
+const MONTH_NAMES = ['January','February','March','April','May','June','July','August','September','October','November','December'];
+
+interface HeatmapProps {
+  year: number;
+  month: number; // 1-indexed
+  dailyData: DailySpend[];
+  formatAmount: (n: number) => string;
+}
+
+const SpendingHeatmap: React.FC<HeatmapProps> = ({ year, month, dailyData, formatAmount }) => {
+  const spendMap = new Map<string, number>();
+  dailyData.forEach(d => spendMap.set(d.date, d.total));
+
+  const maxSpend = dailyData.reduce((m, d) => Math.max(m, d.total), 0);
+
+  const today = new Date();
+  const todayStr = `${today.getFullYear()}-${String(today.getMonth() + 1).padStart(2, '0')}-${String(today.getDate()).padStart(2, '0')}`;
+
+  const daysInMonth = new Date(year, month, 0).getDate();
+  const firstDow = new Date(year, month - 1, 1).getDay(); // 0=Sun
+
+  const cells: { day: number | null; dateStr: string | null }[] = [];
+  for (let i = 0; i < firstDow; i++) cells.push({ day: null, dateStr: null });
+  for (let d = 1; d <= daysInMonth; d++) {
+    const dateStr = `${year}-${String(month).padStart(2, '0')}-${String(d).padStart(2, '0')}`;
+    cells.push({ day: d, dateStr });
+  }
+
+  const getOpacity = (total: number) => {
+    if (!total || maxSpend === 0) return 0;
+    return 0.15 + (total / maxSpend) * 0.85;
+  };
+
+  return (
+    <div>
+      <div className="grid grid-cols-7 gap-0.5 mb-1">
+        {DAY_LABELS.map(d => (
+          <div key={d} className="text-center text-[10px] text-muted-foreground font-medium py-1">{d}</div>
+        ))}
+      </div>
+      <div className="grid grid-cols-7 gap-1">
+        {cells.map((cell, idx) => {
+          if (!cell.day || !cell.dateStr) {
+            return <div key={`empty-${idx}`} />;
+          }
+          const amt = spendMap.get(cell.dateStr) ?? 0;
+          const opacity = getOpacity(amt);
+          const isToday = cell.dateStr === todayStr;
+          return (
+            <div
+              key={cell.dateStr}
+              title={amt > 0 ? `${cell.dateStr} · ${formatAmount(amt)}` : cell.dateStr}
+              className={`
+                relative aspect-square rounded-lg flex items-center justify-center cursor-default
+                transition-all duration-200 hover:scale-110
+                ${isToday ? 'ring-2 ring-primary ring-offset-1 ring-offset-background' : ''}
+              `}
+              style={{
+                backgroundColor: amt > 0
+                  ? `hsl(var(--primary) / ${opacity})`
+                  : 'hsl(var(--muted) / 0.5)',
+              }}
+            >
+              <span className={`text-[10px] font-medium select-none ${amt > 0 && opacity > 0.5 ? 'text-primary-foreground' : 'text-muted-foreground'}`}>
+                {cell.day}
+              </span>
+            </div>
+          );
+        })}
+      </div>
+      {/* Legend */}
+      <div className="flex items-center gap-2 mt-3 justify-end">
+        <span className="text-[10px] text-muted-foreground">Less</span>
+        {[0.1, 0.3, 0.55, 0.75, 1].map((op, i) => (
+          <div
+            key={i}
+            className="w-4 h-4 rounded-sm"
+            style={{ backgroundColor: `hsl(var(--primary) / ${op})` }}
+          />
+        ))}
+        <span className="text-[10px] text-muted-foreground">More</span>
+      </div>
+    </div>
+  );
+};
+
+// ─── Main Dashboard ─────────────────────────────────────────────────────────
+
 const Dashboard: React.FC = () => {
   const { formatAmount } = useCurrency();
-  const [summary, setSummary] = useState({ income: 0, expense: 0, balance: 0 });
-  const [netWorth, setNetWorth] = useState(0);
-  const [categoryChart, setCategoryChart] = useState<any>(null);
-  const [paymentChart, setPaymentChart] = useState<any>(null);
+  const now = new Date();
+  const currentYear  = now.getFullYear().toString();
+  const currentMonth = (now.getMonth() + 1).toString();
+
+  const [summary, setSummary]             = useState({ income: 0, expense: 0, balance: 0 });
+  const [netWorth, setNetWorth]           = useState(0);
   const [cashFlowChart, setCashFlowChart] = useState<any>(null);
-  const [burnRate, setBurnRate] = useState(0);
-  const [insights, setInsights] = useState<any[]>([]);
-  const [monthlyComp, setMonthlyComp] = useState<any>(null);
+  const [burnRate, setBurnRate]           = useState(0);
+  const [insights, setInsights]           = useState<any[]>([]);
+  const [monthlyComp, setMonthlyComp]     = useState<any>(null);
   const [portfolioValue, setPortfolioValue] = useState(0);
-  const [loading, setLoading] = useState(true);
+  const [loading, setLoading]             = useState(true);
 
-  useEffect(() => {
-    loadData();
+  // Period charts
+  const [categoryPeriod, setCategoryPeriod] = useState<ChartPeriod>('month');
+  const [paymentPeriod, setPaymentPeriod]   = useState<ChartPeriod>('month');
+  const [categoryChart, setCategoryChart]   = useState<any>(null);
+  const [paymentChart, setPaymentChart]     = useState<any>(null);
 
-    const handleSyncComplete = () => {
-      loadData();
-    };
+  // Budgets
+  const [budgetRows, setBudgetRows]           = useState<BudgetVsActualRow[]>([]);
+  const [expenseCategories, setExpenseCategories] = useState<string[]>([]);
 
-    window.addEventListener('app-sync-complete', handleSyncComplete);
-    return () => {
-      window.removeEventListener('app-sync-complete', handleSyncComplete);
-    };
-  }, []);
+  // Heatmap
+  const [dailySpend, setDailySpend] = useState<DailySpend[]>([]);
 
-  const loadData = async () => {
+  // ── Loaders ────────────────────────────────────────────────────────────────
+
+  const loadBaseData = useCallback(async () => {
     try {
-      const now = new Date();
-      const year = now.getFullYear().toString();
-      const month = (now.getMonth() + 1).toString();
-
-      const [sum, nw, cats, payments, comp, burn, spikes, pValue] = await Promise.all([
-        getSummary(),
-        getNetWorth(),
-        getExpensesByCategory(year, month),
-        getPaymentMethodStats(),
-        getMonthlyComparison(),
-        getBurnRate(),
-        getCategorySpikes(),
-        calculatePortfolioValue()
+      const [sum, nw, comp, burn, spikes, pValue] = await Promise.all([
+        getSummary(), getNetWorth(), getMonthlyComparison(),
+        getBurnRate(), getCategorySpikes(), calculatePortfolioValue()
       ]);
 
-      setSummary({
-        income: sum.income || 0,
-        expense: sum.expense || 0,
-        balance: (sum.income || 0) - (sum.expense || 0)
-      });
+      setSummary({ income: sum.income || 0, expense: sum.expense || 0, balance: (sum.income || 0) - (sum.expense || 0) });
       setNetWorth(nw);
       setPortfolioValue(pValue);
       setMonthlyComp(comp);
       setBurnRate(burn);
       setInsights(spikes);
 
-      if (cats && cats.length > 0) {
-        setCategoryChart({
-          labels: cats.map((d: any) => d.category),
-          datasets: [{
-            data: cats.map((d: any) => d.total),
-            backgroundColor: ['#3b82f6', '#ef4444', '#10b981', '#f59e0b', '#8b5cf6', '#ec4899', '#6b7280'],
-            borderWidth: 0,
-            hoverOffset: 4
-          }]
-        });
-      }
-
       setCashFlowChart({
-        labels: ['Previous Month', 'Current Month'],
+        labels: ['Prev Month', 'This Month'],
         datasets: [
-          {
-            label: 'Income',
-            data: [comp.prev_income, comp.current_income],
-            backgroundColor: '#10b981',
-            borderRadius: 8,
-          },
-          {
-            label: 'Expense',
-            data: [comp.prev_expense, comp.current_expense],
-            backgroundColor: '#ef4444',
-            borderRadius: 8,
-          }
+          { label: 'Income',  data: [comp.prev_income,  comp.current_income],  backgroundColor: '#10b981', borderRadius: 8 },
+          { label: 'Expense', data: [comp.prev_expense, comp.current_expense], backgroundColor: '#ef4444', borderRadius: 8 },
         ]
       });
-
-      if (payments && payments.length > 0) {
-        setPaymentChart({
-          labels: payments.map((d: any) => d.payment_method),
-          datasets: [{
-            data: payments.map((d: any) => d.total),
-            backgroundColor: ['#6366f1', '#8b5cf6', '#d946ef', '#f43f5e'],
-            borderWidth: 0
-          }]
-        });
-      }
-    } catch (error) {
-      console.error('Failed to load dashboard data', error);
+    } catch (err) {
+      console.error('Failed to load dashboard base data', err);
     } finally {
       setLoading(false);
     }
+  }, []);
+
+  const loadCategoryChart = useCallback(async (period: ChartPeriod) => {
+    try {
+      const cats = await getExpensesByCategoryByPeriod(period);
+      setCategoryChart(cats?.length ? {
+        labels: cats.map((d: any) => d.category),
+        datasets: [{ data: cats.map((d: any) => d.total), backgroundColor: ['#3b82f6','#ef4444','#10b981','#f59e0b','#8b5cf6','#ec4899','#6b7280'], borderWidth: 0, hoverOffset: 4 }]
+      } : null);
+    } catch { /* ignore */ }
+  }, []);
+
+  const loadPaymentChart = useCallback(async (period: ChartPeriod) => {
+    try {
+      const payments = await getPaymentMethodStatsByPeriod(period);
+      setPaymentChart(payments?.length ? {
+        labels: payments.map((d: any) => d.payment_method),
+        datasets: [{ data: payments.map((d: any) => d.total), backgroundColor: ['#6366f1','#8b5cf6','#d946ef','#f43f5e'], borderWidth: 0 }]
+      } : null);
+    } catch { /* ignore */ }
+  }, []);
+
+  const loadBudgets = useCallback(async () => {
+    try {
+      const [rows, cats] = await Promise.all([
+        getBudgetVsActual(currentYear, currentMonth),
+        getCategories('expense'),
+      ]);
+      setBudgetRows(rows);
+      setExpenseCategories(cats.map(c => c.name));
+    } catch { /* ignore */ }
+  }, [currentYear, currentMonth]);
+
+  const loadHeatmap = useCallback(async () => {
+    try {
+      const data = await getDailySpendingForMonth(currentYear, currentMonth);
+      setDailySpend(data);
+    } catch { /* ignore */ }
+  }, [currentYear, currentMonth]);
+
+  // ── Effects ────────────────────────────────────────────────────────────────
+
+  useEffect(() => {
+    loadBaseData();
+    loadBudgets();
+    loadHeatmap();
+    window.addEventListener('app-sync-complete', loadBaseData);
+    return () => window.removeEventListener('app-sync-complete', loadBaseData);
+  }, [loadBaseData, loadBudgets, loadHeatmap]);
+
+  useEffect(() => { loadCategoryChart(categoryPeriod); }, [categoryPeriod, loadCategoryChart]);
+  useEffect(() => { loadPaymentChart(paymentPeriod);   }, [paymentPeriod,  loadPaymentChart]);
+
+  // ── Budget handlers ────────────────────────────────────────────────────────
+
+  const handleSaveBudget = async (category: string, amount: number) => {
+    await setBudget(category, amount);
+    loadBudgets();
   };
 
-  const savingsRate = summary.income > 0 ? ((summary.income - summary.expense) / summary.income) * 100 : 0;
+  const handleDeleteBudget = async (category: string) => {
+    await deleteBudget(category);
+    loadBudgets();
+  };
+
+  // ── Derived ────────────────────────────────────────────────────────────────
+
+  const savingsRate   = summary.income > 0 ? ((summary.income - summary.expense) / summary.income) * 100 : 0;
+  const currentBalance = netWorth + portfolioValue;
+  const daysRemaining  = burnRate > 0 && currentBalance > 0 ? Math.floor(currentBalance / burnRate) : null;
 
   if (loading) {
     return (
       <div className="flex justify-center items-center h-full">
-        <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-primary"></div>
+        <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-primary" />
       </div>
     );
   }
 
+  const periodLabel: Record<ChartPeriod, string> = { day: 'today', week: 'this week', month: 'this month' };
+
+  // ── Render ─────────────────────────────────────────────────────────────────
+
   return (
-    <div className="space-y-6">
-      <div className="flex items-center justify-between">
-        <h1 className="text-2xl font-bold">Financial Overview</h1>
-        <div className="bg-card px-4 py-2 rounded-xl border border-border flex items-center gap-2">
-          <Zap size={16} className="text-primary animate-pulse" />
-          <span className="text-sm font-medium">Daily Burn: {formatAmount(burnRate)}</span>
+    <div className="space-y-4 md:space-y-6">
+
+      {/* ── Header ── */}
+      <div className="flex flex-wrap items-center justify-between gap-2">
+        <h1 className="text-xl md:text-2xl font-bold">Financial Overview</h1>
+        <div className="bg-card px-3 py-1.5 rounded-xl border border-border flex items-center gap-2">
+          <Zap size={14} className="text-primary animate-pulse shrink-0" />
+          <span className="text-xs md:text-sm font-medium whitespace-nowrap">Daily Burn: {formatAmount(burnRate)}</span>
         </div>
       </div>
 
-      {/* Primary Stats */}
-      <div className="grid grid-cols-2 md:grid-cols-5 gap-4">
-        <div className="bg-primary text-primary-foreground p-6 rounded-2xl shadow-lg relative overflow-hidden group col-span-2 md:col-span-1">
+      {/* ── Primary Stats ── */}
+      <div className="grid grid-cols-2 md:grid-cols-5 gap-3 md:gap-4">
+        <div className="col-span-2 md:col-span-1 bg-primary text-primary-foreground p-4 md:p-6 rounded-2xl shadow-lg relative overflow-hidden group">
           <div className="absolute -right-4 -bottom-4 bg-white/10 w-24 h-24 rounded-full blur-2xl group-hover:scale-150 transition-transform duration-500" />
-          <div className="flex items-center justify-between mb-2 opacity-80">
-            <span className="text-sm font-medium">Total Net Worth</span>
-            <Wallet size={18} />
+          <div className="flex items-center justify-between mb-1 md:mb-2 opacity-80">
+            <span className="text-xs md:text-sm font-medium">Total Net Worth</span>
+            <Wallet size={16} />
           </div>
-          <p className="text-3xl font-black">{formatAmount(netWorth + portfolioValue)}</p>
+          <p className="text-2xl md:text-3xl font-black">{formatAmount(netWorth + portfolioValue)}</p>
         </div>
 
-        <div className="bg-card p-6 rounded-2xl shadow-sm border border-border">
-          <div className="flex items-center justify-between mb-2 text-emerald-500">
-            <span className="text-sm font-medium">Monthly Income</span>
-            <ArrowUpIcon size={18} />
+        <div className="bg-card p-3 md:p-6 rounded-2xl shadow-sm border border-border">
+          <div className="flex items-center justify-between mb-1 md:mb-2 text-emerald-500">
+            <span className="text-xs md:text-sm font-medium leading-tight">Monthly Income</span>
+            <ArrowUpIcon size={16} />
           </div>
-          <p className="text-xl font-bold">{formatAmount(summary.income)}</p>
+          <p className="text-base md:text-xl font-bold">{formatAmount(summary.income)}</p>
         </div>
 
-        <div className="bg-card p-6 rounded-2xl shadow-sm border border-border">
-          <div className="flex items-center justify-between mb-2 text-destructive">
-            <span className="text-sm font-medium">Monthly Expense</span>
-            <ArrowDownIcon size={18} />
+        <div className="bg-card p-3 md:p-6 rounded-2xl shadow-sm border border-border">
+          <div className="flex items-center justify-between mb-1 md:mb-2 text-destructive">
+            <span className="text-xs md:text-sm font-medium leading-tight">Monthly Expense</span>
+            <ArrowDownIcon size={16} />
           </div>
-          <p className="text-xl font-bold">{formatAmount(summary.expense)}</p>
+          <p className="text-base md:text-xl font-bold">{formatAmount(summary.expense)}</p>
         </div>
 
-        <div className="bg-card p-6 rounded-2xl shadow-sm border border-border">
-          <div className="flex items-center justify-between mb-2 text-amber-500">
-            <span className="text-sm font-medium">Investments</span>
-            <TrendingUp size={18} />
+        <div className="bg-card p-3 md:p-6 rounded-2xl shadow-sm border border-border">
+          <div className="flex items-center justify-between mb-1 md:mb-2 text-amber-500">
+            <span className="text-xs md:text-sm font-medium leading-tight">Investments</span>
+            <TrendingUp size={16} />
           </div>
-          <p className="text-xl font-bold">{formatAmount(portfolioValue)}</p>
+          <p className="text-base md:text-xl font-bold">{formatAmount(portfolioValue)}</p>
         </div>
 
-        <div className="bg-card p-6 rounded-2xl shadow-sm border border-border">
-          <div className="flex items-center justify-between mb-2 text-primary">
-            <span className="text-sm font-medium">Savings Rate</span>
-            <Banknote size={18} />
+        <div className="bg-card p-3 md:p-6 rounded-2xl shadow-sm border border-border">
+          <div className="flex items-center justify-between mb-1 md:mb-2 text-primary">
+            <span className="text-xs md:text-sm font-medium leading-tight">Savings Rate</span>
+            <Banknote size={16} />
           </div>
-          <p className="text-xl font-bold">{savingsRate.toFixed(1)}%</p>
+          <p className="text-base md:text-xl font-bold">{savingsRate.toFixed(1)}%</p>
         </div>
       </div>
 
-      <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
-        {/* Intelligence Brief */}
-        <div className="lg:col-span-1 bg-card p-6 rounded-2xl shadow-sm border border-border h-full">
-          <h2 className="text-lg font-semibold mb-6 flex items-center gap-2">
-            <Zap size={20} className="text-primary" />
-            Intelligence Brief
+      {/* ── Burn Rate Projection ── */}
+      {(() => {
+        if (burnRate <= 0) return null;
+        const isZero     = currentBalance <= 0;
+        const isCritical = !isZero && daysRemaining !== null && daysRemaining < 30;
+        const isWarning  = !isZero && daysRemaining !== null && daysRemaining >= 30 && daysRemaining < 90;
+
+        const bg        = isZero || isCritical ? 'bg-destructive/10 border-destructive/30' : isWarning ? 'bg-amber-500/10 border-amber-500/30' : 'bg-emerald-500/10 border-emerald-500/30';
+        const iconColor = isZero || isCritical ? 'text-destructive' : isWarning ? 'text-amber-500' : 'text-emerald-500';
+        const textColor = isZero || isCritical ? 'text-destructive' : isWarning ? 'text-amber-600' : 'text-emerald-600';
+        const Icon      = isZero || isCritical ? AlertTriangle : isWarning ? Clock : ShieldCheck;
+        const message   = isZero ? 'Your balance has already hit zero.' : `You will run out of money in ${daysRemaining} day${daysRemaining === 1 ? '' : 's'}.`;
+        const sub       = isZero || isCritical ? 'Reduce spending or add income immediately.' : isWarning ? 'Consider cutting back on non-essential expenses.' : 'You are on a healthy financial track.';
+
+        return (
+          <div className={`flex flex-col sm:flex-row items-start sm:items-center gap-4 p-4 md:p-5 rounded-2xl border ${bg}`}>
+            <div className={`p-2.5 rounded-xl bg-white/50 dark:bg-black/20 shrink-0 ${iconColor}`}><Icon size={22} /></div>
+            <div className="flex-1 min-w-0">
+              <p className="text-xs font-semibold uppercase tracking-wider text-muted-foreground mb-0.5">Burn Rate Projection</p>
+              <p className={`text-base md:text-lg font-bold ${textColor}`}>{message}</p>
+              <p className="text-xs text-muted-foreground mt-0.5">{sub}</p>
+            </div>
+            <div className="shrink-0 text-right">
+              <p className="text-xs text-muted-foreground">Daily Burn</p>
+              <p className={`text-lg md:text-xl font-black ${iconColor}`}>{formatAmount(burnRate)}<span className="text-xs font-normal text-muted-foreground">/day</span></p>
+            </div>
+          </div>
+        );
+      })()}
+
+      {/* ── Intelligence Brief + Cash Flow ── */}
+      <div className="grid grid-cols-1 lg:grid-cols-3 gap-4 md:gap-6">
+        <div className="lg:col-span-1 bg-card p-4 md:p-6 rounded-2xl shadow-sm border border-border">
+          <h2 className="text-base md:text-lg font-semibold mb-4 flex items-center gap-2">
+            <Zap size={18} className="text-primary" /> Intelligence Brief
           </h2>
-          <div className="space-y-4">
+          <div className="space-y-3">
             {monthlyComp && (
-              <div className="p-4 rounded-xl bg-muted/50 border border-border">
+              <div className="p-3 md:p-4 rounded-xl bg-muted/50 border border-border">
                 <div className="flex items-start gap-3">
-                  {monthlyComp.current_expense > monthlyComp.prev_expense ? (
-                    <TrendingUp className="text-destructive mt-1 shrink-0" size={18} />
-                  ) : (
-                    <TrendingDown className="text-emerald-500 mt-1 shrink-0" size={18} />
-                  )}
+                  {monthlyComp.current_expense > monthlyComp.prev_expense
+                    ? <TrendingUp className="text-destructive mt-1 shrink-0" size={16} />
+                    : <TrendingDown className="text-emerald-500 mt-1 shrink-0" size={16} />}
                   <div>
                     <p className="text-sm font-medium">
                       {monthlyComp.prev_expense === 0
@@ -214,50 +562,38 @@ const Dashboard: React.FC = () => {
                           : `Good job! You've spent less than last month.`}
                     </p>
                     <p className="text-xs text-muted-foreground mt-1">
-                      {monthlyComp.prev_expense === 0 ? "Comparison will be available next month" : "Compared to previous month metrics"}
+                      {monthlyComp.prev_expense === 0 ? 'Comparison will be available next month' : 'Compared to previous month metrics'}
                     </p>
                   </div>
                 </div>
               </div>
             )}
-
             {insights.map((insight, idx) => (
-              <div key={idx} className="p-4 rounded-xl bg-orange-500/5 border border-orange-500/20">
-                <p className="text-sm font-medium text-orange-600">
-                  {insight.category} expense hiked!
-                </p>
-                <p className="text-xs text-orange-500/80 mt-1">
-                  Increased by {insight.increase_pct.toFixed(0)}% from last month
-                </p>
+              <div key={idx} className="p-3 md:p-4 rounded-xl bg-orange-500/5 border border-orange-500/20">
+                <p className="text-sm font-medium text-orange-600">{insight.category} expense hiked!</p>
+                <p className="text-xs text-orange-500/80 mt-1">Increased by {insight.increase_pct.toFixed(0)}% from last month</p>
               </div>
             ))}
-
             {(insights.length === 0 || (monthlyComp && monthlyComp.prev_expense === 0)) && (
-              <div className="flex flex-col items-center justify-center py-8 opacity-50">
+              <div className="flex flex-col items-center justify-center py-6 opacity-50">
                 <p className="text-muted-foreground text-sm italic">Gathering data for more insights...</p>
               </div>
             )}
           </div>
         </div>
 
-        {/* Cash Flow Analysis */}
-        <div className="lg:col-span-2 bg-card p-6 rounded-2xl shadow-sm border border-border h-full">
-          <h2 className="text-lg font-semibold mb-6">Cash Flow Analysis</h2>
-          <div className="h-64">
+        <div className="lg:col-span-2 bg-card p-4 md:p-6 rounded-2xl shadow-sm border border-border">
+          <h2 className="text-base md:text-lg font-semibold mb-4">Cash Flow Analysis</h2>
+          <div className="h-52 md:h-64">
             {cashFlowChart ? (
-              <Bar
-                data={cashFlowChart}
-                options={{
-                  maintainAspectRatio: false,
-                  scales: {
-                    x: { grid: { display: false } },
-                    y: { beginAtZero: true, grid: { color: 'rgba(0,0,0,0.05)' } }
-                  },
-                  plugins: {
-                    legend: { position: 'top', labels: { usePointStyle: true, padding: 15 } }
-                  }
-                }}
-              />
+              <Bar data={cashFlowChart} options={{
+                maintainAspectRatio: false,
+                scales: {
+                  x: { grid: { display: false } },
+                  y: { beginAtZero: true, grid: { color: 'rgba(0,0,0,0.05)' }, ticks: { maxTicksLimit: 5 } }
+                },
+                plugins: { legend: { position: 'top', labels: { usePointStyle: true, padding: 12, boxWidth: 8 } } }
+              }} />
             ) : (
               <div className="h-full flex items-center justify-center">
                 <p className="text-muted-foreground text-sm">Loading cash flow data...</p>
@@ -267,40 +603,87 @@ const Dashboard: React.FC = () => {
         </div>
       </div>
 
-      <div className="grid grid-cols-1 md:grid-cols-2 gap-6 mt-8">
-        {/* Category Chart */}
-        <div className="bg-card p-6 rounded-2xl shadow-sm border border-border">
-          <h2 className="text-lg font-semibold mb-6 text-center">Expenses by Category</h2>
-          <div className="h-64 flex justify-center items-center">
+      {/* ── Budget vs Actual + Spending Heatmap ── */}
+      <div className="grid grid-cols-1 lg:grid-cols-2 gap-4 md:gap-6">
+
+        {/* Budget vs Actual */}
+        <div className="bg-card p-4 md:p-6 rounded-2xl shadow-sm border border-border">
+          <div className="flex items-center justify-between mb-4 gap-2">
+            <div>
+              <h2 className="text-base md:text-lg font-semibold">Budget vs Actual</h2>
+              <p className="text-xs text-muted-foreground mt-0.5">
+                {MONTH_NAMES[now.getMonth()]} {now.getFullYear()}
+              </p>
+            </div>
+            {budgetRows.length > 0 && expenseCategories.filter(c => !budgetRows.find(r => r.category === c)).length > 0 && (
+              <div className="text-xs text-muted-foreground shrink-0">
+                {budgetRows.filter(r => r.pct > 100).length > 0 && (
+                  <span className="text-destructive font-semibold">
+                    {budgetRows.filter(r => r.pct > 100).length} over budget
+                  </span>
+                )}
+              </div>
+            )}
+          </div>
+          <BudgetVsActualPanel
+            rows={budgetRows}
+            categories={expenseCategories}
+            formatAmount={formatAmount}
+            onSave={handleSaveBudget}
+            onDelete={handleDeleteBudget}
+          />
+        </div>
+
+        {/* Spending Heatmap */}
+        <div className="bg-card p-4 md:p-6 rounded-2xl shadow-sm border border-border">
+          <div className="mb-4">
+            <h2 className="text-base md:text-lg font-semibold">Spending Heatmap</h2>
+            <p className="text-xs text-muted-foreground mt-0.5">
+              {MONTH_NAMES[now.getMonth()]} {now.getFullYear()} · Darker = higher spend
+            </p>
+          </div>
+          <SpendingHeatmap
+            year={now.getFullYear()}
+            month={now.getMonth() + 1}
+            dailyData={dailySpend}
+            formatAmount={formatAmount}
+          />
+        </div>
+      </div>
+
+      {/* ── Category & Payment Charts ── */}
+      <div className="grid grid-cols-1 md:grid-cols-2 gap-4 md:gap-6">
+        <div className="bg-card p-4 md:p-6 rounded-2xl shadow-sm border border-border">
+          <div className="flex flex-wrap items-center justify-between gap-2 mb-4">
+            <h2 className="text-base md:text-lg font-semibold">Expenses by Category</h2>
+            <PeriodToggle value={categoryPeriod} onChange={setCategoryPeriod} />
+          </div>
+          <div className="h-56 md:h-64 flex justify-center items-center">
             {categoryChart ? (
-              <Doughnut
-                data={categoryChart}
-                options={{ maintainAspectRatio: false, cutout: '70%', plugins: { legend: { position: 'bottom', labels: { usePointStyle: true, padding: 20 } } } }}
-              />
+              <Doughnut data={categoryChart} options={{ maintainAspectRatio: false, cutout: '68%', plugins: { legend: { position: 'bottom', labels: { usePointStyle: true, padding: 14, boxWidth: 8, font: { size: 11 } } } } }} />
             ) : (
-              <p className="text-muted-foreground text-sm">No data this month.</p>
+              <p className="text-muted-foreground text-sm">No data {periodLabel[categoryPeriod]}.</p>
             )}
           </div>
         </div>
 
-        {/* Payment Method Chart */}
-        <div className="bg-card p-6 rounded-2xl shadow-sm border border-border">
-          <h2 className="text-lg font-semibold mb-6 text-center">Payment Methods</h2>
-          <div className="h-64 flex justify-center items-center">
+        <div className="bg-card p-4 md:p-6 rounded-2xl shadow-sm border border-border">
+          <div className="flex flex-wrap items-center justify-between gap-2 mb-4">
+            <h2 className="text-base md:text-lg font-semibold">Payment Methods</h2>
+            <PeriodToggle value={paymentPeriod} onChange={setPaymentPeriod} />
+          </div>
+          <div className="h-56 md:h-64 flex justify-center items-center">
             {paymentChart ? (
-              <Pie
-                data={paymentChart}
-                options={{ maintainAspectRatio: false, plugins: { legend: { position: 'bottom', labels: { usePointStyle: true, padding: 20 } } } }}
-              />
+              <Pie data={paymentChart} options={{ maintainAspectRatio: false, plugins: { legend: { position: 'bottom', labels: { usePointStyle: true, padding: 14, boxWidth: 8, font: { size: 11 } } } } }} />
             ) : (
-              <p className="text-muted-foreground text-sm">No data recorded.</p>
+              <p className="text-muted-foreground text-sm">No data {periodLabel[paymentPeriod]}.</p>
             )}
           </div>
         </div>
       </div>
+
     </div>
   );
 };
 
 export default Dashboard;
-

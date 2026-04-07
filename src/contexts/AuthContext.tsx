@@ -53,6 +53,7 @@ export const AuthProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
     if (auth) await firebaseSignOut(auth);
   };
 
+  // No Firebase config: show error before mounting any children
   if (!auth && !loading) {
     return (
       <div className="flex flex-col items-center justify-center min-h-screen bg-background text-foreground p-6">
@@ -75,9 +76,17 @@ export const AuthProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
     );
   }
 
+  // Always render children so nested providers (SQLite, Sync, etc.) can initialize
+  // in parallel with auth resolution. Show a spinner overlay while auth is pending.
   return (
     <AuthContext.Provider value={{ user, loading, signInWithGoogle, signOut }}>
-      {!loading && children}
+      {loading ? (
+        <div className="flex h-screen items-center justify-center bg-background text-foreground">
+          <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-primary" />
+        </div>
+      ) : (
+        children
+      )}
     </AuthContext.Provider>
   );
 };

@@ -9,6 +9,8 @@ import {
 } from 'firebase/auth';
 import type { User } from 'firebase/auth';
 import { auth } from '../firebase';
+import { syncManager } from '../db/SyncManager';
+import { clearDB } from '../db/sqlite';
 
 interface AuthContextType {
   user: User | null;
@@ -50,7 +52,17 @@ export const AuthProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
   };
 
   const signOut = async () => {
-    if (auth) await firebaseSignOut(auth);
+    if (auth) {
+      try {
+        // Attempt one final sync before wiping everything
+        await syncManager.processQueue();
+      } catch (e) {
+        console.warn('Final sync before signout failed:', e);
+      }
+      
+      await firebaseSignOut(auth);
+      await clearDB();
+    }
   };
 
   // No Firebase config: show error before mounting any children

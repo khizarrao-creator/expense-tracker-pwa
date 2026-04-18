@@ -1,6 +1,5 @@
 import React, { useEffect, useState, useCallback, useRef } from 'react';
 import {
-  getSummary,
   getExpensesByCategoryByPeriod,
   getNetWorth,
   getPaymentMethodStatsByPeriod,
@@ -56,11 +55,10 @@ const PeriodToggle: React.FC<PeriodToggleProps> = ({ value, onChange }) => (
       <button
         key={opt.value}
         onClick={() => onChange(opt.value)}
-        className={`px-2.5 py-1 text-xs font-semibold rounded-md transition-all duration-200 ${
-          value === opt.value
+        className={`px-2.5 py-1 text-xs font-semibold rounded-md transition-all duration-200 ${value === opt.value
             ? 'bg-primary text-primary-foreground shadow-sm'
             : 'text-muted-foreground hover:text-foreground'
-        }`}
+          }`}
       >
         {opt.label}
       </button>
@@ -72,10 +70,10 @@ const PeriodToggle: React.FC<PeriodToggleProps> = ({ value, onChange }) => (
 
 interface BudgetVsActualProps {
   rows: BudgetVsActualRow[];
-  categories: string[];
+  categories: any[];
   formatAmount: (n: number) => string;
-  onSave: (cat: string, amount: number) => void;
-  onDelete: (cat: string) => void;
+  onSave: (cat: string, amount: number, subcat?: string | null) => void;
+  onDelete: (cat: string, subcat?: string | null) => void;
 }
 
 const BudgetVsActualPanel: React.FC<BudgetVsActualProps> = ({
@@ -91,22 +89,28 @@ const BudgetVsActualPanel: React.FC<BudgetVsActualProps> = ({
   const existingCats = new Set(rows.map(r => r.category));
   const availableCats = categories.filter(c => !existingCats.has(c));
 
-  const startEdit = (cat: string, current: number) => {
-    setEditingCat(cat);
-    setEditVal(String(current));
+  const startEdit = (row: BudgetVsActualRow) => {
+    const key = row.subcategory ? `${row.category}:${row.subcategory}` : row.category;
+    setEditingCat(key);
+    setEditVal(String(row.budget));
     setTimeout(() => editRef.current?.focus(), 50);
   };
 
-  const commitEdit = (cat: string) => {
+  const commitEdit = (row: BudgetVsActualRow) => {
     const amt = parseFloat(editVal);
-    if (!isNaN(amt) && amt > 0) onSave(cat, amt);
+    if (!isNaN(amt) && amt > 0) onSave(row.category, amt, row.subcategory);
     setEditingCat(null);
   };
 
   const commitAdd = () => {
     const amt = parseFloat(newAmt);
     if (newCat && !isNaN(amt) && amt > 0) {
-      onSave(newCat, amt);
+      if (newCat.includes(' > ')) {
+        const [p, s] = newCat.split(' > ');
+        onSave(p, amt, s);
+      } else {
+        onSave(newCat, amt, null);
+      }
       setNewCat('');
       setNewAmt('');
       setAdding(false);
@@ -134,23 +138,26 @@ const BudgetVsActualPanel: React.FC<BudgetVsActualProps> = ({
         const barW = Math.min(row.pct, 100);
         const barColor = isOver ? 'bg-destructive' : row.pct > 75 ? 'bg-amber-500' : 'bg-primary';
         const pctColor = isOver ? 'text-destructive font-bold' : row.pct > 75 ? 'text-amber-500' : 'text-emerald-500';
-        const isEditing = editingCat === row.category;
+        const rowKey = row.subcategory ? `${row.category}:${row.subcategory}` : row.category;
+        const isEditing = editingCat === rowKey;
 
         return (
-          <div key={row.category} className={`p-3 rounded-xl border ${isOver ? 'border-destructive/30 bg-destructive/5' : 'border-border bg-muted/30'}`}>
+          <div key={`${row.category}-${row.subcategory}`} className={`p-3 rounded-xl border ${isOver ? 'border-destructive/30 bg-destructive/5' : 'border-border bg-muted/30'}`}>
             <div className="flex items-center justify-between mb-2 gap-2">
-              <span className="text-sm font-semibold truncate">{row.category}</span>
+              <span className="text-sm font-semibold truncate">
+                {row.subcategory ? `${row.category} > ${row.subcategory}` : row.category}
+              </span>
               <div className="flex items-center gap-1 shrink-0">
                 <span className={`text-xs ${pctColor}`}>{row.pct.toFixed(0)}%</span>
                 {isOver && <AlertTriangle size={12} className="text-destructive" />}
                 <button
-                  onClick={() => startEdit(row.category, row.budget)}
+                  onClick={() => startEdit(row)}
                   className="p-1 rounded text-muted-foreground hover:text-foreground transition"
                 >
                   <Pencil size={13} />
                 </button>
                 <button
-                  onClick={() => onDelete(row.category)}
+                  onClick={() => onDelete(row.category, row.subcategory)}
                   className="p-1 rounded text-muted-foreground hover:text-destructive transition"
                 >
                   <Trash2 size={13} />
@@ -173,11 +180,11 @@ const BudgetVsActualPanel: React.FC<BudgetVsActualProps> = ({
                   type="number"
                   value={editVal}
                   onChange={e => setEditVal(e.target.value)}
-                  onKeyDown={e => { if (e.key === 'Enter') commitEdit(row.category); if (e.key === 'Escape') setEditingCat(null); }}
+                  onKeyDown={e => { if (e.key === 'Enter') commitEdit(row); if (e.key === 'Escape') setEditingCat(null); }}
                   className="flex-1 text-xs px-2 py-1 rounded-lg border border-border bg-background focus:outline-none focus:border-primary"
                   placeholder="Budget amount"
                 />
-                <button onClick={() => commitEdit(row.category)} className="p-1 text-emerald-500 hover:opacity-80"><Check size={14} /></button>
+                <button onClick={() => commitEdit(row)} className="p-1 text-emerald-500 hover:opacity-80"><Check size={14} /></button>
                 <button onClick={() => setEditingCat(null)} className="p-1 text-muted-foreground hover:opacity-80"><XIcon size={14} /></button>
               </div>
             ) : (
@@ -199,7 +206,16 @@ const BudgetVsActualPanel: React.FC<BudgetVsActualProps> = ({
             className="flex-1 min-w-0 text-sm px-2 py-1.5 rounded-lg border border-border bg-background focus:outline-none focus:border-primary"
           >
             <option value="">Select category…</option>
-            {availableCats.map(c => <option key={c} value={c}>{c}</option>)}
+            {categories.filter(c => !c.parent_id).map(parent => (
+              <React.Fragment key={parent.id}>
+                <option value={parent.name}>{parent.name}</option>
+                {categories.filter(sub => sub.parent_id === parent.id).map(sub => (
+                  <option key={sub.id} value={`${parent.name} > ${sub.name}`}>
+                    &nbsp;&nbsp;&nbsp;{sub.name}
+                  </option>
+                ))}
+              </React.Fragment>
+            ))}
           </select>
           <input
             type="number"
@@ -227,7 +243,7 @@ const BudgetVsActualPanel: React.FC<BudgetVsActualProps> = ({
 // ─── Spending Heatmap ───────────────────────────────────────────────────────
 
 const DAY_LABELS = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
-const MONTH_NAMES = ['January','February','March','April','May','June','July','August','September','October','November','December'];
+const MONTH_NAMES = ['January', 'February', 'March', 'April', 'May', 'June', 'July', 'August', 'September', 'October', 'November', 'December'];
 
 interface HeatmapProps {
   year: number;
@@ -318,27 +334,27 @@ const SpendingHeatmap: React.FC<HeatmapProps> = ({ year, month, dailyData, forma
 const Dashboard: React.FC = () => {
   const { formatAmount } = useCurrency();
   const now = new Date();
-  const currentYear  = now.getFullYear().toString();
+  const currentYear = now.getFullYear().toString();
   const currentMonth = (now.getMonth() + 1).toString();
 
-  const [summary, setSummary]             = useState({ income: 0, expense: 0, balance: 0 });
-  const [netWorth, setNetWorth]           = useState(0);
+  const [summary, setSummary] = useState({ income: 0, expense: 0, balance: 0 });
+  const [netWorth, setNetWorth] = useState(0);
   const [cashFlowChart, setCashFlowChart] = useState<any>(null);
-  const [burnRate, setBurnRate]           = useState(0);
-  const [insights, setInsights]           = useState<any[]>([]);
-  const [monthlyComp, setMonthlyComp]     = useState<any>(null);
+  const [burnRate, setBurnRate] = useState(0);
+  const [insights, setInsights] = useState<any[]>([]);
+  const [monthlyComp, setMonthlyComp] = useState<any>(null);
   const [portfolioValue, setPortfolioValue] = useState(0);
-  const [loading, setLoading]             = useState(true);
+  const [loading, setLoading] = useState(true);
 
   // Period charts
   const [categoryPeriod, setCategoryPeriod] = useState<ChartPeriod>('month');
-  const [paymentPeriod, setPaymentPeriod]   = useState<ChartPeriod>('month');
-  const [categoryChart, setCategoryChart]   = useState<any>(null);
-  const [paymentChart, setPaymentChart]     = useState<any>(null);
+  const [paymentPeriod, setPaymentPeriod] = useState<ChartPeriod>('month');
+  const [categoryChart, setCategoryChart] = useState<any>(null);
+  const [paymentChart, setPaymentChart] = useState<any>(null);
 
   // Budgets
-  const [budgetRows, setBudgetRows]           = useState<BudgetVsActualRow[]>([]);
-  const [expenseCategories, setExpenseCategories] = useState<string[]>([]);
+  const [budgetRows, setBudgetRows] = useState<BudgetVsActualRow[]>([]);
+  const [expenseCategories, setExpenseCategories] = useState<any[]>([]);
 
   // Heatmap
   const [dailySpend, setDailySpend] = useState<DailySpend[]>([]);
@@ -347,12 +363,16 @@ const Dashboard: React.FC = () => {
 
   const loadBaseData = useCallback(async () => {
     try {
-      const [sum, nw, comp, burn, spikes, pValue] = await Promise.all([
-        getSummary(), getNetWorth(), getMonthlyComparison(),
+      const [nw, comp, burn, spikes, pValue] = await Promise.all([
+        getNetWorth(), getMonthlyComparison(),
         getBurnRate(), getCategorySpikes(), calculatePortfolioValue()
       ]);
 
-      setSummary({ income: sum.income || 0, expense: sum.expense || 0, balance: (sum.income || 0) - (sum.expense || 0) });
+      setSummary({
+        income: comp.current_income || 0,
+        expense: comp.current_expense || 0,
+        balance: (comp.current_income || 0) - (comp.current_expense || 0)
+      });
       setNetWorth(nw);
       setPortfolioValue(pValue);
       setMonthlyComp(comp);
@@ -362,7 +382,7 @@ const Dashboard: React.FC = () => {
       setCashFlowChart({
         labels: ['Prev Month', 'This Month'],
         datasets: [
-          { label: 'Income',  data: [comp.prev_income,  comp.current_income],  backgroundColor: '#10b981', borderRadius: 8 },
+          { label: 'Income', data: [comp.prev_income, comp.current_income], backgroundColor: '#10b981', borderRadius: 8 },
           { label: 'Expense', data: [comp.prev_expense, comp.current_expense], backgroundColor: '#ef4444', borderRadius: 8 },
         ]
       });
@@ -377,8 +397,8 @@ const Dashboard: React.FC = () => {
     try {
       const cats = await getExpensesByCategoryByPeriod(period);
       setCategoryChart(cats?.length ? {
-        labels: cats.map((d: any) => d.category),
-        datasets: [{ data: cats.map((d: any) => d.total), backgroundColor: ['#3b82f6','#ef4444','#10b981','#f59e0b','#8b5cf6','#ec4899','#6b7280'], borderWidth: 0, hoverOffset: 4 }]
+        labels: cats.map((d: any) => d.subcategory ? `${d.category} > ${d.subcategory}` : d.category),
+        datasets: [{ data: cats.map((d: any) => d.total), backgroundColor: ['#3b82f6', '#ef4444', '#10b981', '#f59e0b', '#8b5cf6', '#ec4899', '#6b7280'], borderWidth: 0, hoverOffset: 4 }]
       } : null);
     } catch { /* ignore */ }
   }, []);
@@ -388,7 +408,7 @@ const Dashboard: React.FC = () => {
       const payments = await getPaymentMethodStatsByPeriod(period);
       setPaymentChart(payments?.length ? {
         labels: payments.map((d: any) => d.payment_method),
-        datasets: [{ data: payments.map((d: any) => d.total), backgroundColor: ['#6366f1','#8b5cf6','#d946ef','#f43f5e'], borderWidth: 0 }]
+        datasets: [{ data: payments.map((d: any) => d.total), backgroundColor: ['#6366f1', '#8b5cf6', '#d946ef', '#f43f5e'], borderWidth: 0 }]
       } : null);
     } catch { /* ignore */ }
   }, []);
@@ -397,10 +417,10 @@ const Dashboard: React.FC = () => {
     try {
       const [rows, cats] = await Promise.all([
         getBudgetVsActual(currentYear, currentMonth),
-        getCategories('expense'),
+        getCategories('expense', 'all'),
       ]);
       setBudgetRows(rows);
-      setExpenseCategories(cats.map(c => c.name));
+      setExpenseCategories(cats);
     } catch { /* ignore */ }
   }, [currentYear, currentMonth]);
 
@@ -422,25 +442,25 @@ const Dashboard: React.FC = () => {
   }, [loadBaseData, loadBudgets, loadHeatmap]);
 
   useEffect(() => { loadCategoryChart(categoryPeriod); }, [categoryPeriod, loadCategoryChart]);
-  useEffect(() => { loadPaymentChart(paymentPeriod);   }, [paymentPeriod,  loadPaymentChart]);
+  useEffect(() => { loadPaymentChart(paymentPeriod); }, [paymentPeriod, loadPaymentChart]);
 
   // ── Budget handlers ────────────────────────────────────────────────────────
 
-  const handleSaveBudget = async (category: string, amount: number) => {
-    await setBudget(category, amount);
+  const handleSaveBudget = async (category: string, amount: number, subcategory: string | null = null) => {
+    await setBudget(category, amount, subcategory);
     loadBudgets();
   };
 
-  const handleDeleteBudget = async (category: string) => {
-    await deleteBudget(category);
+  const handleDeleteBudget = async (category: string, subcategory: string | null = null) => {
+    await deleteBudget(category, subcategory);
     loadBudgets();
   };
 
   // ── Derived ────────────────────────────────────────────────────────────────
 
-  const savingsRate   = summary.income > 0 ? ((summary.income - summary.expense) / summary.income) * 100 : 0;
+  const savingsRate = summary.income > 0 ? ((summary.income - summary.expense) / summary.income) * 100 : 0;
   const currentBalance = netWorth + portfolioValue;
-  const daysRemaining  = burnRate > 0 && currentBalance > 0 ? Math.floor(currentBalance / burnRate) : null;
+  const daysRemaining = burnRate > 0 && currentBalance > 0 ? Math.floor(currentBalance / burnRate) : null;
 
   if (loading) {
     return (
@@ -460,15 +480,11 @@ const Dashboard: React.FC = () => {
       {/* ── Header ── */}
       <div className="flex flex-wrap items-center justify-between gap-2">
         <h1 className="text-xl md:text-2xl font-bold">Financial Overview</h1>
-        <div className="bg-card px-3 py-1.5 rounded-xl border border-border flex items-center gap-2">
-          <Zap size={14} className="text-primary animate-pulse shrink-0" />
-          <span className="text-xs md:text-sm font-medium whitespace-nowrap">Daily Burn: {formatAmount(burnRate)}</span>
-        </div>
       </div>
 
       {/* ── Primary Stats ── */}
-      <div className="grid grid-cols-2 md:grid-cols-5 gap-3 md:gap-4">
-        <div className="col-span-2 md:col-span-1 bg-primary text-primary-foreground p-4 md:p-6 rounded-2xl shadow-lg relative overflow-hidden group">
+      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-5 gap-3 md:gap-4">
+        <div className="sm:col-span-2 lg:col-span-1 bg-primary text-primary-foreground p-4 md:p-6 rounded-2xl shadow-lg relative overflow-hidden group">
           <div className="absolute -right-4 -bottom-4 bg-white/10 w-24 h-24 rounded-full blur-2xl group-hover:scale-150 transition-transform duration-500" />
           <div className="flex items-center justify-between mb-1 md:mb-2 opacity-80">
             <span className="text-xs md:text-sm font-medium">Total Net Worth</span>
@@ -513,16 +529,16 @@ const Dashboard: React.FC = () => {
       {/* ── Burn Rate Projection ── */}
       {(() => {
         if (burnRate <= 0) return null;
-        const isZero     = currentBalance <= 0;
+        const isZero = currentBalance <= 0;
         const isCritical = !isZero && daysRemaining !== null && daysRemaining < 30;
-        const isWarning  = !isZero && daysRemaining !== null && daysRemaining >= 30 && daysRemaining < 90;
+        const isWarning = !isZero && daysRemaining !== null && daysRemaining >= 30 && daysRemaining < 90;
 
-        const bg        = isZero || isCritical ? 'bg-destructive/10 border-destructive/30' : isWarning ? 'bg-amber-500/10 border-amber-500/30' : 'bg-emerald-500/10 border-emerald-500/30';
+        const bg = isZero || isCritical ? 'bg-destructive/10 border-destructive/30' : isWarning ? 'bg-amber-500/10 border-amber-500/30' : 'bg-emerald-500/10 border-emerald-500/30';
         const iconColor = isZero || isCritical ? 'text-destructive' : isWarning ? 'text-amber-500' : 'text-emerald-500';
         const textColor = isZero || isCritical ? 'text-destructive' : isWarning ? 'text-amber-600' : 'text-emerald-600';
-        const Icon      = isZero || isCritical ? AlertTriangle : isWarning ? Clock : ShieldCheck;
-        const message   = isZero ? 'Your balance has already hit zero.' : `You will run out of money in ${daysRemaining} day${daysRemaining === 1 ? '' : 's'}.`;
-        const sub       = isZero || isCritical ? 'Reduce spending or add income immediately.' : isWarning ? 'Consider cutting back on non-essential expenses.' : 'You are on a healthy financial track.';
+        const Icon = isZero || isCritical ? AlertTriangle : isWarning ? Clock : ShieldCheck;
+        const message = isZero ? 'Your balance has already hit zero.' : `You will run out of money in ${daysRemaining} day${daysRemaining === 1 ? '' : 's'}.`;
+        const sub = isZero || isCritical ? 'Reduce spending or add income immediately.' : isWarning ? 'Consider cutting back on non-essential expenses.' : 'You are on a healthy financial track.';
 
         return (
           <div className={`flex flex-col sm:flex-row items-start sm:items-center gap-4 p-4 md:p-5 rounded-2xl border ${bg}`}>
@@ -615,7 +631,7 @@ const Dashboard: React.FC = () => {
                 {MONTH_NAMES[now.getMonth()]} {now.getFullYear()}
               </p>
             </div>
-            {budgetRows.length > 0 && expenseCategories.filter(c => !budgetRows.find(r => r.category === c)).length > 0 && (
+            {budgetRows.length > 0 && expenseCategories.length > 0 && (
               <div className="text-xs text-muted-foreground shrink-0">
                 {budgetRows.filter(r => r.pct > 100).length > 0 && (
                   <span className="text-destructive font-semibold">

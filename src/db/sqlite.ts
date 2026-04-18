@@ -11,22 +11,22 @@ const DB_STORE_NAME = 'expense-tracker-db';
 
 export const initDB = async () => {
   if (db) return { db, SQL };
-  
+
   SQL = await initSqlJs({
     locateFile: () => sqlWasm
   });
 
   const savedData = await localforage.getItem<Uint8Array>(DB_STORE_NAME);
-  
+
   if (savedData) {
     db = new SQL.Database(savedData);
   } else {
     db = new SQL.Database();
   }
-  
+
   await initializeSchema();
   await saveDB();
-  
+
   return { db, SQL };
 };
 
@@ -61,7 +61,9 @@ const initializeSchema = async () => {
       created_at TEXT NOT NULL,
       updated_at TEXT NOT NULL,
       deviceId TEXT,
-      synced INTEGER DEFAULT 0
+      synced INTEGER DEFAULT 0,
+      parent_id TEXT,
+      FOREIGN KEY (parent_id) REFERENCES categories(id)
     );
 
     CREATE TABLE IF NOT EXISTS transactions (
@@ -78,6 +80,7 @@ const initializeSchema = async () => {
       updated_at TEXT NOT NULL,
       deviceId TEXT,
       synced INTEGER DEFAULT 0,
+      subcategory TEXT,
       FOREIGN KEY (account_id) REFERENCES accounts(id),
       FOREIGN KEY (to_account_id) REFERENCES accounts(id)
     );
@@ -132,9 +135,11 @@ const initializeSchema = async () => {
     );
 
     CREATE TABLE IF NOT EXISTS budgets (
-      category TEXT PRIMARY KEY,
+      category TEXT NOT NULL,
+      subcategory TEXT NOT NULL DEFAULT '',
       amount REAL NOT NULL,
-      updated_at TEXT NOT NULL
+      updated_at TEXT NOT NULL,
+      PRIMARY KEY (category, subcategory)
     );
 
     CREATE TABLE IF NOT EXISTS tasks (
@@ -166,7 +171,7 @@ const initializeSchema = async () => {
     "ALTER TABLE accounts ADD COLUMN deviceId TEXT;",
     "ALTER TABLE categories ADD COLUMN updated_at TEXT;",
     "ALTER TABLE categories ADD COLUMN deviceId TEXT;",
-    
+
     // Previous columns just in case
     "ALTER TABLE transactions ADD COLUMN type TEXT CHECK(type IN ('income', 'expense', 'transfer'));",
     "ALTER TABLE transactions ADD COLUMN description TEXT;",
@@ -175,7 +180,7 @@ const initializeSchema = async () => {
     "ALTER TABLE transactions ADD COLUMN to_account_id TEXT;",
     "ALTER TABLE transactions ADD COLUMN updated_at TEXT;",
     "ALTER TABLE transactions ADD COLUMN synced INTEGER DEFAULT 0;",
-    
+
     "ALTER TABLE accounts ADD COLUMN synced INTEGER DEFAULT 0;",
     "ALTER TABLE accounts ADD COLUMN type TEXT;",
     "ALTER TABLE accounts ADD COLUMN initial_balance REAL DEFAULT 0;",
@@ -183,7 +188,10 @@ const initializeSchema = async () => {
 
     "ALTER TABLE categories ADD COLUMN type TEXT CHECK(type IN ('income', 'expense')) DEFAULT 'expense';",
     "ALTER TABLE categories ADD COLUMN icon TEXT;",
-    "ALTER TABLE categories ADD COLUMN synced INTEGER DEFAULT 0;"
+    "ALTER TABLE categories ADD COLUMN synced INTEGER DEFAULT 0;",
+    "ALTER TABLE budgets ADD COLUMN subcategory TEXT;",
+    "UPDATE budgets SET subcategory = '' WHERE subcategory IS NULL;",
+    "CREATE UNIQUE INDEX IF NOT EXISTS idx_budgets_unique ON budgets(category, COALESCE(subcategory, ''));"
   ];
 
   for (const m of migrations) {
@@ -199,7 +207,8 @@ const initializeSchema = async () => {
     "CREATE INDEX IF NOT EXISTS idx_transactions_synced ON transactions(synced);",
     "CREATE INDEX IF NOT EXISTS idx_transactions_account ON transactions(account_id);",
     "CREATE INDEX IF NOT EXISTS idx_sync_queue_status ON sync_queue(status);",
-    "CREATE INDEX IF NOT EXISTS idx_tasks_status ON tasks(status);"
+    "CREATE INDEX IF NOT EXISTS idx_tasks_status ON tasks(status);",
+    "CREATE UNIQUE INDEX IF NOT EXISTS idx_categories_unique_name ON categories(name, type, COALESCE(parent_id, 'root'));"
   ];
 
   for (const idx of indexQueries) {
@@ -215,13 +224,13 @@ const initializeSchema = async () => {
       db.run("UPDATE accounts SET updated_at = ? WHERE updated_at IS NULL;", [now]);
       db.run("UPDATE categories SET updated_at = ? WHERE updated_at IS NULL;", [now]);
       localStorage.setItem('re_synced_v6', 'true');
-    } catch (e) {}
+    } catch (e) { }
   }
 
   // 5. Robust Migration: Update 'type' CHECK constraint to include 'transfer'
   const tableInfo = db.exec("SELECT sql FROM sqlite_master WHERE type='table' AND name='transactions'")[0];
   const currentSql = tableInfo ? (tableInfo.values[0][0] as string) : "";
-  
+
   if (currentSql && !currentSql.includes("'transfer'")) {
     console.log("Migrating transactions table to support 'transfer' type...");
     db.run(`
@@ -275,7 +284,7 @@ const initializeSchema = async () => {
   try {
     db.run("ALTER TABLE categories ADD COLUMN type TEXT CHECK(type IN ('income', 'expense')) DEFAULT 'expense';");
     db.run("CREATE INDEX IF NOT EXISTS idx_categories_type ON categories(type);");
-  } catch (e) {}
+  } catch (e) { }
 
   // Seed default categories if empty
   const catsCount = db.exec("SELECT COUNT(*) as count FROM categories")[0].values[0][0];
@@ -283,52 +292,66 @@ const initializeSchema = async () => {
     const now = new Date().toISOString();
     const expenseDefaults = ['Food', 'Transport', 'Bills', 'Shopping', 'Entertainment', 'Health', 'Other'];
     const incomeDefaults = ['Salary', 'Business', 'Bonus', 'Gift', 'Investment', 'Other'];
-    
+
     for (const name of expenseDefaults) {
+      // Use deterministic IDs for default categories to avoid duplication on re-login
+      const id = `default-expense-${name.toLowerCase().replace(/\s+/g, '-')}`;
       db.run(
-        "INSERT INTO categories (id, name, type, icon, created_at, updated_at) VALUES (?, ?, 'expense', ?, ?, ?)",
-        [crypto.randomUUID(), name, '', now, now]
+        "INSERT OR IGNORE INTO categories (id, name, type, icon, created_at, updated_at) VALUES (?, ?, 'expense', ?, ?, ?)",
+        [id, name, '', now, now]
       );
     }
     for (const name of incomeDefaults) {
+      const id = `default-income-${name.toLowerCase().replace(/\s+/g, '-')}`;
       db.run(
-        "INSERT INTO categories (id, name, type, icon, created_at, updated_at) VALUES (?, ?, 'income', ?, ?, ?)",
-        [crypto.randomUUID(), name, '', now, now]
+        "INSERT OR IGNORE INTO categories (id, name, type, icon, created_at, updated_at) VALUES (?, ?, 'income', ?, ?, ?)",
+        [id, name, '', now, now]
       );
     }
-  } else {
-    // Cleanup duplicates if any exist from previous bug (now including type in grouping)
-    db.run(`
-      DELETE FROM categories 
-      WHERE id NOT IN (
-        SELECT MIN(id) 
-        FROM categories 
-        GROUP BY name, type
-      )
-    `);
   }
+
+  // Cleanup duplicates if any exist (e.g., from older versions or sync edge cases)
+  db.run(`
+    DELETE FROM categories 
+    WHERE id NOT IN (
+      SELECT MIN(id) 
+      FROM categories 
+      GROUP BY name, type, COALESCE(parent_id, 'root')
+    )
+  `);
 };
 
 export const executeQuery = async (query: string, params: any[] = []) => {
   if (!db) await initDB();
-  
+
   const results: any[] = [];
   const stmt = db!.prepare(query, params);
-  
+
   while (stmt.step()) {
     results.push(stmt.getAsObject());
   }
-  
+
   stmt.free();
-  
+
   // If the query was a mutation, save the DB
   const isMutation = query.trim().toUpperCase().match(/^(INSERT|UPDATE|DELETE|CREATE|DROP|ALTER)/);
   if (isMutation) {
     await saveDB();
   }
-  
+
   return results;
 };
 
 // Simplified bindings mapping since sql.js prepare does this too
 export const runWithBindings = executeQuery;
+
+export const clearDB = async () => {
+  if (db) {
+    db.close();
+    db = null;
+  }
+  await localforage.removeItem(DB_STORE_NAME);
+  // Clear any cached flags
+  localStorage.removeItem('re_synced_v6');
+  console.log('[SQLite] Database cleared from local storage.');
+};

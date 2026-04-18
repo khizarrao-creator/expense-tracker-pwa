@@ -9,6 +9,7 @@ import {
 } from 'firebase/firestore';
 import { executeQuery, runWithBindings } from './sqlite';
 import { v4 as uuidv4 } from 'uuid';
+import { toast } from 'sonner';
 
 export interface SyncOperation {
   id: string;
@@ -69,22 +70,6 @@ class SyncManager {
     window.dispatchEvent(new CustomEvent('sync-status-changed', { detail: { online } }));
   }
 
-  private async startSync() {
-    if (!this.userId) return;
-    
-    // Auto-heal corrupted "categorie_add" items from queue poisoning
-    try { await runWithBindings(`UPDATE sync_queue SET type = 'category_add' WHERE type = 'categorie_add'`); } catch(e) {}
-
-    // 0. Auto-repair: Find any items marked synced=0 that aren't in the queue
-    await this.repairMissingSyncItems();
-    
-    // 1. Initial push of any pending items
-    await this.processQueue();
-    
-    // 2. Setup Real-time Listeners
-    this.setupListeners();
-  }
-
   private async repairMissingSyncItems() {
     console.log('[SyncManager] Scanning for orphaned unsynced items...');
     const collections = ['transactions', 'accounts', 'categories', 'goals', 'investments', 'reminders', 'tasks'];
@@ -132,11 +117,6 @@ class SyncManager {
       const unsubscribe = onSnapshot(colRef, (snapshot) => {
         snapshot.docChanges().forEach(async (change) => {
           const data = change.doc.data();
-          // Avoid feedback loops: if this change was made by THIS device,
-          // skip both 'added' and 'modified' — we already have the latest local data.
-          if (data.deviceId === this.deviceId && (change.type === 'added' || change.type === 'modified')) {
-            return; 
-          }
           
           if (change.type === 'added' || change.type === 'modified') {
             await this.updateLocalCache(colName, data);
@@ -150,7 +130,69 @@ class SyncManager {
     });
   }
 
+  private async startSync() {
+    if (!this.userId) return;
+    
+    // Auto-heal corrupted items from legacy typos queue poisoning
+    try { 
+      await runWithBindings(`UPDATE sync_queue SET type = REPLACE(type, 'categorie_', 'category_') WHERE type LIKE 'categorie_%'`); 
+    } catch(e) {}
+
+    // 0. Auto-repair: Find any items marked synced=0 that aren't in the queue
+    await this.repairMissingSyncItems();
+    
+    // 1. Reconcile with server (one-time fetch to purge deleted items)
+    await this.reconcileWithServer();
+
+    // 2. Initial push of any pending items
+    await this.processQueue();
+    
+    // 3. Setup Real-time Listeners
+    this.setupListeners();
+  }
+
+  private async reconcileWithServer() {
+    if (!this.userId) return;
+    console.log('[SyncManager] Starting server reconciliation...');
+    
+    const collections = ['transactions', 'accounts', 'categories', 'goals', 'investments', 'reminders', 'tasks'];
+    
+    for (const colName of collections) {
+      try {
+        const colRef = collection(firestore, `users/${this.userId}/${colName}`);
+        const snapshot = await getDocs(colRef);
+        const serverIds = new Set(snapshot.docs.map(doc => doc.id));
+        
+        const localItems = await executeQuery(`SELECT id FROM ${colName} WHERE synced = 1`);
+        const orphanedIds = localItems.filter(item => !serverIds.has(item.id)).map(item => item.id);
+        
+        if (orphanedIds.length > 0) {
+          console.log(`[SyncManager] Found ${orphanedIds.length} orphaned items in ${colName}. Purging...`);
+          for (const id of orphanedIds) {
+            await runWithBindings(`DELETE FROM ${colName} WHERE id = ?`, [id]);
+          }
+        }
+      } catch (error) {
+        console.error(`[SyncManager] Reconciliation failed for ${colName}:`, error);
+      }
+    }
+    console.log('[SyncManager] Reconciliation complete.');
+  }
+
   private async updateLocalCache(collection: string, data: any) {
+    // 1. Check if record exists and its updated_at timestamp
+    const existing = await executeQuery(`SELECT updated_at FROM ${collection} WHERE id = ?`, [data.id]);
+    
+    if (existing.length > 0) {
+      const localUpdatedAt = new Date(existing[0].updated_at).getTime();
+      const remoteUpdatedAt = new Date(data.updated_at).getTime();
+      
+      if (remoteUpdatedAt <= localUpdatedAt) {
+        console.log(`[SyncManager] Skipping update for ${collection}/${data.id} - local record is newer or same.`);
+        return;
+      }
+    }
+
     if (collection === 'transactions') {
       await runWithBindings(`
         INSERT OR REPLACE INTO transactions 
@@ -313,8 +355,9 @@ class SyncManager {
           }
         } else {
           console.warn(`[SyncManager] Push FAILED for ${payload.id}`);
+          // Mark as failed but DO NOT break! That halts the entire queue indefinitely!
           await runWithBindings(`UPDATE sync_queue SET status = 'failed' WHERE id = ?`, [op.id]);
-          break; 
+          continue; 
         }
       }
       window.dispatchEvent(new CustomEvent('app-sync-complete'));
@@ -330,6 +373,7 @@ class SyncManager {
   private async pushToFirestore(type: string, payload: any): Promise<boolean> {
     if (!this.userId) {
       console.warn('[SyncManager] pushToFirestore: No userId');
+      toast.error('Sync paused: Internal auth state missing. Please refresh the page!', { id: 'sync-error-auth' });
       return false;
     }
     
@@ -353,6 +397,7 @@ class SyncManager {
         docRef = doc(firestore, `users/${this.userId}/config/preferences`);
       } else {
         console.warn('[SyncManager] Unknown operation type:', type);
+        toast.error(`Sync blocked by unknown task type: ${type}`, { id: 'sync-error-type' });
         return false;
       }
 
@@ -362,8 +407,9 @@ class SyncManager {
         await setDoc(docRef, { ...payload, syncedAt: new Date().toISOString() }, { merge: true });
       }
       return true;
-    } catch (error) {
+    } catch (error: any) {
       console.error(`[SyncManager] Firestore push failed for ${type}:`, error);
+      toast.error(`Sync Error (${type}): ${error.message || 'Unknown failure'}`, { id: 'sync-error' });
       return false;
     }
   }

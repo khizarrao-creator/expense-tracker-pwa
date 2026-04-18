@@ -19,6 +19,8 @@ const AddTransaction: React.FC = () => {
   const [type, setType] = useState<'income' | 'expense' | 'transfer'>('expense');
   const [amount, setAmount] = useState('');
   const [category, setCategory] = useState('');
+  const [subcategory, setSubcategory] = useState('');
+  const [subcategories, setSubcategories] = useState<Category[]>([]);
   const [description, setDescription] = useState('');
   const [date, setDate] = useState(() => new Date().toISOString().split('T')[0]);
   const [paymentMethod, setPaymentMethod] = useState('Debit Card');
@@ -50,6 +52,7 @@ const AddTransaction: React.FC = () => {
           setType(trx.type);
           setAmount(trx.amount.toString());
           setCategory(trx.category);
+          setSubcategory(trx.subcategory || '');
           setDescription(trx.description || '');
           setDate(trx.date);
           setPaymentMethod(trx.payment_method);
@@ -61,6 +64,21 @@ const AddTransaction: React.FC = () => {
     };
     loadInitialData();
   }, [id, type]);
+
+  useEffect(() => {
+    const loadSubcategories = async () => {
+      if (category && type !== 'transfer') {
+        const parent = categories.find(c => c.name === category);
+        if (parent) {
+          const subs = await getCategories(type as any, parent.id);
+          setSubcategories(subs);
+        }
+      } else {
+        setSubcategories([]);
+      }
+    };
+    loadSubcategories();
+  }, [category, type, categories]);
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -96,7 +114,8 @@ const AddTransaction: React.FC = () => {
         to_account_id: type === 'transfer' ? toAccountId : null,
         created_at: now,
         updated_at: now,
-        deviceId
+        deviceId,
+        subcategory: type === 'transfer' ? null : subcategory || null
       };
 
       if (id) {
@@ -114,6 +133,7 @@ const AddTransaction: React.FC = () => {
             trxData.payment_method,
             trxData.account_id,
             trxData.to_account_id,
+            trxData.subcategory,
             trxData.id
           )
         );
@@ -205,8 +225,25 @@ const AddTransaction: React.FC = () => {
                 />
               </div>
             )}
-            {type !== 'transfer' && (
+
+            {type !== 'transfer' && subcategories.length > 0 && (
               <div>
+                <label className="block text-sm font-medium text-muted-foreground mb-1">Subcategory</label>
+                <select
+                  value={subcategory}
+                  onChange={(e) => setSubcategory(e.target.value)}
+                  className="w-full px-4 py-3 bg-background border border-border rounded-xl focus:outline-none focus:ring-2 focus:ring-primary"
+                >
+                  <option value="">No Subcategory</option>
+                  {subcategories.map((s) => (
+                    <option key={s.id} value={s.name}>{s.name}</option>
+                  ))}
+                </select>
+              </div>
+            )}
+
+            {type !== 'transfer' && (
+              <div className={subcategories.length > 0 ? 'col-span-2 md:col-span-1' : ''}>
                 <label className="block text-sm font-medium text-muted-foreground mb-1">Date</label>
                 <input
                   type="date"

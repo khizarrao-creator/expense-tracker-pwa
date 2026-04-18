@@ -5,9 +5,11 @@ import { useCurrency } from '../contexts/CurrencyContext';
 import { toast } from 'sonner';
 import ConfirmModal from '../components/ConfirmModal';
 import { v4 as uuidv4 } from 'uuid';
+import { useNavigate } from 'react-router-dom';
 
 const Accounts: React.FC = () => {
   const { formatAmount } = useCurrency();
+  const navigate = useNavigate();
   const [accounts, setAccounts] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
   const [showAddForm, setShowAddForm] = useState(false);
@@ -229,6 +231,13 @@ const Accounts: React.FC = () => {
                     <span>-{formatAmount(acc.expense + acc.transfer_out)}</span>
                   </div>
                 </div>
+
+                <button 
+                  onClick={() => navigate(`/transactions?account=${acc.id}`)}
+                  className="mt-4 w-full py-2 bg-primary/5 text-primary hover:bg-primary/10 border border-primary/20 rounded-xl font-medium transition-colors text-sm"
+                >
+                  View Details
+                </button>
               </div>
             );
           })}

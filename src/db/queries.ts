@@ -15,6 +15,7 @@ export interface Transaction {
   created_at: string;
   updated_at: string;
   synced: number;
+  subcategory: string | null;
 }
 
 export interface Account {
@@ -36,6 +37,7 @@ export interface Category {
   created_at: string;
   updated_at: string;
   deviceId: string | null;
+  parent_id: string | null;
 }
 
 export const addToSyncQueue = async (type: string, payload: any) => {
@@ -59,23 +61,25 @@ export const addTransaction = async (
   payment_method: string = '',
   account_id: string | null = null,
   to_account_id: string | null = null,
+  subcategory: string | null = null,
   providedId?: string
 ) => {
   const id = providedId || uuidv4();
   const now = new Date().toISOString();
   const deviceId = localStorage.getItem('deviceId') || 'unknown';
-  
+
   const trxData = {
-    id, type, amount, category, description: description ?? null, date, 
-    payment_method: payment_method ?? '', account_id: account_id ?? null, 
-    to_account_id: to_account_id ?? null, created_at: now, updated_at: now, deviceId
+    id, type, amount, category, description: description ?? null, date,
+    payment_method: payment_method ?? '', account_id: account_id ?? null,
+    to_account_id: to_account_id ?? null, created_at: now, updated_at: now, deviceId,
+    subcategory: subcategory ?? null
   };
 
   await syncManager.performOperation('transaction_add', trxData, () =>
     runWithBindings(
-      `INSERT INTO transactions (id, type, amount, category, description, date, payment_method, account_id, to_account_id, created_at, updated_at, deviceId, synced) 
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 0)`,
-      [id, type, amount, category, description ?? null, date, payment_method ?? '', account_id ?? null, to_account_id ?? null, now, now, deviceId]
+      `INSERT INTO transactions (id, type, amount, category, description, date, payment_method, account_id, to_account_id, created_at, updated_at, deviceId, synced, subcategory) 
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 0, ?)`,
+      [id, type, amount, category, description ?? null, date, payment_method ?? '', account_id ?? null, to_account_id ?? null, now, now, deviceId, subcategory ?? null]
     )
   );
   return id;
@@ -83,7 +87,7 @@ export const addTransaction = async (
 
 const TRANSACTION_UPDATABLE_FIELDS = new Set([
   'type', 'amount', 'category', 'description', 'date',
-  'payment_method', 'account_id', 'to_account_id', 'updated_at', 'deviceId'
+  'payment_method', 'account_id', 'to_account_id', 'updated_at', 'deviceId', 'subcategory'
 ]);
 
 export const updateTransaction = async (
@@ -92,7 +96,7 @@ export const updateTransaction = async (
 ) => {
   const now = new Date().toISOString();
   const deviceId = localStorage.getItem('deviceId') || 'unknown';
-  
+
   const sanitizedData: any = {};
   Object.keys(data).forEach(key => {
     if (TRANSACTION_UPDATABLE_FIELDS.has(key)) {
@@ -108,8 +112,8 @@ export const updateTransaction = async (
 
   await syncManager.performOperation('transaction_update', trxData, () =>
     runWithBindings(
-      `UPDATE transactions SET ${setClause}, updated_at = ?, deviceId = ?, synced = 0 WHERE id = ?`,
-      [...values, now, deviceId, id]
+      `UPDATE transactions SET ${setClause}, updated_at = ?, deviceId = ?, synced = 0, subcategory = COALESCE(?, subcategory) WHERE id = ?`,
+      [...values, now, deviceId, data.subcategory ?? null, id]
     )
   );
 };
@@ -164,9 +168,9 @@ export const getSummary = async () => {
 export const getNetWorth = async () => {
   const accountSummaries = await getSummaryByAccount();
   return accountSummaries.reduce((acc: number, curr: any) => {
-    return acc 
-      + (curr.initial_balance || 0) 
-      + (curr.income || 0) 
+    return acc
+      + (curr.initial_balance || 0)
+      + (curr.income || 0)
       - (curr.expense || 0)
       + (curr.transfer_in || 0)
       - (curr.transfer_out || 0);
@@ -222,10 +226,10 @@ const getPeriodDateFilter = (period: ChartPeriod): string => {
 export const getExpensesByCategoryByPeriod = async (period: ChartPeriod) => {
   const fromDate = getPeriodDateFilter(period);
   return await runWithBindings(`
-    SELECT category, SUM(amount) as total 
+    SELECT category, subcategory, SUM(amount) as total 
     FROM transactions 
     WHERE type = 'expense' AND date >= ? 
-    GROUP BY category 
+    GROUP BY category, subcategory 
     ORDER BY total DESC
   `, [fromDate]);
 };
@@ -245,29 +249,32 @@ export const getPaymentMethodStatsByPeriod = async (period: ChartPeriod) => {
 
 export interface Budget {
   category: string;
+  subcategory: string | null;
   amount: number;
   updated_at: string;
 }
 
 export const getBudgets = async (): Promise<Budget[]> => {
-  return await executeQuery(`SELECT * FROM budgets ORDER BY category ASC`);
+  return await executeQuery(`SELECT * FROM budgets ORDER BY category ASC, subcategory ASC`);
 };
 
-export const setBudget = async (category: string, amount: number) => {
+export const setBudget = async (category: string, amount: number, subcategory: string | null = null) => {
   const now = new Date().toISOString();
-  await executeQuery(
-    `INSERT INTO budgets (category, amount, updated_at) VALUES (?, ?, ?)
-     ON CONFLICT(category) DO UPDATE SET amount = excluded.amount, updated_at = excluded.updated_at`,
-    [category, amount, now]
+  const subcat = subcategory || '';
+  await runWithBindings(
+    `INSERT OR REPLACE INTO budgets (category, subcategory, amount, updated_at) VALUES (?, ?, ?, ?)`,
+    [category, subcat, amount, now]
   );
 };
 
-export const deleteBudget = async (category: string) => {
-  await executeQuery(`DELETE FROM budgets WHERE category = ?`, [category]);
+export const deleteBudget = async (category: string, subcategory: string | null = null) => {
+  const subcat = subcategory || '';
+  await runWithBindings(`DELETE FROM budgets WHERE category = ? AND subcategory = ?`, [category, subcat]);
 };
 
 export interface BudgetVsActualRow {
   category: string;
+  subcategory: string | null;
   spent: number;
   budget: number;
   pct: number;
@@ -278,19 +285,23 @@ export const getBudgetVsActual = async (year: string, month: string): Promise<Bu
   const rows = await runWithBindings(`
     SELECT 
       b.category,
-      COALESCE(SUM(t.amount), 0) as spent,
-      b.amount as budget
+      b.subcategory,
+      b.amount as budget,
+      (
+        SELECT COALESCE(SUM(amount), 0) 
+        FROM transactions 
+        WHERE category = b.category 
+          AND (b.subcategory = '' OR subcategory = b.subcategory)
+          AND type = 'expense' 
+          AND date LIKE ?
+      ) as spent
     FROM budgets b
-    LEFT JOIN transactions t 
-      ON t.category = b.category 
-      AND t.type = 'expense' 
-      AND t.date LIKE ?
-    GROUP BY b.category
-    ORDER BY b.category ASC
+    ORDER BY b.category ASC, b.subcategory ASC
   `, [likeStr]);
 
   return rows.map((r: any) => ({
     category: r.category,
+    subcategory: r.subcategory,
     spent: r.spent,
     budget: r.budget,
     pct: r.budget > 0 ? (r.spent / r.budget) * 100 : 0,
@@ -320,26 +331,46 @@ export const deleteTransaction = async (id: string) => {
 };
 
 // Categories
-export const getCategories = async (type?: 'income' | 'expense'): Promise<Category[]> => {
+export const getCategories = async (type?: 'income' | 'expense', parent_id: string | null | 'all' = null): Promise<Category[]> => {
+  let query = `SELECT * FROM categories`;
+  const params: any[] = [];
+  const clauses: string[] = [];
+
   if (type) {
-    return await runWithBindings(`SELECT * FROM categories WHERE type = ? ORDER BY name ASC`, [type]);
+    clauses.push(`type = ?`);
+    params.push(type);
   }
-  return await executeQuery(`SELECT * FROM categories ORDER BY name ASC`);
+
+  if (parent_id !== 'all') {
+    if (parent_id) {
+      clauses.push(`parent_id = ?`);
+      params.push(parent_id);
+    } else {
+      clauses.push(`parent_id IS NULL`);
+    }
+  }
+
+  if (clauses.length > 0) {
+    query += ` WHERE ` + clauses.join(` AND `);
+  }
+
+  query += ` ORDER BY name ASC`;
+  return await runWithBindings(query, params);
 };
 
-export const addCategory = async (name: string, type: 'income' | 'expense', icon: string = '', providedId?: string) => {
+export const addCategory = async (name: string, type: 'income' | 'expense', icon: string = '', parent_id: string | null = null, providedId?: string) => {
   if (!name || !name.trim()) throw new Error('Category name is required');
   const trimmedName = name.trim();
   const id = providedId || uuidv4();
   const now = new Date().toISOString();
   const deviceId = localStorage.getItem('deviceId') || 'unknown';
-  
-  const catData = { id, name: trimmedName, type, icon, created_at: now, updated_at: now, deviceId };
+
+  const catData = { id, name: trimmedName, type, icon, created_at: now, updated_at: now, deviceId, parent_id };
 
   await syncManager.performOperation('category_add', catData, () =>
     runWithBindings(
-      `INSERT INTO categories (id, name, type, icon, created_at, updated_at, deviceId, synced) VALUES (?, ?, ?, ?, ?, ?, ?, 0)`,
-      [id, trimmedName, type, icon ?? '', now, now, deviceId]
+      `INSERT INTO categories (id, name, type, icon, created_at, updated_at, deviceId, synced, parent_id) VALUES (?, ?, ?, ?, ?, ?, ?, 0, ?)`,
+      [id, trimmedName, type, icon ?? '', now, now, deviceId, parent_id]
     )
   );
   return id;
@@ -360,16 +391,16 @@ export const addAccount = async (name: string, type: string, initial_balance: nu
   const id = providedId || uuidv4();
   const now = new Date().toISOString();
   const deviceId = localStorage.getItem('deviceId') || 'unknown';
-  
-  const accData = { 
-    id, 
-    name, 
-    type, 
-    initial_balance: Number(initial_balance || 0), 
-    color, 
-    created_at: now, 
-    updated_at: now, 
-    deviceId 
+
+  const accData = {
+    id,
+    name,
+    type,
+    initial_balance: Number(initial_balance || 0),
+    color,
+    created_at: now,
+    updated_at: now,
+    deviceId
   };
 
   await syncManager.performOperation('account_add', accData, () =>
@@ -471,24 +502,25 @@ export const getCategorySpikes = async () => {
 
   return await runWithBindings(`
     WITH current_month AS (
-      SELECT category, SUM(amount) as total
+      SELECT category, subcategory, SUM(amount) as total
       FROM transactions
       WHERE type = 'expense' AND date LIKE ?
-      GROUP BY category
+      GROUP BY category, subcategory
     ),
     prev_month AS (
-      SELECT category, SUM(amount) as total
+      SELECT category, subcategory, SUM(amount) as total
       FROM transactions
       WHERE type = 'expense' AND date LIKE ?
-      GROUP BY category
+      GROUP BY category, subcategory
     )
     SELECT 
       c.category, 
+      c.subcategory,
       c.total as current_total, 
       p.total as prev_total,
       CASE WHEN p.total > 0 THEN ((c.total - p.total) / p.total) * 100 ELSE 100 END as increase_pct
     FROM current_month c
-    INNER JOIN prev_month p ON c.category = p.category
+    INNER JOIN prev_month p ON c.category = p.category AND (c.subcategory IS p.subcategory)
     WHERE p.total > 0 AND increase_pct > 20
     ORDER BY increase_pct DESC
     LIMIT 5
@@ -514,10 +546,10 @@ export const getGoals = async (): Promise<Goal[]> => {
 };
 
 export const addGoal = async (
-  name: string, 
-  target_amount: number, 
-  category_id: string | null = null, 
-  deadline: string | null = null, 
+  name: string,
+  target_amount: number,
+  category_id: string | null = null,
+  deadline: string | null = null,
   linked_accounts: string | null = null,
   providedId?: string
 ) => {

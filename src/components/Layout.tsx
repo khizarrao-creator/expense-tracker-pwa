@@ -44,7 +44,7 @@ const Layout: React.FC = () => {
             </div>
           )}
         </div>
-        
+
         <nav className="flex-1 px-4 space-y-2 overflow-y-auto">
           {navItems.map((item) => {
             const Icon = item.icon;
@@ -53,11 +53,10 @@ const Layout: React.FC = () => {
               <Link
                 key={item.name}
                 to={item.path}
-                className={`flex items-center gap-3 px-4 py-3 rounded-lg transition-colors ${
-                  isActive 
-                    ? 'bg-primary text-primary-foreground' 
+                className={`flex items-center gap-3 px-4 py-3 rounded-lg transition-colors ${isActive
+                    ? 'bg-primary text-primary-foreground'
                     : 'text-muted-foreground hover:bg-muted hover:text-foreground'
-                }`}
+                  }`}
               >
                 <Icon size={20} />
                 <span className="font-medium">{item.name}</span>
@@ -92,10 +91,10 @@ const Layout: React.FC = () => {
             )}
           </div>
           <div className="flex items-center gap-3">
-             <CloudSync size={20} className={isSyncing ? 'animate-spin text-primary' : 'text-muted-foreground'} />
-             <button onClick={handleSignOut} className="text-muted-foreground">
-               <LogOut size={20} />
-             </button>
+            <CloudSync size={20} className={isSyncing ? 'animate-spin text-primary' : 'text-muted-foreground'} />
+            <button onClick={handleSignOut} className="text-muted-foreground">
+              <LogOut size={20} />
+            </button>
           </div>
         </header>
 
@@ -108,16 +107,15 @@ const Layout: React.FC = () => {
       <nav className="md:hidden fixed bottom-0 w-full bg-card border-t border-border flex justify-around p-2 pb-safe z-20">
         {navItems.map((item) => {
           const Icon = item.icon;
-          const isActive = location.pathname === item.path || 
+          const isActive = location.pathname === item.path ||
             (item.path !== '/' && location.pathname.startsWith(item.path)) ||
             (item.path === '/add' && location.pathname.startsWith('/edit'));
           return (
             <Link
               key={item.name}
               to={item.path}
-              className={`flex flex-col items-center p-2 rounded-lg ${
-                isActive ? 'text-primary' : 'text-muted-foreground'
-              }`}
+              className={`flex flex-col items-center p-2 rounded-lg ${isActive ? 'text-primary' : 'text-muted-foreground'
+                }`}
             >
               <Icon size={24} className={isActive ? 'mb-1' : 'mb-1 opacity-70'} />
               <span className="text-[10px] font-medium">{item.name}</span>

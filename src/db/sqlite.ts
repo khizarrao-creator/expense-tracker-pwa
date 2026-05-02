@@ -1,6 +1,7 @@
 import initSqlJs from 'sql.js';
 import type { Database, SqlJsStatic } from 'sql.js';
 import localforage from 'localforage';
+import { toast } from 'sonner';
 // @ts-ignore
 import sqlWasm from 'sql.js/dist/sql-wasm.wasm?url';
 
@@ -12,28 +13,65 @@ const DB_STORE_NAME = 'expense-tracker-db';
 export const initDB = async () => {
   if (db) return { db, SQL };
 
-  SQL = await initSqlJs({
-    locateFile: () => sqlWasm
-  });
+  try {
+    SQL = await initSqlJs({
+      locateFile: () => sqlWasm
+    });
 
-  const savedData = await localforage.getItem<Uint8Array>(DB_STORE_NAME);
+    let savedData: Uint8Array | null = null;
+    try {
+      savedData = await localforage.getItem<Uint8Array>(DB_STORE_NAME);
+    } catch (e) {
+      console.error('[SQLite] Failed to load from storage:', e);
+      toast.error('Database load failed: Storage is full or inaccessible.', { id: 'db-load-error' });
+    }
 
-  if (savedData) {
-    db = new SQL.Database(savedData);
-  } else {
-    db = new SQL.Database();
+    if (savedData) {
+      db = new SQL.Database(savedData);
+    } else {
+      db = new SQL.Database();
+    }
+
+    await initializeSchema();
+    await saveDB();
+
+    return { db, SQL };
+  } catch (error) {
+    console.error('[SQLite] Critical init error:', error);
+    toast.error('Failed to initialize database. Please check your browser storage space.', { id: 'db-critical-error' });
+    throw error;
   }
-
-  await initializeSchema();
-  await saveDB();
-
-  return { db, SQL };
 };
 
 const saveDB = async () => {
   if (!db) return;
-  const data = db.export();
-  await localforage.setItem(DB_STORE_NAME, data);
+  try {
+    const data = db.export();
+    const sizeMB = (data.length / (1024 * 1024)).toFixed(2);
+    console.log(`[SQLite] Saving database (${sizeMB} MB)...`);
+    await localforage.setItem(DB_STORE_NAME, data);
+  } catch (e: any) {
+    console.error('[SQLite] Storage error:', e);
+    if (e.name === 'QuotaExceededError' || e.message?.includes('full disk')) {
+      toast.error('Storage Full! Your data is not being saved locally. Please free up disk space or clear browser data.', { 
+        id: 'storage-quota-error',
+        duration: 10000 
+      });
+    } else {
+      toast.error(`Save Failed: ${e.message || 'Unknown error'}. Try optimizing from Settings.`, { id: 'storage-save-error' });
+    }
+  }
+};
+
+export const vacuumDB = async () => {
+  if (!db) return;
+  try {
+    db.run('VACUUM');
+    await saveDB();
+    toast.success('Database optimized successfully');
+  } catch (e) {
+    console.error('[SQLite] Vacuum failed:', e);
+  }
 };
 
 const initializeSchema = async () => {
@@ -81,6 +119,7 @@ const initializeSchema = async () => {
       deviceId TEXT,
       synced INTEGER DEFAULT 0,
       subcategory TEXT,
+      event_id TEXT,
       FOREIGN KEY (account_id) REFERENCES accounts(id),
       FOREIGN KEY (to_account_id) REFERENCES accounts(id)
     );
@@ -157,6 +196,90 @@ const initializeSchema = async () => {
       deviceId TEXT,
       synced INTEGER DEFAULT 0
     );
+
+    CREATE TABLE IF NOT EXISTS loan_parties (
+      id TEXT PRIMARY KEY,
+      name TEXT NOT NULL,
+      phone TEXT,
+      email TEXT,
+      notes TEXT,
+      created_at TEXT NOT NULL,
+      updated_at TEXT NOT NULL,
+      deviceId TEXT,
+      synced INTEGER DEFAULT 0
+    );
+
+    CREATE TABLE IF NOT EXISTS loans (
+      id TEXT PRIMARY KEY,
+      direction TEXT NOT NULL CHECK(direction IN ('given','taken')),
+      party_id TEXT NOT NULL,
+      amount REAL NOT NULL,
+      description TEXT,
+      date TEXT NOT NULL,
+      due_date TEXT,
+      category TEXT DEFAULT 'Personal',
+      interest_rate REAL DEFAULT 0,
+      interest_type TEXT DEFAULT 'none' CHECK(interest_type IN ('none','simple','compound')),
+      status TEXT DEFAULT 'open' CHECK(status IN ('open','closed','partial','loss')),
+      account_id TEXT,
+      loss_amount REAL DEFAULT 0,
+      loss_remarks TEXT,
+      created_at TEXT NOT NULL,
+      updated_at TEXT NOT NULL,
+      deviceId TEXT,
+      synced INTEGER DEFAULT 0,
+      event_id TEXT,
+      FOREIGN KEY (party_id) REFERENCES loan_parties(id),
+      FOREIGN KEY (account_id) REFERENCES accounts(id)
+    );
+
+    CREATE TABLE IF NOT EXISTS events (
+      id TEXT PRIMARY KEY,
+      name TEXT NOT NULL,
+      description TEXT,
+      date TEXT NOT NULL,
+      total_cost REAL DEFAULT 0,
+      created_at TEXT NOT NULL,
+      updated_at TEXT NOT NULL,
+      deviceId TEXT,
+      synced INTEGER DEFAULT 0
+    );
+
+    CREATE TABLE IF NOT EXISTS loan_repayments (
+      id TEXT PRIMARY KEY,
+      loan_id TEXT NOT NULL,
+      amount REAL NOT NULL,
+      date TEXT NOT NULL,
+      notes TEXT,
+      account_id TEXT,
+      created_at TEXT NOT NULL,
+      updated_at TEXT NOT NULL,
+      deviceId TEXT,
+      synced INTEGER DEFAULT 0,
+      FOREIGN KEY (loan_id) REFERENCES loans(id),
+      FOREIGN KEY (account_id) REFERENCES accounts(id)
+    );
+
+    CREATE TABLE IF NOT EXISTS fuel_logs (
+      id TEXT PRIMARY KEY,
+      fuel_type TEXT NOT NULL,
+      price_per_liter REAL NOT NULL,
+      total_cost REAL NOT NULL,
+      liters REAL NOT NULL,
+      date TEXT NOT NULL,
+      transaction_id TEXT,
+      created_at TEXT NOT NULL,
+      updated_at TEXT NOT NULL,
+      deviceId TEXT,
+      synced INTEGER DEFAULT 0
+    );
+
+    CREATE TABLE IF NOT EXISTS config (
+      key TEXT PRIMARY KEY,
+      value TEXT NOT NULL,
+      updated_at TEXT NOT NULL,
+      synced INTEGER DEFAULT 0
+    );
   `);
 
   // 2. Robust Migrations (Add missing columns one by one for existing users)
@@ -191,11 +314,39 @@ const initializeSchema = async () => {
     "ALTER TABLE categories ADD COLUMN synced INTEGER DEFAULT 0;",
     "ALTER TABLE budgets ADD COLUMN subcategory TEXT;",
     "UPDATE budgets SET subcategory = '' WHERE subcategory IS NULL;",
-    "CREATE UNIQUE INDEX IF NOT EXISTS idx_budgets_unique ON budgets(category, COALESCE(subcategory, ''));"
+    "CREATE UNIQUE INDEX IF NOT EXISTS idx_budgets_unique ON budgets(category, COALESCE(subcategory, ''))",
+
+    // Loan module migrations
+    "ALTER TABLE loan_parties ADD COLUMN phone TEXT;",
+    "ALTER TABLE loan_parties ADD COLUMN email TEXT;",
+    "ALTER TABLE loans ADD COLUMN interest_rate REAL DEFAULT 0;",
+    "ALTER TABLE loans ADD COLUMN interest_type TEXT DEFAULT 'none';",
+    "ALTER TABLE loans ADD COLUMN category TEXT DEFAULT 'Personal';",
+    "ALTER TABLE transactions ADD COLUMN subcategory TEXT;",
+    "ALTER TABLE events ADD COLUMN total_cost REAL DEFAULT 0",
+    "ALTER TABLE loans ADD COLUMN loss_amount REAL DEFAULT 0;",
+    "ALTER TABLE loans ADD COLUMN loss_remarks TEXT;",
+    "CREATE TABLE IF NOT EXISTS fuel_logs (id TEXT PRIMARY KEY, fuel_type TEXT NOT NULL, price_per_liter REAL NOT NULL, total_cost REAL NOT NULL, liters REAL NOT NULL, date TEXT NOT NULL, transaction_id TEXT, created_at TEXT NOT NULL, updated_at TEXT NOT NULL, deviceId TEXT, synced INTEGER DEFAULT 0);",
+    "ALTER TABLE fuel_logs ADD COLUMN transaction_id TEXT;",
+    "CREATE TABLE IF NOT EXISTS config (key TEXT PRIMARY KEY, value TEXT NOT NULL, updated_at TEXT NOT NULL, synced INTEGER DEFAULT 0);"
   ];
 
+  const addColumn = (table: string, column: string, type: string) => {
+    try {
+      db!.run(`ALTER TABLE ${table} ADD COLUMN ${column} ${type}`);
+    } catch (e) { }
+  };
+
+  addColumn('transactions', 'event_id', 'TEXT');
+  addColumn('loans', 'event_id', 'TEXT');
+  addColumn('events', 'total_cost', 'REAL DEFAULT 0');
+
   for (const m of migrations) {
-    try { db.run(m); } catch (e) { /* Column likely already exists */ }
+    try {
+      db.run(m);
+    } catch (e) {
+      // console.log(`[Migration] Skipped or failed: ${m.substring(0, 30)}...`); 
+    }
   }
 
   // 3. Create missing indexes
@@ -208,7 +359,11 @@ const initializeSchema = async () => {
     "CREATE INDEX IF NOT EXISTS idx_transactions_account ON transactions(account_id);",
     "CREATE INDEX IF NOT EXISTS idx_sync_queue_status ON sync_queue(status);",
     "CREATE INDEX IF NOT EXISTS idx_tasks_status ON tasks(status);",
-    "CREATE UNIQUE INDEX IF NOT EXISTS idx_categories_unique_name ON categories(name, type, COALESCE(parent_id, 'root'));"
+    "CREATE UNIQUE INDEX IF NOT EXISTS idx_categories_unique_name ON categories(name, type, COALESCE(parent_id, 'root'));",
+    "CREATE INDEX IF NOT EXISTS idx_loans_party ON loans(party_id);",
+    "CREATE INDEX IF NOT EXISTS idx_loans_status ON loans(status);",
+    "CREATE INDEX IF NOT EXISTS idx_loans_direction ON loans(direction);",
+    "CREATE INDEX IF NOT EXISTS idx_loan_repayments_loan ON loan_repayments(loan_id);"
   ];
 
   for (const idx of indexQueries) {
@@ -248,18 +403,60 @@ const initializeSchema = async () => {
         created_at TEXT NOT NULL,
         updated_at TEXT NOT NULL,
         deviceId TEXT,
-        synced INTEGER DEFAULT 0
+        synced INTEGER DEFAULT 0,
+        subcategory TEXT,
+        event_id TEXT
       );
-      INSERT INTO transactions_new (id, type, amount, category, description, date, payment_method, account_id, to_account_id, created_at, updated_at, deviceId, synced)
-      SELECT id, type, amount, category, description, date, payment_method, account_id, to_account_id, created_at, COALESCE(updated_at, created_at), deviceId, 0 FROM transactions;
+      INSERT INTO transactions_new (id, type, amount, category, description, date, payment_method, account_id, to_account_id, created_at, updated_at, deviceId, synced, subcategory, event_id)
+      SELECT id, type, amount, category, description, date, payment_method, account_id, to_account_id, created_at, COALESCE(updated_at, created_at), deviceId, 0, subcategory, NULL FROM transactions;
       DROP TABLE transactions;
       ALTER TABLE transactions_new RENAME TO transactions;
       COMMIT;
     `);
   }
 
+  // 6. Robust Migration: Update 'status' CHECK constraint in loans to include 'loss'
+  const loanTableInfo = db.exec("SELECT sql FROM sqlite_master WHERE type='table' AND name='loans'")[0];
+  const loanCurrentSql = loanTableInfo ? (loanTableInfo.values[0][0] as string) : "";
+
+  if (loanCurrentSql && !loanCurrentSql.includes("'loss'")) {
+    console.log("Migrating loans table to support 'loss' status...");
+    db.run(`
+      BEGIN TRANSACTION;
+      CREATE TABLE loans_new (
+        id TEXT PRIMARY KEY,
+        direction TEXT NOT NULL CHECK(direction IN ('given','taken')),
+        party_id TEXT NOT NULL,
+        amount REAL NOT NULL,
+        description TEXT,
+        date TEXT NOT NULL,
+        due_date TEXT,
+        category TEXT DEFAULT 'Personal',
+        interest_rate REAL DEFAULT 0,
+        interest_type TEXT DEFAULT 'none' CHECK(interest_type IN ('none','simple','compound')),
+        status TEXT DEFAULT 'open' CHECK(status IN ('open','closed','partial','loss')),
+        account_id TEXT,
+        loss_amount REAL DEFAULT 0,
+        loss_remarks TEXT,
+        created_at TEXT NOT NULL,
+        updated_at TEXT NOT NULL,
+        deviceId TEXT,
+        synced INTEGER DEFAULT 0,
+        event_id TEXT,
+        FOREIGN KEY (party_id) REFERENCES loan_parties(id),
+        FOREIGN KEY (account_id) REFERENCES accounts(id)
+      );
+      INSERT INTO loans_new (id, direction, party_id, amount, description, date, due_date, category, interest_rate, interest_type, status, account_id, loss_amount, loss_remarks, created_at, updated_at, deviceId, synced, event_id)
+      SELECT id, direction, party_id, amount, description, date, due_date, category, interest_rate, interest_type, status, account_id, COALESCE(loss_amount, 0), loss_remarks, created_at, updated_at, deviceId, 0, event_id FROM loans;
+      DROP TABLE loans;
+      ALTER TABLE loans_new RENAME TO loans;
+      COMMIT;
+    `);
+  }
+
   // Now create index for account_id since we ensure it exists
   db.run("CREATE INDEX IF NOT EXISTS idx_transactions_account ON transactions(account_id);");
+  db.run("CREATE INDEX IF NOT EXISTS idx_loans_account ON loans(account_id);");
 
   // Seed default accounts if empty
   const accountsCount = db.exec("SELECT COUNT(*) as count FROM accounts")[0].values[0][0];

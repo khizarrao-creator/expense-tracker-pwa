@@ -1,10 +1,12 @@
 import React from 'react';
 import { useAuth } from '../contexts/AuthContext';
 import { Navigate } from 'react-router-dom';
-import { Wallet, LogIn } from 'lucide-react';
+import { Wallet, LogIn, UserX } from 'lucide-react';
+import { useApp } from '../contexts/AppContext';
 
 const Login: React.FC = () => {
   const { user, signInWithGoogle } = useAuth();
+  const { config } = useApp();
 
   if (user) {
     return <Navigate to="/" replace />;
@@ -27,15 +29,24 @@ const Login: React.FC = () => {
           </p>
         </div>
 
-        <button
-          onClick={signInWithGoogle}
-          className="w-full flex justify-center items-center gap-3 bg-primary text-primary-foreground py-3 px-4 rounded-xl font-semibold hover:bg-primary/90 transition-all shadow-md active:scale-95 group"
-        >
-          <div className="bg-primary-foreground/20 p-1.5 rounded-full group-hover:bg-primary-foreground/30 transition-colors">
-            <LogIn size={20} className="" />
+        {!config.allowSignups ? (
+          <div className="bg-amber-500/10 border border-amber-500/20 p-4 rounded-xl flex items-start gap-3">
+            <UserX className="text-amber-500 shrink-0" size={20} />
+            <p className="text-xs text-amber-500/80 leading-relaxed font-medium">
+              New registrations are currently closed by the administrator. Only existing users can sign in.
+            </p>
           </div>
-          Continue with Google
-        </button>
+        ) : (
+          <button
+            onClick={signInWithGoogle}
+            className="w-full flex justify-center items-center gap-3 bg-primary text-primary-foreground py-3 px-4 rounded-xl font-semibold hover:bg-primary/90 transition-all shadow-md active:scale-95 group"
+          >
+            <div className="bg-primary-foreground/20 p-1.5 rounded-full group-hover:bg-primary-foreground/30 transition-colors">
+              <LogIn size={20} className="" />
+            </div>
+            Continue with Google
+          </button>
+        )}
 
         <div className="mt-8 text-center">
           <p className="text-xs text-muted-foreground">

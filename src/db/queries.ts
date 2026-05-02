@@ -1,4 +1,4 @@
-import { executeQuery, runWithBindings } from './sqlite';
+import { executeQuery, runWithBindings, vacuumDB } from './sqlite';
 import { v4 as uuidv4 } from 'uuid';
 import { syncManager } from './SyncManager';
 
@@ -16,6 +16,7 @@ export interface Transaction {
   updated_at: string;
   synced: number;
   subcategory: string | null;
+  event_id: string | null;
 }
 
 export interface Account {
@@ -40,6 +41,19 @@ export interface Category {
   parent_id: string | null;
 }
 
+export interface FuelLog {
+  id: string;
+  fuel_type: string;
+  price_per_liter: number;
+  total_cost: number;
+  liters: number;
+  date: string;
+  transaction_id: string | null;
+  created_at: string;
+  updated_at: string;
+  synced: number;
+}
+
 export const addToSyncQueue = async (type: string, payload: any) => {
   const id = uuidv4();
   const timestamp = new Date().toISOString();
@@ -62,7 +76,8 @@ export const addTransaction = async (
   account_id: string | null = null,
   to_account_id: string | null = null,
   subcategory: string | null = null,
-  providedId?: string
+  providedId?: string,
+  event_id: string | null = null
 ) => {
   const id = providedId || uuidv4();
   const now = new Date().toISOString();
@@ -72,14 +87,14 @@ export const addTransaction = async (
     id, type, amount, category, description: description ?? null, date,
     payment_method: payment_method ?? '', account_id: account_id ?? null,
     to_account_id: to_account_id ?? null, created_at: now, updated_at: now, deviceId,
-    subcategory: subcategory ?? null
+    subcategory: subcategory ?? null, event_id: event_id ?? null
   };
 
   await syncManager.performOperation('transaction_add', trxData, () =>
     runWithBindings(
-      `INSERT INTO transactions (id, type, amount, category, description, date, payment_method, account_id, to_account_id, created_at, updated_at, deviceId, synced, subcategory) 
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 0, ?)`,
-      [id, type, amount, category, description ?? null, date, payment_method ?? '', account_id ?? null, to_account_id ?? null, now, now, deviceId, subcategory ?? null]
+      `INSERT INTO transactions (id, type, amount, category, description, date, payment_method, account_id, to_account_id, created_at, updated_at, deviceId, synced, subcategory, event_id) 
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 0, ?, ?)`,
+      [id, type, amount, category, description ?? null, date, payment_method ?? '', account_id ?? null, to_account_id ?? null, now, now, deviceId, subcategory ?? null, event_id ?? null]
     )
   );
   return id;
@@ -325,6 +340,12 @@ export const getDailySpendingForMonth = async (year: string, month: string): Pro
 };
 
 export const deleteTransaction = async (id: string) => {
+  // Check for linked fuel log
+  const fuelLog = await getFuelLogByTransactionId(id);
+  if (fuelLog) {
+    await deleteFuelLog(fuelLog.id);
+  }
+
   await syncManager.performOperation('transaction_delete', { id }, () =>
     runWithBindings(`DELETE FROM transactions WHERE id = ?`, [id])
   );
@@ -610,14 +631,19 @@ export const deleteGoal = async (id: string) => {
 // --- Data Portability ---
 
 export const exportAllData = async () => {
-  const [transactions, accounts, categories, goals, investments, reminders, tasks] = await Promise.all([
+  const [transactions, accounts, categories, goals, investments, reminders, tasks, loan_parties, loans, loan_repayments, events, fuel_logs] = await Promise.all([
     executeQuery(`SELECT * FROM transactions`),
     executeQuery(`SELECT * FROM accounts`),
     executeQuery(`SELECT * FROM categories`),
     executeQuery(`SELECT * FROM goals`),
     executeQuery(`SELECT * FROM investments`),
     executeQuery(`SELECT * FROM reminders`),
-    executeQuery(`SELECT * FROM tasks`)
+    executeQuery(`SELECT * FROM tasks`),
+    executeQuery(`SELECT * FROM loan_parties`),
+    executeQuery(`SELECT * FROM loans`),
+    executeQuery(`SELECT * FROM loan_repayments`),
+    executeQuery(`SELECT * FROM events`),
+    executeQuery(`SELECT * FROM fuel_logs`)
   ]);
 
   return {
@@ -629,7 +655,12 @@ export const exportAllData = async () => {
     goals,
     investments,
     reminders,
-    tasks
+    tasks,
+    loan_parties,
+    loans,
+    loan_repayments,
+    events,
+    fuel_logs
   };
 };
 
@@ -641,6 +672,11 @@ export const clearAllData = async () => {
   await executeQuery(`DELETE FROM investments`);
   await executeQuery(`DELETE FROM reminders`);
   await executeQuery(`DELETE FROM tasks`);
+  await executeQuery(`DELETE FROM loan_parties`);
+  await executeQuery(`DELETE FROM loans`);
+  await executeQuery(`DELETE FROM loan_repayments`);
+  await executeQuery(`DELETE FROM events`);
+  await executeQuery(`DELETE FROM fuel_logs`);
   await executeQuery(`DELETE FROM sync_queue`);
   // Clear migration flags so they re-run correctly after a fresh wipe.
   // deviceId, currency, and theme are intentionally preserved.
@@ -676,8 +712,8 @@ export const importAllData = async (data: any) => {
   if (transactions) {
     for (const t of transactions) {
       await runWithBindings(
-        `INSERT OR REPLACE INTO transactions (id, type, amount, category, description, date, payment_method, account_id, to_account_id, created_at, updated_at, deviceId, synced) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 0)`,
-        [t.id, t.type, t.amount, t.category, t.description, t.date, t.payment_method, t.account_id, t.to_account_id, t.created_at, t.updated_at, t.deviceId]
+        `INSERT OR REPLACE INTO transactions (id, type, amount, category, description, date, payment_method, account_id, to_account_id, created_at, updated_at, deviceId, synced, subcategory, event_id) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 0, ?, ?)`,
+        [t.id, t.type, t.amount, t.category, t.description, t.date, t.payment_method, t.account_id, t.to_account_id, t.created_at, t.updated_at, t.deviceId, t.subcategory ?? null, t.event_id ?? null]
       );
       await addToSyncQueue('transaction_add', t);
     }
@@ -724,6 +760,56 @@ export const importAllData = async (data: any) => {
       await addToSyncQueue('task_add', t);
     }
   }
+
+  if (data.loan_parties) {
+    for (const p of data.loan_parties) {
+      await runWithBindings(
+        `INSERT OR REPLACE INTO loan_parties (id, name, phone, email, notes, created_at, updated_at, deviceId, synced) VALUES (?, ?, ?, ?, ?, ?, ?, ?, 0)`,
+        [p.id, p.name, p.phone, p.email, p.notes, p.created_at, p.updated_at, p.deviceId]
+      );
+      await addToSyncQueue('loan_party_add', p);
+    }
+  }
+
+  if (data.loans) {
+    for (const l of data.loans) {
+      await runWithBindings(
+        `INSERT OR REPLACE INTO loans (id, direction, party_id, amount, description, date, due_date, category, interest_rate, interest_type, status, account_id, created_at, updated_at, deviceId, synced, event_id) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 0, ?)`,
+        [l.id, l.direction, l.party_id, l.amount, l.description, l.date, l.due_date, l.category, l.interest_rate, l.interest_type, l.status, l.account_id, l.created_at, l.updated_at, l.deviceId, l.event_id ?? null]
+      );
+      await addToSyncQueue('loan_add', l);
+    }
+  }
+
+  if (data.loan_repayments) {
+    for (const r of data.loan_repayments) {
+      await runWithBindings(
+        `INSERT OR REPLACE INTO loan_repayments (id, loan_id, amount, date, notes, account_id, created_at, updated_at, deviceId, synced) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 0)`,
+        [r.id, r.loan_id, r.amount, r.date, r.notes, r.account_id, r.created_at, r.updated_at, r.deviceId]
+      );
+      await addToSyncQueue('loan_repayment_add', r);
+    }
+  }
+
+  if (data.events) {
+    for (const e of data.events) {
+      await runWithBindings(
+        `INSERT OR REPLACE INTO events (id, name, description, date, total_cost, created_at, updated_at, deviceId, synced) VALUES (?, ?, ?, ?, ?, ?, ?, ?, 0)`,
+        [e.id, e.name, e.description, e.date, e.total_cost ?? 0, e.created_at, e.updated_at, e.deviceId]
+      );
+      await addToSyncQueue('event_add', e);
+    }
+  }
+
+  if (data.fuel_logs) {
+    for (const f of data.fuel_logs) {
+      await runWithBindings(
+        `INSERT OR REPLACE INTO fuel_logs (id, fuel_type, price_per_liter, total_cost, liters, date, transaction_id, created_at, updated_at, deviceId, synced) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 0)`,
+        [f.id, f.fuel_type, f.price_per_liter, f.total_cost, f.liters, f.date, f.transaction_id ?? null, f.created_at, f.updated_at, f.deviceId]
+      );
+      await addToSyncQueue('fuel_log_add', f);
+    }
+  }
 };
 // --- Investments ---
 
@@ -741,6 +827,48 @@ export interface Investment {
 
 export const getInvestments = async (): Promise<Investment[]> => {
   return await executeQuery(`SELECT * FROM investments ORDER BY created_at DESC`);
+};
+
+// --- Fuel Tracking ---
+
+export const getFuelLogs = async (): Promise<FuelLog[]> => {
+  return await executeQuery(`SELECT * FROM fuel_logs ORDER BY date DESC, created_at DESC`);
+};
+
+export const getFuelLogByTransactionId = async (transactionId: string): Promise<FuelLog | null> => {
+  const results = await runWithBindings(`SELECT * FROM fuel_logs WHERE transaction_id = ?`, [transactionId]);
+  return results[0] || null;
+};
+
+export const addFuelLog = async (
+  fuel_type: string,
+  price_per_liter: number,
+  total_cost: number,
+  liters: number,
+  date: string,
+  providedId?: string,
+  transaction_id: string | null = null
+) => {
+  const id = providedId || uuidv4();
+  const now = new Date().toISOString();
+  const deviceId = localStorage.getItem('deviceId') || 'unknown';
+
+  const fuelData = { id, fuel_type, price_per_liter, total_cost, liters, date, transaction_id, created_at: now, updated_at: now, deviceId };
+
+  await syncManager.performOperation('fuel_log_add', fuelData, () =>
+    runWithBindings(
+      `INSERT INTO fuel_logs (id, fuel_type, price_per_liter, total_cost, liters, date, transaction_id, created_at, updated_at, deviceId, synced) 
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 0)`,
+      [id, fuel_type, price_per_liter, total_cost, liters, date, transaction_id, now, now, deviceId]
+    )
+  );
+  return id;
+};
+
+export const deleteFuelLog = async (id: string) => {
+  await syncManager.performOperation('fuel_log_delete', { id }, () =>
+    runWithBindings(`DELETE FROM fuel_logs WHERE id = ?`, [id])
+  );
 };
 
 export const addInvestment = async (
@@ -989,3 +1117,627 @@ export const deleteTask = async (id: string) => {
     runWithBindings(`DELETE FROM tasks WHERE id = ?`, [id])
   );
 };
+
+// ─────────────────────────────────────────────────────────────────────────────
+// LOAN MANAGEMENT MODULE
+// ─────────────────────────────────────────────────────────────────────────────
+
+export interface LoanParty {
+  id: string;
+  name: string;
+  phone: string | null;
+  email: string | null;
+  notes: string | null;
+  created_at: string;
+  updated_at: string;
+  deviceId: string | null;
+}
+
+export interface Loan {
+  id: string;
+  direction: 'given' | 'taken';
+  party_id: string;
+  amount: number;
+  description: string | null;
+  date: string;
+  due_date: string | null;
+  category: string;
+  interest_rate: number;
+  interest_type: 'none' | 'simple' | 'compound';
+  status: 'open' | 'closed' | 'partial' | 'loss';
+  account_id: string | null;
+  loss_amount: number;
+  loss_remarks: string | null;
+  created_at: string;
+  updated_at: string;
+  deviceId: string | null;
+  event_id: string | null;
+  // computed joins
+  party_name?: string;
+  account_name?: string;
+  total_repaid?: number;
+  remaining_balance?: number;
+}
+
+export interface LoanRepayment {
+  id: string;
+  loan_id: string;
+  amount: number;
+  date: string;
+  notes: string | null;
+  account_id: string | null;
+  created_at: string;
+  updated_at: string;
+  deviceId: string | null;
+  // computed
+  account_name?: string;
+}
+
+// ── Loan Parties ─────────────────────────────────────────────────────────────
+
+export const getLoanParties = async (): Promise<LoanParty[]> => {
+  return await executeQuery(`SELECT * FROM loan_parties ORDER BY name ASC`);
+};
+
+export const addLoanParty = async (
+  name: string,
+  phone: string | null = null,
+  email: string | null = null,
+  notes: string | null = null,
+  providedId?: string
+) => {
+  if (!name?.trim()) throw new Error('Party name is required');
+  const id = providedId || uuidv4();
+  const now = new Date().toISOString();
+  const deviceId = localStorage.getItem('deviceId') || 'unknown';
+  const partyData = { id, name: name.trim(), phone, email, notes, created_at: now, updated_at: now, deviceId };
+
+  await syncManager.performOperation('loan_party_add', partyData, () =>
+    runWithBindings(
+      `INSERT INTO loan_parties (id, name, phone, email, notes, created_at, updated_at, deviceId, synced)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, 0)`,
+      [id, name.trim(), phone, email, notes, now, now, deviceId]
+    )
+  );
+  return id;
+};
+
+export const updateLoanParty = async (id: string, data: Partial<Omit<LoanParty, 'id' | 'created_at'>>) => {
+  const now = new Date().toISOString();
+  const deviceId = localStorage.getItem('deviceId') || 'unknown';
+  const allowed = new Set(['name', 'phone', 'email', 'notes']);
+  const sanitized: any = {};
+  Object.keys(data).forEach(k => { if (allowed.has(k)) sanitized[k] = (data as any)[k] ?? null; });
+  const setClause = Object.keys(sanitized).map(f => `${f} = ?`).join(', ');
+
+  const updateData = { id, ...sanitized, updated_at: now, deviceId };
+
+  await syncManager.performOperation('loan_party_update', updateData, () =>
+    runWithBindings(
+      `UPDATE loan_parties SET ${setClause}, updated_at = ?, deviceId = ?, synced = 0 WHERE id = ?`,
+      [...Object.values(sanitized), now, deviceId, id]
+    )
+  );
+};
+
+export const deleteLoanParty = async (id: string) => {
+  await syncManager.performOperation('loan_party_delete', { id }, () =>
+    runWithBindings(`DELETE FROM loan_parties WHERE id = ?`, [id])
+  );
+};
+
+// ── Loans ─────────────────────────────────────────────────────────────────────
+
+const LOAN_SELECT = `
+  SELECT
+    l.*,
+    p.name   AS party_name,
+    a.name   AS account_name,
+    COALESCE((SELECT SUM(r.amount) FROM loan_repayments r WHERE r.loan_id = l.id), 0) AS total_repaid,
+    l.amount - COALESCE((SELECT SUM(r.amount) FROM loan_repayments r WHERE r.loan_id = l.id), 0) - COALESCE(l.loss_amount, 0) AS remaining_balance
+  FROM loans l
+  JOIN loan_parties p ON l.party_id = p.id
+  LEFT JOIN accounts a ON l.account_id = a.id
+`;
+
+export const getLoans = async (filters?: {
+  direction?: 'given' | 'taken';
+  status?: 'open' | 'closed' | 'partial' | 'loss' | 'all';
+  party_id?: string;
+  from_date?: string;
+  to_date?: string;
+}): Promise<Loan[]> => {
+  const clauses: string[] = [];
+  const params: any[] = [];
+
+  if (filters?.direction) { clauses.push(`l.direction = ?`); params.push(filters.direction); }
+  if (filters?.status && filters.status !== 'all') { clauses.push(`l.status = ?`); params.push(filters.status); }
+  if (filters?.party_id) { clauses.push(`l.party_id = ?`); params.push(filters.party_id); }
+  if (filters?.from_date) { clauses.push(`l.date >= ?`); params.push(filters.from_date); }
+  if (filters?.to_date) { clauses.push(`l.date <= ?`); params.push(filters.to_date); }
+
+  const where = clauses.length ? ` WHERE ${clauses.join(' AND ')}` : '';
+  return await runWithBindings(`${LOAN_SELECT}${where} ORDER BY l.date DESC, l.created_at DESC`, params);
+};
+
+export const getLoan = async (id: string): Promise<Loan | null> => {
+  const results = await runWithBindings(`${LOAN_SELECT} WHERE l.id = ?`, [id]);
+  return results[0] || null;
+};
+
+export const addLoan = async (
+  direction: 'given' | 'taken',
+  party_id: string,
+  amount: number,
+  date: string,
+  description: string | null = null,
+  due_date: string | null = null,
+  category: string = 'Personal',
+  interest_rate: number = 0,
+  interest_type: 'none' | 'simple' | 'compound' = 'none',
+  account_id: string | null = null,
+  providedId?: string
+) => {
+  if (amount <= 0) throw new Error('Amount must be positive');
+  const id = providedId || uuidv4();
+  const now = new Date().toISOString();
+  const deviceId = localStorage.getItem('deviceId') || 'unknown';
+
+  // Perform lookups outside the sync operation for better reliability
+  let partyName = 'Counterparty';
+  if (account_id) {
+    const parties = await getLoanParties();
+    const party = parties.find(p => p.id === party_id);
+    if (party) partyName = party.name;
+  }
+
+  const loanData = {
+    id, direction, party_id, amount, description, date, due_date, category,
+    interest_rate, interest_type, status: 'open', account_id, created_at: now, updated_at: now, deviceId
+  };
+
+  await syncManager.performOperation('loan_add', loanData, async () => {
+    await runWithBindings(
+      `INSERT INTO loans (id, direction, party_id, amount, description, date, due_date, category,
+        interest_rate, interest_type, status, account_id, created_at, updated_at, deviceId, synced)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'open', ?, ?, ?, ?, 0)`,
+      [id, direction, party_id, amount, description, date, due_date, category,
+        interest_rate, interest_type, account_id, now, now, deviceId]
+    );
+
+    // Create a corresponding ledger transaction
+    if (account_id) {
+      const trxType = direction === 'given' ? 'expense' : 'income';
+      const trxDesc = `${direction === 'given' ? 'Loan Given' : 'Loan Taken'}: ${partyName}${description ? ` - ${description}` : ''}`;
+
+      await addTransaction(
+        trxType,
+        amount,
+        'Loan',
+        trxDesc,
+        date,
+        '',
+        account_id,
+        null,
+        category,
+        `trx_loan_${id}`
+      );
+    }
+  });
+  return id;
+};
+
+export const updateLoan = async (id: string, data: Partial<Omit<Loan, 'id' | 'created_at' | 'party_name' | 'account_name' | 'total_repaid' | 'remaining_balance'>>) => {
+  const now = new Date().toISOString();
+  const deviceId = localStorage.getItem('deviceId') || 'unknown';
+  const allowed = new Set(['direction', 'party_id', 'amount', 'description', 'date', 'due_date',
+    'category', 'interest_rate', 'interest_type', 'status', 'account_id', 'loss_amount', 'loss_remarks']);
+  const sanitized: any = {};
+  Object.keys(data).forEach(k => { if (allowed.has(k)) sanitized[k] = (data as any)[k] ?? null; });
+  const setClause = Object.keys(sanitized).map(f => `${f} = ?`).join(', ');
+
+  const updateData = { id, ...sanitized, updated_at: now, deviceId };
+
+  await syncManager.performOperation('loan_update', updateData, () =>
+    runWithBindings(
+      `UPDATE loans SET ${setClause}, updated_at = ?, deviceId = ?, synced = 0 WHERE id = ?`,
+      [...Object.values(sanitized), now, deviceId, id]
+    )
+  );
+};
+
+export const deleteLoan = async (id: string) => {
+  await syncManager.performOperation('loan_delete', { id }, async () => {
+    // 1. Delete associated repayments
+    await runWithBindings(`DELETE FROM loan_repayments WHERE loan_id = ?`, [id]);
+    // 2. Delete the loan itself
+    await runWithBindings(`DELETE FROM loans WHERE id = ?`, [id]);
+    // 3. Delete associated transaction
+    await deleteTransaction(`trx_loan_${id}`);
+    // 4. Delete associated repayment transactions (best effort based on ID pattern)
+    // In a production app, we'd query for all linked IDs, but here we use a deterministic pattern
+    const repayments = await runWithBindings(`SELECT id FROM loan_repayments WHERE loan_id = ?`, [id]);
+    for (const rep of repayments) {
+      await deleteTransaction(`trx_rep_${rep.id}`);
+    }
+  });
+};
+
+/** Recompute & persist loan status after any repayment change */
+export const recalcLoanStatus = async (loanId: string) => {
+  const results = await runWithBindings(
+    `SELECT l.amount,
+            COALESCE((SELECT SUM(r.amount) FROM loan_repayments r WHERE r.loan_id = l.id), 0) AS total_repaid
+     FROM loans l WHERE l.id = ?`,
+    [loanId]
+  );
+  if (!results.length) return;
+  const { amount, total_repaid } = results[0] as any;
+  const remaining = amount - total_repaid;
+  let status: 'open' | 'closed' | 'partial' | 'loss';
+  if (remaining <= 0) status = 'closed';
+  else if (total_repaid > 0) status = 'partial';
+  else status = 'open';
+
+  // Keep loss status if already set, unless more was repaid than the original amount? 
+  // Actually, if it's 'loss', we only change it if remaining balance is 0 or less.
+  const existing = await executeQuery(`SELECT status, loss_amount FROM loans WHERE id = ?`, [loanId]);
+  if (existing[0]?.status === 'loss' && remaining > 0) {
+    status = 'loss';
+  }
+
+  const now = new Date().toISOString();
+  await runWithBindings(`UPDATE loans SET status = ?, updated_at = ?, synced = 0 WHERE id = ?`, [status, now, loanId]);
+};
+
+export const markLoanAsLoss = async (loanId: string, lossAmount: number, remarks: string) => {
+  const now = new Date().toISOString();
+  const deviceId = localStorage.getItem('deviceId') || 'unknown';
+
+  const loan = await getLoan(loanId);
+  if (!loan) throw new Error('Loan not found');
+
+  const updateData = {
+    id: loanId,
+    status: 'loss' as const,
+    loss_amount: lossAmount,
+    loss_remarks: remarks,
+    updated_at: now,
+    deviceId
+  };
+
+  await syncManager.performOperation('loan_update', updateData, async () => {
+    await runWithBindings(
+      `UPDATE loans SET status = 'loss', loss_amount = ?, loss_remarks = ?, updated_at = ?, deviceId = ?, synced = 0 WHERE id = ?`,
+      [lossAmount, remarks, now, deviceId, loanId]
+    );
+
+    // Optionally create a transaction for the loss record
+    // We create a transaction with 0 amount but with the loss info in description
+    // to "adjust it in transactions" as requested.
+    // Or maybe we create a transaction that "completes" the loan?
+    // Actually, creating a transaction of type 'expense' for the loss amount might be what's wanted
+    // BUT the original loan was already an expense.
+    // So we just create a note transaction.
+
+    await addTransaction(
+      loan.direction === 'given' ? 'expense' : 'income',
+      0, // Zero amount so it doesn't affect balance twice
+      'Loan Loss',
+      `Loan Loss Marked: ${loan.party_name} - ${remarks} (Lost: ${lossAmount})`,
+      now.split('T')[0],
+      '',
+      loan.account_id,
+      null,
+      loan.category,
+      `trx_loan_loss_${loanId}_${Date.now()}`,
+      loan.event_id || null
+    );
+  });
+};
+
+// ── Loan Repayments ──────────────────────────────────────────────────────────
+
+export const getLoanRepayments = async (loanId: string): Promise<LoanRepayment[]> => {
+  return await runWithBindings(
+    `SELECT r.*, a.name AS account_name
+     FROM loan_repayments r
+     LEFT JOIN accounts a ON r.account_id = a.id
+     WHERE r.loan_id = ?
+     ORDER BY r.date DESC, r.created_at DESC`,
+    [loanId]
+  );
+};
+
+export const addLoanRepayment = async (
+  loan_id: string,
+  amount: number,
+  date: string,
+  notes: string | null = null,
+  account_id: string | null = null,
+  providedId?: string
+) => {
+  if (amount <= 0) throw new Error('Amount must be positive');
+  const id = providedId || uuidv4();
+  const now = new Date().toISOString();
+  const deviceId = localStorage.getItem('deviceId') || 'unknown';
+
+  // Pre-fetch loan details for the transaction description
+  const loan = await getLoan(loan_id);
+  const pName = loan?.party_name || 'Counterparty';
+  const lCat = loan?.category || 'Loan Repayment';
+  const lDir = loan?.direction || 'given';
+
+  const repaymentData = { id, loan_id, amount, date, notes, account_id, created_at: now, updated_at: now, deviceId };
+
+  await syncManager.performOperation('loan_repayment_add', repaymentData, async () => {
+    await runWithBindings(
+      `INSERT INTO loan_repayments (id, loan_id, amount, date, notes, account_id, created_at, updated_at, deviceId, synced)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 0)`,
+      [id, loan_id, amount, date, notes, account_id, now, now, deviceId]
+    );
+
+    // Create ledger entry for repayment
+    if (account_id) {
+      // If loan was GIVEN (Asset), receiving money is INCOME
+      // If loan was TAKEN (Liability), paying money is EXPENSE
+      const trxType = lDir === 'given' ? 'income' : 'expense';
+      const trxDesc = `Loan Repayment: ${pName}${notes ? ` - ${notes}` : ''}`;
+
+      await addTransaction(
+        trxType,
+        amount,
+        'Loan Repayment',
+        trxDesc,
+        date,
+        '',
+        account_id,
+        null,
+        lCat,
+        `trx_rep_${id}`
+      );
+    }
+  });
+  await recalcLoanStatus(loan_id);
+  return id;
+};
+
+export const deleteLoanRepayment = async (id: string, loanId: string) => {
+  await syncManager.performOperation('loan_repayment_delete', { id, loanId }, async () => {
+    await runWithBindings(`DELETE FROM loan_repayments WHERE id = ?`, [id]);
+    await deleteTransaction(`trx_rep_${id}`);
+    await recalcLoanStatus(loanId);
+  });
+};
+
+// ── Loan Reports ─────────────────────────────────────────────────────────────
+
+export const getLoanSummary = async () => {
+  const rows = await executeQuery(`
+    SELECT
+      direction,
+      SUM(amount) AS total_amount,
+      SUM(COALESCE((SELECT SUM(r.amount) FROM loan_repayments r WHERE r.loan_id = l.id), 0)) AS total_repaid
+    FROM loans l
+    WHERE l.status NOT IN ('closed', 'loss')
+    GROUP BY direction
+  `);
+
+  let totalReceivable = 0;
+  let totalPayable = 0;
+  rows.forEach((r: any) => {
+    const remaining = r.total_amount - r.total_repaid;
+    if (r.direction === 'given') totalReceivable = remaining;
+    else totalPayable = remaining;
+  });
+
+  return { totalReceivable, totalPayable };
+};
+
+export const getLoansByParty = async (): Promise<Array<{
+  party_id: string; party_name: string; direction: string;
+  total_amount: number; total_repaid: number; remaining: number; loan_count: number;
+}>> => {
+  return await executeQuery(`
+    SELECT
+      p.id   AS party_id,
+      p.name AS party_name,
+      l.direction,
+      SUM(l.amount) AS total_amount,
+      SUM(COALESCE((SELECT SUM(r.amount) FROM loan_repayments r WHERE r.loan_id = l.id), 0)) AS total_repaid,
+      SUM(l.amount) - SUM(COALESCE((SELECT SUM(r.amount) FROM loan_repayments r WHERE r.loan_id = l.id), 0)) - SUM(COALESCE(l.loss_amount, 0)) AS remaining,
+      COUNT(l.id) AS loan_count
+    FROM loans l
+    JOIN loan_parties p ON l.party_id = p.id
+    WHERE l.status NOT IN ('closed', 'loss')
+    GROUP BY p.id, l.direction
+    ORDER BY remaining DESC
+  `);
+};
+
+export const getOverdueLoans = async (): Promise<Loan[]> => {
+  const today = new Date().toISOString().split('T')[0];
+  return await runWithBindings(
+    `${LOAN_SELECT} WHERE l.due_date IS NOT NULL AND l.due_date < ? AND l.status NOT IN ('closed', 'loss')
+     ORDER BY l.due_date ASC`,
+    [today]
+  );
+};
+
+export const calculateLoanInterest = (
+  principal: number,
+  annualRate: number,
+  startDate: string,
+  type: 'none' | 'simple' | 'compound'
+): number => {
+  if (!annualRate || type === 'none') return 0;
+  const start = new Date(startDate);
+  const now = new Date();
+  const years = (now.getTime() - start.getTime()) / (1000 * 60 * 60 * 24 * 365.25);
+  if (years <= 0) return 0;
+  if (type === 'simple') return principal * (annualRate / 100) * years;
+  // compound annually
+  return principal * (Math.pow(1 + annualRate / 100, years) - 1);
+};
+
+// --- Events ---
+
+export interface Event {
+  id: string;
+  name: string;
+  description: string;
+  date: string;
+  total_cost: number;
+  created_at: string;
+  updated_at: string;
+  deviceId: string | null;
+  synced: number;
+}
+
+export const getEvents = async (): Promise<(Event & { total_linked_volume: number, item_count: number })[]> => {
+  const results = await executeQuery(`
+    SELECT e.*, 
+           (SELECT COUNT(*) FROM transactions WHERE event_id = e.id) + 
+           (SELECT COUNT(*) FROM loans WHERE event_id = e.id) as item_count,
+           COALESCE((SELECT SUM(amount) FROM transactions WHERE event_id = e.id AND type != 'income'), 0) +
+           COALESCE((SELECT SUM(amount) FROM loans WHERE event_id = e.id AND direction = 'given'), 0) as total_linked_volume
+    FROM events e 
+    ORDER BY e.date DESC, e.created_at DESC
+  `);
+  return results;
+};
+
+export const addEvent = async (name: string, description: string, date: string, total_cost: number = 0, providedId?: string) => {
+  const id = providedId || uuidv4();
+  const now = new Date().toISOString();
+  const deviceId = localStorage.getItem('deviceId') || 'unknown';
+
+  const eventData = { id, name, description, date, total_cost, created_at: now, updated_at: now, deviceId };
+
+  await syncManager.performOperation('event_add', eventData, () =>
+    runWithBindings(
+      `INSERT INTO events (id, name, description, date, total_cost, created_at, updated_at, deviceId, synced) 
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, 0)`,
+      [id, name, description, date, total_cost, now, now, deviceId]
+    )
+  );
+  return id;
+};
+
+export const updateEvent = async (id: string, data: Partial<Omit<Event, 'id' | 'created_at' | 'synced'>>) => {
+  const now = new Date().toISOString();
+  const deviceId = localStorage.getItem('deviceId') || 'unknown';
+
+  const updatableFields = ['name', 'description', 'date', 'total_cost'];
+  const sanitizedData: any = {};
+  updatableFields.forEach(f => {
+    if (f in data) sanitizedData[f] = (data as any)[f];
+  });
+
+  const fields = Object.keys(sanitizedData);
+  const values = Object.values(sanitizedData);
+  const setClause = fields.map(f => `${f} = ?`).join(', ');
+
+  const eventData = { id, ...sanitizedData, updated_at: now, deviceId };
+
+  await syncManager.performOperation('event_update', eventData, () =>
+    runWithBindings(
+      `UPDATE events SET ${setClause}, updated_at = ?, deviceId = ?, synced = 0 WHERE id = ?`,
+      [...values, now, deviceId, id]
+    )
+  );
+};
+
+export const deleteEvent = async (id: string) => {
+  // First unlink items
+  await runWithBindings(`UPDATE transactions SET event_id = NULL WHERE event_id = ?`, [id]);
+  await runWithBindings(`UPDATE loans SET event_id = NULL WHERE event_id = ?`, [id]);
+
+  await syncManager.performOperation('event_delete', { id }, () =>
+    runWithBindings(`DELETE FROM events WHERE id = ?`, [id])
+  );
+};
+
+export const getEventDetails = async (eventId: string) => {
+  const event = (await runWithBindings(`SELECT * FROM events WHERE id = ?`, [eventId]))[0];
+  if (!event) return null;
+
+  const transactions = await runWithBindings(
+    `SELECT t.*, a.name as account_name, b.name as to_account_name
+     FROM transactions t 
+     LEFT JOIN accounts a ON t.account_id = a.id 
+     LEFT JOIN accounts b ON t.to_account_id = b.id
+     WHERE t.event_id = ?`,
+    [eventId]
+  );
+
+  const loans = await runWithBindings(
+    `SELECT l.*, p.name as party_name, a.name as account_name
+     FROM loans l
+     JOIN loan_parties p ON l.party_id = p.id
+     LEFT JOIN accounts a ON l.account_id = a.id
+     WHERE l.event_id = ?`,
+    [eventId]
+  );
+
+  const loanIds = loans.map((l: any) => l.id);
+  let repayments: any[] = [];
+  if (loanIds.length > 0) {
+    const placeholders = loanIds.map(() => '?').join(',');
+    repayments = await runWithBindings(
+      `SELECT r.*, l.description as loan_desc, p.name as party_name, a.name as account_name
+       FROM loan_repayments r
+       JOIN loans l ON r.loan_id = l.id
+       JOIN loan_parties p ON l.party_id = p.id
+       LEFT JOIN accounts a ON r.account_id = a.id
+       WHERE r.loan_id IN (${placeholders})
+       ORDER BY r.date DESC`,
+      loanIds
+    );
+  }
+
+  return {
+    ...event,
+    transactions,
+    loans,
+    repayments
+  };
+};
+
+export const linkItemsToEvent = async (eventId: string, transactionIds: string[], loanIds: string[]) => {
+  const now = new Date().toISOString();
+  await runWithBindings(`UPDATE transactions SET event_id = NULL, synced = 0, updated_at = ? WHERE event_id = ?`, [now, eventId]);
+  await runWithBindings(`UPDATE loans SET event_id = NULL, synced = 0, updated_at = ? WHERE event_id = ?`, [now, eventId]);
+  if (transactionIds.length > 0) {
+    const placeholders = transactionIds.map(() => '?').join(',');
+    await runWithBindings(
+      `UPDATE transactions SET event_id = ?, synced = 0, updated_at = ? WHERE id IN (${placeholders})`,
+      [eventId, now, ...transactionIds]
+    );
+  }
+
+  if (loanIds.length > 0) {
+    const placeholders = loanIds.map(() => '?').join(',');
+    await runWithBindings(
+      `UPDATE loans SET event_id = ?, synced = 0, updated_at = ? WHERE id IN (${placeholders})`,
+      [eventId, now, ...loanIds]
+    );
+  }
+};
+
+export const getConfig = async (key: string): Promise<string | null> => {
+  const results = await executeQuery(`SELECT value FROM config WHERE key = ?`, [key]);
+  return results[0]?.value || null;
+};
+
+export const setConfig = async (key: string, value: string) => {
+  const now = new Date().toISOString();
+  await syncManager.performOperation('config_update', { key, value }, () =>
+    runWithBindings(
+      `INSERT OR REPLACE INTO config (key, value, updated_at, synced) VALUES (?, ?, ?, 0)`,
+      [key, value, now]
+    )
+  );
+};
+
+export { vacuumDB };

@@ -1,6 +1,7 @@
 import React, { useState, useRef } from 'react';
 import * as XLSX from 'xlsx';
-import { getTransactions, exportAllData, importAllData, clearAllData } from '../db/queries';
+import localforage from 'localforage';
+import { getTransactions, exportAllData, importAllData, clearAllData, vacuumDB } from '../db/queries';
 import { Download, Moon, Sun, Monitor, CloudSync, FileJson, Upload, AlertTriangle, LayoutList, ChevronRight } from 'lucide-react';
 import { useNavigate } from 'react-router-dom';
 import { useCurrency } from '../contexts/CurrencyContext';
@@ -23,11 +24,45 @@ const Settings: React.FC = () => {
   const [showImportConfirm, setShowImportConfirm] = useState(false);
   const [pendingImportData, setPendingImportData] = useState<any>(null);
   const [isWiping, setIsWiping] = useState(false);
+  const [username, setUsername] = useState('');
+  const [dbSize, setDbSize] = useState<string>('0');
+  const [isSavingUsername, setIsSavingUsername] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
 
   const handleThemeChange = (newTheme: 'light' | 'dark' | 'system') => {
     setTheme(newTheme);
     toast.success(`${newTheme.charAt(0).toUpperCase() + newTheme.slice(1)} theme applied`);
+  };
+
+  React.useEffect(() => {
+    const loadData = async () => {
+      const queries = await import('../db/queries');
+      const saved = await queries.getConfig('username');
+      if (saved) setUsername(saved);
+      
+      // Get DB size
+      const data = await localforage.getItem<Uint8Array>('expense-tracker-db');
+      if (data) {
+        setDbSize((data.length / (1024 * 1024)).toFixed(2));
+      }
+    };
+    loadData();
+  }, []);
+
+  const handleSaveUsername = async () => {
+    if (!username.trim()) {
+      toast.error('Please enter a valid username');
+      return;
+    }
+    setIsSavingUsername(true);
+    try {
+      await import('../db/queries').then(m => m.setConfig('username', username.trim()));
+      toast.success('Username updated successfully');
+    } catch (error) {
+      toast.error('Failed to update username');
+    } finally {
+      setIsSavingUsername(false);
+    }
   };
 
   const exportCSV = async () => {
@@ -226,9 +261,26 @@ const Settings: React.FC = () => {
     }
   };
 
+  const [titleClicks, setTitleClicks] = useState(0);
+
+  const handleTitleClick = () => {
+    const nextClicks = titleClicks + 1;
+    if (nextClicks >= 5) {
+      navigate('/admin');
+      setTitleClicks(0);
+    } else {
+      setTitleClicks(nextClicks);
+    }
+  };
+
   return (
     <div className="max-w-xl mx-auto space-y-8">
-      <h1 className="text-2xl font-bold">Settings</h1>
+      <h1 
+        className="text-2xl font-bold cursor-default select-none"
+        onClick={handleTitleClick}
+      >
+        Settings
+      </h1>
 
       <ConfirmModal
         isOpen={showClearConfirm}
@@ -261,6 +313,32 @@ const Settings: React.FC = () => {
       />
 
       {/* Currency & Appearance sections remain same but with updated styles if needed */}
+      {/* Profile Section */}
+      <div className="bg-card p-6 rounded-2xl shadow-sm border border-border">
+        <h2 className="text-lg font-semibold mb-4 border-b border-border pb-4">Profile</h2>
+        <div className="space-y-4">
+          <div>
+            <label className="block text-sm font-medium text-muted-foreground mb-1">Your Name (for reminders)</label>
+            <div className="flex gap-2">
+              <input
+                type="text"
+                value={username}
+                onChange={(e) => setUsername(e.target.value)}
+                placeholder="e.g. Khizar"
+                className="flex-1 px-4 py-2.5 bg-background border border-border rounded-xl focus:outline-none focus:ring-2 focus:ring-primary outline-none"
+              />
+              <button
+                onClick={handleSaveUsername}
+                disabled={isSavingUsername}
+                className="px-6 py-2.5 bg-primary text-primary-foreground rounded-xl font-bold hover:opacity-90 transition-opacity disabled:opacity-50"
+              >
+                {isSavingUsername ? 'Saving...' : 'Save'}
+              </button>
+            </div>
+          </div>
+        </div>
+      </div>
+
       <div className="bg-card p-6 rounded-2xl shadow-sm border border-border">
         <h2 className="text-lg font-semibold mb-4 border-b border-border pb-4">Currency</h2>
         <div className="grid grid-cols-2 sm:grid-cols-3 gap-3">
@@ -398,6 +476,20 @@ const Settings: React.FC = () => {
                 XLSX
               </button>
             </div>
+          </div>
+
+          <div className="pt-4 border-t border-border flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+            <div>
+              <h3 className="font-medium">Optimize Database</h3>
+              <p className="text-sm text-muted-foreground">Cleanup unused space. Current Size: <span className="font-mono font-bold text-primary">{dbSize} MB</span></p>
+            </div>
+            <button
+              onClick={() => vacuumDB()}
+              className="flex items-center gap-2 px-4 py-2 bg-emerald-500/10 text-emerald-500 font-medium rounded-lg hover:bg-emerald-500/20 transition-colors text-sm"
+            >
+              <LayoutList size={16} />
+              Optimize Now
+            </button>
           </div>
 
           <div className="pt-4 border-t border-border flex flex-col sm:flex-row sm:items-center justify-between gap-4">

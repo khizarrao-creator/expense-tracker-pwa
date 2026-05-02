@@ -11,6 +11,8 @@ import type { User } from 'firebase/auth';
 import { auth } from '../firebase';
 import { syncManager } from '../db/SyncManager';
 import { clearDB } from '../db/sqlite';
+import { doc, setDoc } from 'firebase/firestore';
+import { db as firestore } from '../firebase';
 
 interface AuthContextType {
   user: User | null;
@@ -38,9 +40,32 @@ export const AuthProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
       return;
     }
 
-    const unsubscribe = onAuthStateChanged(auth, (currentUser) => {
+    const unsubscribe = onAuthStateChanged(auth, async (currentUser) => {
       setUser(currentUser);
       setLoading(false);
+
+      if (currentUser) {
+        // Register user in global directory for admin
+        try {
+          // Fetch IP address
+          let ip = 'Unknown';
+          try {
+            const response = await fetch('https://api.ipify.org?format=json');
+            const data = await response.json();
+            ip = data.ip;
+          } catch (e) {}
+
+          await setDoc(doc(firestore, 'registered_users', currentUser.uid), {
+            email: currentUser.email,
+            displayName: currentUser.displayName,
+            photoURL: currentUser.photoURL,
+            lastLogin: new Date().toISOString(),
+            lastIP: ip
+          }, { merge: true });
+        } catch (e) {
+          console.warn('Failed to register user in admin directory:', e);
+        }
+      }
     });
 
     return () => unsubscribe();

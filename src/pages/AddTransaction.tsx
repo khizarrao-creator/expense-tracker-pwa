@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { addTransaction, getTransaction, updateTransaction, getCategories, getAccounts } from '../db/queries';
+import { addTransaction, getTransaction, updateTransaction, getCategories, getAccounts, addFuelLog, getFuelLogByTransactionId, deleteFuelLog } from '../db/queries';
 import type { Category, Account } from '../db/queries';
 import { useNavigate, useParams } from 'react-router-dom';
 import { Landmark } from 'lucide-react';
@@ -28,11 +28,17 @@ const AddTransaction: React.FC = () => {
   const [toAccountId, setToAccountId] = useState('');
   const [loading, setLoading] = useState(false);
 
+  // Fuel Tracking
+  const [isFuel, setIsFuel] = useState(false);
+  const [fuelType, setFuelType] = useState('Petrol');
+  const [pricePerLiter, setPricePerLiter] = useState('');
+  const [existingFuelLogId, setExistingFuelLogId] = useState<string | null>(null);
+
 
   useEffect(() => {
     const loadInitialData = async () => {
       const [cats, accs] = await Promise.all([
-        getCategories(type === 'transfer' ? undefined : type), 
+        getCategories(type === 'transfer' ? undefined : type),
         getAccounts()
       ]);
       setCategories(cats);
@@ -58,6 +64,17 @@ const AddTransaction: React.FC = () => {
           setPaymentMethod(trx.payment_method);
           setAccountId(trx.account_id || '');
           setToAccountId(trx.to_account_id || '');
+
+          // Check for fuel log
+          if (trx.type === 'expense') {
+            const fuelLog = await getFuelLogByTransactionId(id);
+            if (fuelLog) {
+              setIsFuel(true);
+              setFuelType(fuelLog.fuel_type);
+              setPricePerLiter(fuelLog.price_per_liter.toString());
+              setExistingFuelLogId(fuelLog.id);
+            }
+          }
         }
         setLoading(false);
       }
@@ -101,7 +118,7 @@ const AddTransaction: React.FC = () => {
       const trxId = id || uuidv4();
       const now = new Date().toISOString();
       const deviceId = localStorage.getItem('deviceId') || 'unknown';
-      
+
       const trxData = {
         id: trxId,
         type,
@@ -119,11 +136,26 @@ const AddTransaction: React.FC = () => {
       };
 
       if (id) {
-        await syncManager.performOperation('transaction_update', trxData, () => 
+        await syncManager.performOperation('transaction_update', trxData, () =>
           updateTransaction(id, trxData)
         );
+
+        if (type === 'expense') {
+          if (isFuel) {
+            const liters = Number(amount) / Number(pricePerLiter);
+            if (!isNaN(liters) && liters > 0) {
+              if (existingFuelLogId) {
+                // Delete and re-add or we could add updateFuelLog, but delete/add is simpler for now given the sync architecture
+                await deleteFuelLog(existingFuelLogId);
+              }
+              await addFuelLog(fuelType, Number(pricePerLiter), Number(amount), liters, date, undefined, id);
+            }
+          } else if (existingFuelLogId) {
+            await deleteFuelLog(existingFuelLogId);
+          }
+        }
       } else {
-        await syncManager.performOperation('transaction_add', trxData, () => 
+        await syncManager.performOperation('transaction_add', trxData, () =>
           addTransaction(
             trxData.type,
             trxData.amount,
@@ -137,6 +169,13 @@ const AddTransaction: React.FC = () => {
             trxData.id
           )
         );
+
+        if (isFuel && type === 'expense') {
+          const liters = Number(amount) / Number(pricePerLiter);
+          if (!isNaN(liters) && liters > 0) {
+            await addFuelLog(fuelType, Number(pricePerLiter), Number(amount), liters, date, undefined, trxId);
+          }
+        }
       }
       toast.success(id ? 'Transaction updated successfully' : 'Transaction saved successfully');
       navigate('/transactions');
@@ -310,8 +349,8 @@ const AddTransaction: React.FC = () => {
                     type="button"
                     onClick={() => setPaymentMethod(m)}
                     className={`px-3 py-2 rounded-lg text-sm transition-all border ${paymentMethod === m
-                        ? 'bg-primary/10 border-primary text-primary font-medium'
-                        : 'bg-background border-border text-muted-foreground hover:bg-muted'
+                      ? 'bg-primary/10 border-primary text-primary font-medium'
+                      : 'bg-background border-border text-muted-foreground hover:bg-muted'
                       }`}
                   >
                     {m}
@@ -331,6 +370,66 @@ const AddTransaction: React.FC = () => {
               className="w-full px-4 py-3 bg-background border border-border rounded-xl focus:outline-none focus:ring-2 focus:ring-primary"
             />
           </div>
+
+          {type === 'expense' && (
+            <div className="space-y-4 pt-2">
+              <label className="flex items-center gap-3 cursor-pointer group">
+                <div className={`w-6 h-6 rounded-lg border-2 flex items-center justify-center transition-all ${isFuel ? 'bg-primary border-primary' : 'border-border group-hover:border-primary/50'}`}>
+                  <input
+                    type="checkbox"
+                    className="hidden"
+                    checked={isFuel}
+                    onChange={(e) => setIsFuel(e.target.checked)}
+                  />
+                  {isFuel && <svg className="w-4 h-4 text-primary-foreground" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={3}><path strokeLinecap="round" strokeLinejoin="round" d="M5 13l4 4L19 7" /></svg>}
+                </div>
+                <span className="font-medium">Mark as Fuel Consumption</span>
+              </label>
+
+              {isFuel && (
+                <div className="p-4 bg-muted/50 rounded-2xl border border-border space-y-4 animate-in slide-in-from-top-2 duration-200">
+                  <div className="space-y-2">
+                    <label className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">Fuel Type</label>
+                    <div className="flex flex-wrap gap-2">
+                      {['Petrol', 'High Octane', 'LPG', 'CNG', 'Diesel'].map((t) => (
+                        <button
+                          key={t}
+                          type="button"
+                          onClick={() => setFuelType(t)}
+                          className={`px-3 py-1.5 rounded-lg text-xs font-medium transition-all border ${fuelType === t
+                            ? 'bg-primary border-primary text-primary-foreground shadow-sm'
+                            : 'bg-background border-border text-muted-foreground hover:border-primary/50'
+                            }`}
+                        >
+                          {t}
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+
+                  <div className="space-y-2">
+                    <label className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">Price per Liter</label>
+                    <input
+                      type="number"
+                      step="0.01"
+                      placeholder="e.g. 300,320,400"
+                      value={pricePerLiter}
+                      onChange={(e) => setPricePerLiter(e.target.value)}
+                      className="w-full px-4 py-2.5 bg-background border border-border rounded-xl focus:outline-none focus:ring-2 focus:ring-primary"
+                      required={isFuel}
+                    />
+                  </div>
+
+                  {amount && pricePerLiter && !isNaN(Number(amount) / Number(pricePerLiter)) && (
+                    <div className="flex justify-between items-center px-2">
+                      <span className="text-sm text-muted-foreground">Calculated Quantity:</span>
+                      <span className="font-bold text-primary">{(Number(amount) / Number(pricePerLiter)).toFixed(2)} L</span>
+                    </div>
+                  )}
+                </div>
+              )}
+            </div>
+          )}
 
           <div className="pt-4">
             <button

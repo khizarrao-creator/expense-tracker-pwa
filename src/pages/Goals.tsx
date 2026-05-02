@@ -1,8 +1,8 @@
 import React, { useEffect, useState } from 'react';
-import { getGoals, addGoal, deleteGoal, getSummaryByAccount } from '../db/queries';
+import { getGoals, addGoal, updateGoal, deleteGoal, getSummaryByAccount } from '../db/queries';
 import type { Goal } from '../db/queries';
 import { useCurrency } from '../contexts/CurrencyContext';
-import { Plus, Target, Trash2, Calendar, CheckCircle2 } from 'lucide-react';
+import { Plus, Target, Trash2, Calendar, CheckCircle2, Pencil } from 'lucide-react';
 import { toast } from 'sonner';
 
 const Goals: React.FC = () => {
@@ -14,6 +14,7 @@ const Goals: React.FC = () => {
   const [totalBalance, setTotalBalance] = useState(0);
 
   // Form State
+  const [editingGoal, setEditingGoal] = useState<Goal | null>(null);
   const [newName, setNewName] = useState('');
   const [newTarget, setNewTarget] = useState('');
   const [newDeadline, setNewDeadline] = useState('');
@@ -33,8 +34,9 @@ const Goals: React.FC = () => {
       ]);
       setGoals(goalsList);
       setAccountsList(accounts);
-      
-      const balance = accounts.reduce((acc, curr) => acc + (curr.initial_balance + curr.income - curr.expense), 0);
+
+      const balance = accounts.reduce((acc, curr) =>
+        acc + (curr.initial_balance + curr.income - curr.expense + (curr.transfer_in || 0) - (curr.transfer_out || 0)), 0);
       setTotalBalance(balance);
     } catch (error) {
       console.error('Failed to load goals', error);
@@ -49,18 +51,39 @@ const Goals: React.FC = () => {
 
     try {
       const linkedPayload = newLinkedAccounts.length > 0 ? JSON.stringify(newLinkedAccounts) : null;
-      await addGoal(newName, parseFloat(newTarget), null, newDeadline || null, linkedPayload, crypto.randomUUID());
-      
-      toast.success('Goal added successfully');
+
+      if (editingGoal) {
+        await updateGoal(editingGoal.id, {
+          name: newName,
+          target_amount: parseFloat(newTarget),
+          deadline: newDeadline || null,
+          linked_accounts: linkedPayload
+        });
+        toast.success('Goal updated successfully');
+      } else {
+        await addGoal(newName, parseFloat(newTarget), null, newDeadline || null, linkedPayload, crypto.randomUUID());
+        toast.success('Goal added successfully');
+      }
+
       setShowAddModal(false);
+      setEditingGoal(null);
       setNewName('');
       setNewTarget('');
       setNewDeadline('');
       setNewLinkedAccounts([]);
       loadData();
     } catch (error) {
-      toast.error('Failed to add goal');
+      toast.error(editingGoal ? 'Failed to update goal' : 'Failed to add goal');
     }
+  };
+
+  const handleEditClick = (goal: Goal) => {
+    setEditingGoal(goal);
+    setNewName(goal.name);
+    setNewTarget(goal.target_amount.toString());
+    setNewDeadline(goal.deadline ? goal.deadline.split('T')[0] : '');
+    setNewLinkedAccounts(goal.linked_accounts ? JSON.parse(goal.linked_accounts) : []);
+    setShowAddModal(true);
   };
 
   const handleDeleteGoal = async (id: string) => {
@@ -101,14 +124,14 @@ const Goals: React.FC = () => {
       <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
         {goals.map((goal) => {
           let currentBalance = 0;
-          
+
           if (goal.linked_accounts) {
             try {
               const linkedIds = JSON.parse(goal.linked_accounts);
               if (Array.isArray(linkedIds) && linkedIds.length > 0) {
                 currentBalance = accountsList
                   .filter(a => linkedIds.includes(a.id))
-                  .reduce((acc, curr) => acc + (curr.initial_balance + curr.income - curr.expense), 0);
+                  .reduce((acc, curr) => acc + (curr.initial_balance + curr.income - curr.expense + (curr.transfer_in || 0) - (curr.transfer_out || 0)), 0);
               } else {
                 currentBalance = 0;
               }
@@ -125,12 +148,20 @@ const Goals: React.FC = () => {
 
           return (
             <div key={goal.id} className="bg-card p-6 rounded-2xl shadow-sm border border-border group relative transition-all hover:border-primary/50">
-              <button
-                onClick={() => handleDeleteGoal(goal.id)}
-                className="absolute top-4 right-4 p-2 text-muted-foreground hover:text-destructive opacity-0 group-hover:opacity-100 transition-opacity"
-              >
-                <Trash2 size={16} />
-              </button>
+              <div className="absolute top-4 right-4 flex items-center gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
+                <button
+                  onClick={() => handleEditClick(goal)}
+                  className="p-2 text-muted-foreground hover:text-primary transition-colors"
+                >
+                  <Pencil size={16} />
+                </button>
+                <button
+                  onClick={() => handleDeleteGoal(goal.id)}
+                  className="p-2 text-muted-foreground hover:text-destructive transition-colors"
+                >
+                  <Trash2 size={16} />
+                </button>
+              </div>
 
               <div className="flex items-center gap-4 mb-6">
                 <div className={`p-3 rounded-xl ${isCompleted ? 'bg-emerald-500/10 text-emerald-500' : 'bg-primary/10 text-primary'}`}>
@@ -159,8 +190,8 @@ const Goals: React.FC = () => {
                 <div className="flex items-center gap-1">
                   <Calendar size={12} />
                   <span>
-                    {goal.deadline 
-                      ? `Deadline: ${new Date(goal.deadline).toLocaleDateString()}` 
+                    {goal.deadline
+                      ? `Deadline: ${new Date(goal.deadline).toLocaleDateString()}`
                       : (isCompleted ? 'Goal Met!' : 'No deadline set')}
                   </span>
                 </div>
@@ -183,7 +214,7 @@ const Goals: React.FC = () => {
             <p className="text-muted-foreground text-sm max-w-xs mx-auto mt-2">
               Start by setting a target for what you want to achieve.
             </p>
-            <button 
+            <button
               onClick={() => setShowAddModal(true)}
               className="mt-6 text-primary font-semibold hover:underline"
             >
@@ -197,8 +228,18 @@ const Goals: React.FC = () => {
         <div className="fixed inset-0 bg-black/50 backdrop-blur-sm z-50 flex items-center justify-center p-4">
           <div className="bg-card w-full max-w-md rounded-3xl shadow-2xl p-6 border border-border animate-in fade-in zoom-in duration-200">
             <div className="flex items-center justify-between mb-6">
-              <h2 className="text-xl font-bold">Add Savings Goal</h2>
-              <button onClick={() => setShowAddModal(false)} className="text-muted-foreground hover:bg-muted p-2 rounded-full">
+              <h2 className="text-xl font-bold">{editingGoal ? 'Edit Savings Goal' : 'Add Savings Goal'}</h2>
+              <button
+                onClick={() => {
+                  setShowAddModal(false);
+                  setEditingGoal(null);
+                  setNewName('');
+                  setNewTarget('');
+                  setNewDeadline('');
+                  setNewLinkedAccounts([]);
+                }}
+                className="text-muted-foreground hover:bg-muted p-2 rounded-full"
+              >
                 <Plus size={20} className="rotate-45" />
               </button>
             </div>
@@ -267,7 +308,14 @@ const Goals: React.FC = () => {
               <div className="pt-4 flex gap-3">
                 <button
                   type="button"
-                  onClick={() => setShowAddModal(false)}
+                  onClick={() => {
+                    setShowAddModal(false);
+                    setEditingGoal(null);
+                    setNewName('');
+                    setNewTarget('');
+                    setNewDeadline('');
+                    setNewLinkedAccounts([]);
+                  }}
                   className="flex-1 bg-muted font-semibold py-4 rounded-2xl hover:bg-muted/80 transition-colors"
                 >
                   Cancel
@@ -276,7 +324,7 @@ const Goals: React.FC = () => {
                   type="submit"
                   className="flex-1 bg-primary text-primary-foreground font-semibold py-4 rounded-2xl shadow-lg hover:shadow-primary/20 transition-all"
                 >
-                  Create Goal
+                  {editingGoal ? 'Update Goal' : 'Create Goal'}
                 </button>
               </div>
             </form>

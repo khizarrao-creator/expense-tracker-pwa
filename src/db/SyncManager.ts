@@ -1,8 +1,8 @@
 import { db as firestore } from '../firebase';
-import { 
-  collection, 
-  doc, 
-  setDoc, 
+import {
+  collection,
+  doc,
+  setDoc,
   onSnapshot,
   getDocs,
   deleteDoc
@@ -72,8 +72,8 @@ class SyncManager {
 
   private async repairMissingSyncItems() {
     console.log('[SyncManager] Scanning for orphaned unsynced items...');
-    const collections = ['transactions', 'accounts', 'categories', 'goals', 'investments', 'reminders', 'tasks'];
-    
+    const collections = ['transactions', 'accounts', 'categories', 'goals', 'investments', 'reminders', 'tasks', 'loan_parties', 'loans', 'loan_repayments', 'events', 'fuel_logs', 'config'];
+
     for (const col of collections) {
       try {
         const unsynced = await executeQuery(`SELECT * FROM ${col} WHERE synced = 0`);
@@ -82,13 +82,18 @@ class SyncManager {
           const inQueue = await executeQuery(`SELECT id FROM sync_queue WHERE payload LIKE ?`, [`%"id":"${item.id}"%`]);
           if (inQueue.length === 0) {
             console.log(`[SyncManager] Repairing: Adding ${col} ${item.id} to queue`);
-            const type = col === 'goals' ? 'goal_add' : 
-                         col === 'investments' ? 'investment_add' :
-                         col === 'reminders' ? 'reminder_add' :
-                         col === 'categories' ? 'category_add' :
-                         col === 'tasks' ? 'task_add' :
-                         col.slice(0, -1) + '_add';
-            
+            const type = col === 'goals' ? 'goal_add' :
+              col === 'investments' ? 'investment_add' :
+                col === 'reminders' ? 'reminder_add' :
+                  col === 'categories' ? 'category_add' :
+                    col === 'tasks' ? 'task_add' :
+                      col === 'loan_parties' ? 'loan_party_add' :
+                        col === 'loan_repayments' ? 'loan_repayment_add' :
+                          col === 'loans' ? 'loan_add' :
+                            col === 'events' ? 'event_add' :
+                              col === 'fuel_logs' ? 'fuel_log_add' :
+                                col.slice(0, -1) + '_add';
+
             await runWithBindings(
               `INSERT INTO sync_queue (id, type, payload, timestamp, deviceId, status) VALUES (?, ?, ?, ?, ?, 'pending')`,
               [uuidv4(), type, JSON.stringify(item), new Date().toISOString(), this.deviceId]
@@ -110,14 +115,14 @@ class SyncManager {
     if (!this.userId) return;
     this.stopSync();
 
-    const collections = ['transactions', 'accounts', 'categories', 'goals', 'investments', 'reminders', 'tasks'];
-    
+    const collections = ['transactions', 'accounts', 'categories', 'goals', 'investments', 'reminders', 'tasks', 'loan_parties', 'loans', 'loan_repayments', 'events', 'fuel_logs', 'config'];
+
     collections.forEach(colName => {
       const colRef = collection(firestore, `users/${this.userId}/${colName}`);
       const unsubscribe = onSnapshot(colRef, (snapshot) => {
         snapshot.docChanges().forEach(async (change) => {
           const data = change.doc.data();
-          
+
           if (change.type === 'added' || change.type === 'modified') {
             await this.updateLocalCache(colName, data);
           } else if (change.type === 'removed') {
@@ -132,21 +137,21 @@ class SyncManager {
 
   private async startSync() {
     if (!this.userId) return;
-    
+
     // Auto-heal corrupted items from legacy typos queue poisoning
-    try { 
-      await runWithBindings(`UPDATE sync_queue SET type = REPLACE(type, 'categorie_', 'category_') WHERE type LIKE 'categorie_%'`); 
-    } catch(e) {}
+    try {
+      await runWithBindings(`UPDATE sync_queue SET type = REPLACE(type, 'categorie_', 'category_') WHERE type LIKE 'categorie_%'`);
+    } catch (e) { }
 
     // 0. Auto-repair: Find any items marked synced=0 that aren't in the queue
     await this.repairMissingSyncItems();
-    
+
     // 1. Reconcile with server (one-time fetch to purge deleted items)
     await this.reconcileWithServer();
 
     // 2. Initial push of any pending items
     await this.processQueue();
-    
+
     // 3. Setup Real-time Listeners
     this.setupListeners();
   }
@@ -154,18 +159,18 @@ class SyncManager {
   private async reconcileWithServer() {
     if (!this.userId) return;
     console.log('[SyncManager] Starting server reconciliation...');
-    
-    const collections = ['transactions', 'accounts', 'categories', 'goals', 'investments', 'reminders', 'tasks'];
-    
+
+    const collections = ['transactions', 'accounts', 'categories', 'goals', 'investments', 'reminders', 'tasks', 'loan_parties', 'loans', 'loan_repayments', 'events', 'fuel_logs', 'config'];
+
     for (const colName of collections) {
       try {
         const colRef = collection(firestore, `users/${this.userId}/${colName}`);
         const snapshot = await getDocs(colRef);
         const serverIds = new Set(snapshot.docs.map(doc => doc.id));
-        
+
         const localItems = await executeQuery(`SELECT id FROM ${colName} WHERE synced = 1`);
         const orphanedIds = localItems.filter(item => !serverIds.has(item.id)).map(item => item.id);
-        
+
         if (orphanedIds.length > 0) {
           console.log(`[SyncManager] Found ${orphanedIds.length} orphaned items in ${colName}. Purging...`);
           for (const id of orphanedIds) {
@@ -182,11 +187,11 @@ class SyncManager {
   private async updateLocalCache(collection: string, data: any) {
     // 1. Check if record exists and its updated_at timestamp
     const existing = await executeQuery(`SELECT updated_at FROM ${collection} WHERE id = ?`, [data.id]);
-    
+
     if (existing.length > 0) {
       const localUpdatedAt = new Date(existing[0].updated_at).getTime();
       const remoteUpdatedAt = new Date(data.updated_at).getTime();
-      
+
       if (remoteUpdatedAt <= localUpdatedAt) {
         console.log(`[SyncManager] Skipping update for ${collection}/${data.id} - local record is newer or same.`);
         return;
@@ -196,34 +201,35 @@ class SyncManager {
     if (collection === 'transactions') {
       await runWithBindings(`
         INSERT OR REPLACE INTO transactions 
-        (id, type, amount, category, description, date, payment_method, account_id, to_account_id, created_at, updated_at, deviceId, synced)
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 1)
+        (id, type, amount, category, description, date, payment_method, account_id, to_account_id, created_at, updated_at, deviceId, synced, subcategory)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 1, ?)
       `, [
-        data.id, 
-        data.type, 
-        data.amount, 
-        data.category, 
-        data.description ?? null, 
-        data.date, 
-        data.payment_method ?? '', 
-        data.account_id ?? null, 
-        data.to_account_id ?? null, 
-        data.created_at, 
-        data.updated_at, 
-        data.deviceId ?? null
+        data.id,
+        data.type,
+        data.amount,
+        data.category,
+        data.description ?? null,
+        data.date,
+        data.payment_method ?? '',
+        data.account_id ?? null,
+        data.to_account_id ?? null,
+        data.created_at,
+        data.updated_at,
+        data.deviceId ?? null,
+        data.subcategory ?? null
       ]);
     } else if (collection === 'accounts') {
       await runWithBindings(`
         INSERT OR REPLACE INTO accounts (id, name, type, initial_balance, color, created_at, updated_at, deviceId, synced)
         VALUES (?, ?, ?, ?, ?, ?, ?, ?, 1)
       `, [
-        data.id, 
-        data.name, 
-        data.type, 
-        data.initial_balance ?? 0, 
-        data.color ?? null, 
-        data.created_at, 
-        data.updated_at, 
+        data.id,
+        data.name,
+        data.type,
+        data.initial_balance ?? 0,
+        data.color ?? null,
+        data.created_at,
+        data.updated_at,
         data.deviceId ?? null
       ]);
     } else if (collection === 'categories') {
@@ -231,12 +237,12 @@ class SyncManager {
         INSERT OR REPLACE INTO categories (id, name, type, icon, created_at, updated_at, deviceId, synced)
         VALUES (?, ?, ?, ?, ?, ?, ?, 1)
       `, [
-        data.id, 
-        data.name, 
-        data.type, 
-        data.icon ?? '', 
-        data.created_at, 
-        data.updated_at, 
+        data.id,
+        data.name,
+        data.type,
+        data.icon ?? '',
+        data.created_at,
+        data.updated_at,
         data.deviceId ?? null
       ]);
     } else if (collection === 'goals') {
@@ -303,6 +309,97 @@ class SyncManager {
         data.updated_at,
         data.deviceId ?? null
       ]);
+    } else if (collection === 'loan_parties') {
+      await runWithBindings(`
+        INSERT OR REPLACE INTO loan_parties (id, name, phone, email, notes, created_at, updated_at, deviceId, synced)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, 1)
+      `, [
+        data.id,
+        data.name,
+        data.phone ?? null,
+        data.email ?? null,
+        data.notes ?? null,
+        data.created_at,
+        data.updated_at,
+        data.deviceId ?? null
+      ]);
+    } else if (collection === 'loans') {
+      await runWithBindings(`
+        INSERT OR REPLACE INTO loans (id, direction, party_id, amount, description, date, due_date, category, interest_rate, interest_type, status, account_id, loss_amount, loss_remarks, created_at, updated_at, deviceId, synced)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 1)
+      `, [
+        data.id,
+        data.direction,
+        data.party_id,
+        data.amount,
+        data.description ?? null,
+        data.date,
+        data.due_date ?? null,
+        data.category ?? 'Personal',
+        data.interest_rate ?? 0,
+        data.interest_type ?? 'none',
+        data.status ?? 'open',
+        data.account_id ?? null,
+        data.loss_amount ?? 0,
+        data.loss_remarks ?? null,
+        data.created_at,
+        data.updated_at,
+        data.deviceId ?? null
+      ]);
+    } else if (collection === 'loan_repayments') {
+      await runWithBindings(`
+        INSERT OR REPLACE INTO loan_repayments (id, loan_id, amount, date, notes, account_id, created_at, updated_at, deviceId, synced)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 1)
+      `, [
+        data.id,
+        data.loan_id,
+        data.amount,
+        data.date,
+        data.notes ?? null,
+        data.account_id ?? null,
+        data.created_at,
+        data.updated_at,
+        data.deviceId ?? null
+      ]);
+    } else if (collection === 'events') {
+      await runWithBindings(`
+        INSERT OR REPLACE INTO events (id, name, description, date, total_cost, created_at, updated_at, deviceId, synced)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, 1)
+      `, [
+        data.id,
+        data.name,
+        data.description ?? null,
+        data.date,
+        data.total_cost ?? 0,
+        data.created_at,
+        data.updated_at,
+        data.deviceId ?? null
+      ]);
+    } else if (collection === 'fuel_logs') {
+      await runWithBindings(`
+        INSERT OR REPLACE INTO fuel_logs (id, fuel_type, price_per_liter, total_cost, liters, date, transaction_id, created_at, updated_at, deviceId, synced)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 1)
+      `, [
+        data.id,
+        data.fuel_type,
+        data.price_per_liter,
+        data.total_cost,
+        data.liters,
+        data.date,
+        data.transaction_id ?? null,
+        data.created_at,
+        data.updated_at,
+        data.deviceId ?? null
+      ]);
+    } else if (collection === 'config') {
+      await runWithBindings(`
+        INSERT OR REPLACE INTO config (key, value, updated_at, synced)
+        VALUES (?, ?, ?, 1)
+      `, [
+        data.key,
+        data.value,
+        data.updated_at
+      ]);
     }
   }
 
@@ -315,7 +412,7 @@ class SyncManager {
       console.log('[SyncManager] Skip processQueue:', { processing: this.isProcessingQueue, online: this.isOnline, userId: this.userId });
       return;
     }
-    
+
     this.isProcessingQueue = true;
     console.log('[SyncManager] Starting processQueue...');
     window.dispatchEvent(new CustomEvent('sync-status-changed', { detail: { syncing: true } }));
@@ -323,16 +420,16 @@ class SyncManager {
     try {
       const ops = await executeQuery(`SELECT * FROM sync_queue WHERE status IN ('pending', 'failed') ORDER BY timestamp ASC LIMIT 50`);
       console.log(`[SyncManager] Found ${ops.length} items to sync`);
-      
+
       for (const op of ops) {
         const payload = JSON.parse(op.payload);
         console.log(`[SyncManager] Syncing ${op.type} (ID: ${payload.id})...`);
         const success = await this.pushToFirestore(op.type, payload);
-        
+
         if (success) {
           console.log(`[SyncManager] Successfully pushed ${payload.id}`);
           await runWithBindings(`DELETE FROM sync_queue WHERE id = ?`, [op.id]);
-          
+
           if (op.type.endsWith('_delete')) {
             console.log(`[SyncManager] Delete operation completed for ${payload.id}`);
             window.dispatchEvent(new CustomEvent('app-sync-complete'));
@@ -342,12 +439,17 @@ class SyncManager {
           const tablePrefix = op.type.split('_')[0];
           let table = '';
           if (tablePrefix === 'goal') table = 'goals';
+          else if (tablePrefix === 'config') table = 'config';
           else if (tablePrefix === 'investment') table = 'investments';
           else if (tablePrefix === 'reminder') table = 'reminders';
           else if (tablePrefix === 'category' || tablePrefix === 'categorie') table = 'categories';
+          else if (tablePrefix === 'loan' && op.type.includes('_party')) table = 'loan_parties';
+          else if (tablePrefix === 'loan' && op.type.includes('_repayment')) table = 'loan_repayments';
+          else if (tablePrefix === 'event') table = 'events';
+          else if (tablePrefix === 'fuel') table = 'fuel_logs';
           else table = tablePrefix + 's';
 
-          if (['transactions', 'accounts', 'categories', 'goals', 'investments', 'reminders', 'tasks'].includes(table)) {
+          if (['transactions', 'accounts', 'categories', 'goals', 'investments', 'reminders', 'tasks', 'loan_parties', 'loans', 'loan_repayments', 'events', 'fuel_logs', 'config'].includes(table)) {
             console.log(`[SyncManager] Updating ${table} local record ${payload.id} to synced=1`);
             await runWithBindings(`UPDATE ${table} SET synced = 1 WHERE id = ?`, [payload.id]);
             // Verify and notify UI
@@ -357,7 +459,7 @@ class SyncManager {
           console.warn(`[SyncManager] Push FAILED for ${payload.id}`);
           // Mark as failed but DO NOT break! That halts the entire queue indefinitely!
           await runWithBindings(`UPDATE sync_queue SET status = 'failed' WHERE id = ?`, [op.id]);
-          continue; 
+          continue;
         }
       }
       window.dispatchEvent(new CustomEvent('app-sync-complete'));
@@ -376,7 +478,7 @@ class SyncManager {
       toast.error('Sync paused: Internal auth state missing. Please refresh the page!', { id: 'sync-error-auth' });
       return false;
     }
-    
+
     try {
       let docRef;
       if (type.startsWith('transaction')) {
@@ -393,8 +495,18 @@ class SyncManager {
         docRef = doc(firestore, `users/${this.userId}/reminders/${payload.id}`);
       } else if (type.startsWith('task')) {
         docRef = doc(firestore, `users/${this.userId}/tasks/${payload.id}`);
-      } else if (type === 'settings') {
-        docRef = doc(firestore, `users/${this.userId}/config/preferences`);
+      } else if (type.startsWith('loan_party')) {
+        docRef = doc(firestore, `users/${this.userId}/loan_parties/${payload.id}`);
+      } else if (type.startsWith('loan_repayment')) {
+        docRef = doc(firestore, `users/${this.userId}/loan_repayments/${payload.id}`);
+      } else if (type.startsWith('loan')) {
+        docRef = doc(firestore, `users/${this.userId}/loans/${payload.id}`);
+      } else if (type.startsWith('event')) {
+        docRef = doc(firestore, `users/${this.userId}/events/${payload.id}`);
+      } else if (type.startsWith('fuel_log')) {
+        docRef = doc(firestore, `users/${this.userId}/fuel_logs/${payload.id}`);
+      } else if (type === 'config_update') {
+        docRef = doc(firestore, `users/${this.userId}/config/${payload.key}`);
       } else {
         console.warn('[SyncManager] Unknown operation type:', type);
         toast.error(`Sync blocked by unknown task type: ${type}`, { id: 'sync-error-type' });
@@ -433,9 +545,13 @@ class SyncManager {
         else if (tablePrefix === 'investment') table = 'investments';
         else if (tablePrefix === 'reminder') table = 'reminders';
         else if (tablePrefix === 'category' || tablePrefix === 'categorie') table = 'categories';
+        else if (tablePrefix === 'loan' && type.includes('_party')) table = 'loan_parties';
+        else if (tablePrefix === 'loan' && type.includes('_repayment')) table = 'loan_repayments';
+        else if (tablePrefix === 'event') table = 'events';
+        else if (tablePrefix === 'fuel') table = 'fuel_logs';
         else table = tablePrefix + 's';
 
-        if (['transactions', 'accounts', 'categories', 'goals', 'investments', 'reminders', 'tasks'].includes(table)) {
+        if (['transactions', 'accounts', 'categories', 'goals', 'investments', 'reminders', 'tasks', 'loan_parties', 'loans', 'loan_repayments', 'events', 'fuel_logs', 'config'].includes(table)) {
           console.log(`[SyncManager] Direct push success. Updating ${table} local record ${payload.id} to synced=1`);
           await runWithBindings(`UPDATE ${table} SET synced = 1 WHERE id = ?`, [payload.id]);
         }
@@ -458,13 +574,13 @@ class SyncManager {
   public async wipeRemoteData() {
     if (!this.userId) return;
 
-    const collections = ['transactions', 'accounts', 'categories', 'goals', 'investments', 'reminders', 'tasks', 'config'];
-    
+    const collections = ['transactions', 'accounts', 'categories', 'goals', 'investments', 'reminders', 'tasks', 'loan_parties', 'loans', 'loan_repayments', 'events', 'fuel_logs', 'config'];
+
     for (const colName of collections) {
       try {
         const colRef = collection(firestore, `users/${this.userId}/${colName}`);
         const snapshot = await getDocs(colRef);
-        
+
         const deletePromises = snapshot.docs.map(doc => deleteDoc(doc.ref));
         await Promise.all(deletePromises);
         console.log(`[SyncManager] Wiped collection: ${colName}`);

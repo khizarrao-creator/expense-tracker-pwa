@@ -1,4 +1,5 @@
-import React, { createContext, useContext, useState, useEffect } from 'react';
+import React, { createContext, useContext, useState, useEffect, useMemo } from 'react';
+import { useApp } from './AppContext';
 
 type Currency = {
   code: string;
@@ -6,7 +7,7 @@ type Currency = {
   name: string;
 };
 
-const currencies: Currency[] = [
+const DEFAULT_CURRENCIES: Currency[] = [
   { code: 'PKR', symbol: 'Rs', name: 'Pakistani Rupee' },
   { code: 'USD', symbol: '$', name: 'US Dollar' },
   { code: 'EUR', symbol: '€', name: 'Euro' },
@@ -25,7 +26,10 @@ interface CurrencyContextType {
 const CurrencyContext = createContext<CurrencyContextType | undefined>(undefined);
 
 export const CurrencyProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
-  const [currency, setCurrencyState] = useState<Currency>(currencies[0]); // Default PKR
+  const { config } = useApp();
+  const currencies = useMemo(() => config.supportedCurrencies || DEFAULT_CURRENCIES, [config.supportedCurrencies]);
+  
+  const [currency, setCurrencyState] = useState<Currency>(currencies[0] || DEFAULT_CURRENCIES[0]); 
 
   useEffect(() => {
     const loadCurrency = () => {
@@ -37,6 +41,12 @@ export const CurrencyProvider: React.FC<{ children: React.ReactNode }> = ({ chil
     };
     
     loadCurrency();
+
+    // Re-check if current currency is still valid when currencies list changes
+    const currentValid = currencies.find(c => c.code === currency.code);
+    if (!currentValid && currencies.length > 0) {
+      setCurrencyState(currencies[0]);
+    }
 
     // Listen for sync changes
     const handleStorage = (e: StorageEvent) => {

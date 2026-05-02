@@ -8,7 +8,6 @@ import { syncManager } from '../db/SyncManager';
 import { v4 as uuidv4 } from 'uuid';
 
 const Categories: React.FC = () => {
-  const [categories, setCategories] = useState<Category[]>([]);
   const [newCategory, setNewCategory] = useState('');
   const [activeType, setActiveType] = useState<'income' | 'expense'>('expense');
   const [loading, setLoading] = useState(true);

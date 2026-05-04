@@ -28,11 +28,9 @@ import {
   TrendingUp,
   Search,
   X,
-  ArrowRightLeft,
-  Repeat
+  ArrowRightLeft
 } from 'lucide-react';
 import { toast } from 'sonner';
-import { v4 as uuidv4 } from 'uuid';
 
 export default function Events() {
   const [events, setEvents] = useState<any[]>([]);

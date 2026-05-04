@@ -6,12 +6,10 @@ import {
   Lock,
   ShieldCheck,
   TrendingUp,
-  UserPlus,
   MessageSquare,
   AlertCircle,
   Save,
   LogOut,
-  ChevronRight,
   Search,
   Activity
 } from 'lucide-react';

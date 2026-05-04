@@ -1,5 +1,4 @@
 import React, { createContext, useContext, useEffect, useState } from 'react';
-import * as XLSX from 'xlsx';
 import { db } from '../firebase';
 import { doc, onSnapshot } from 'firebase/firestore';
 import { ShieldAlert, Info, X, AlertTriangle } from 'lucide-react';

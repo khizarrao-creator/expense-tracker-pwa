@@ -102,7 +102,7 @@ export const addTransaction = async (
 
 const TRANSACTION_UPDATABLE_FIELDS = new Set([
   'type', 'amount', 'category', 'description', 'date',
-  'payment_method', 'account_id', 'to_account_id', 'updated_at', 'deviceId', 'subcategory'
+  'payment_method', 'account_id', 'to_account_id', 'updated_at', 'deviceId', 'subcategory', 'event_id'
 ]);
 
 export const updateTransaction = async (
@@ -127,8 +127,8 @@ export const updateTransaction = async (
 
   await syncManager.performOperation('transaction_update', trxData, () =>
     runWithBindings(
-      `UPDATE transactions SET ${setClause}, updated_at = ?, deviceId = ?, synced = 0, subcategory = COALESCE(?, subcategory) WHERE id = ?`,
-      [...values, now, deviceId, data.subcategory ?? null, id]
+      `UPDATE transactions SET ${setClause}, updated_at = ?, deviceId = ?, synced = 0, subcategory = COALESCE(?, subcategory), event_id = COALESCE(?, event_id) WHERE id = ?`,
+      [...values, now, deviceId, data.subcategory ?? null, data.event_id ?? null, id]
     )
   );
 };
@@ -276,15 +276,21 @@ export const getBudgets = async (): Promise<Budget[]> => {
 export const setBudget = async (category: string, amount: number, subcategory: string | null = null) => {
   const now = new Date().toISOString();
   const subcat = subcategory || '';
-  await runWithBindings(
-    `INSERT OR REPLACE INTO budgets (category, subcategory, amount, updated_at) VALUES (?, ?, ?, ?)`,
-    [category, subcat, amount, now]
+  const payload = { category, subcategory: subcat, amount, updated_at: now };
+
+  await syncManager.performOperation('config_update', { key: `budget_${category}_${subcat}`, value: JSON.stringify(payload), updated_at: now }, () =>
+    runWithBindings(
+      `INSERT OR REPLACE INTO budgets (category, subcategory, amount, updated_at) VALUES (?, ?, ?, ?)`,
+      [category, subcat, amount, now]
+    )
   );
 };
 
 export const deleteBudget = async (category: string, subcategory: string | null = null) => {
   const subcat = subcategory || '';
-  await runWithBindings(`DELETE FROM budgets WHERE category = ? AND subcategory = ?`, [category, subcat]);
+  await syncManager.performOperation('config_delete', { key: `budget_${category}_${subcat}` }, () =>
+    runWithBindings(`DELETE FROM budgets WHERE category = ? AND subcategory = ?`, [category, subcat])
+  );
 };
 
 export interface BudgetVsActualRow {
@@ -702,8 +708,8 @@ export const importAllData = async (data: any) => {
   if (categories) {
     for (const cat of categories) {
       await runWithBindings(
-        `INSERT OR REPLACE INTO categories (id, name, type, icon, created_at, updated_at, deviceId, synced) VALUES (?, ?, ?, ?, ?, ?, ?, 0)`,
-        [cat.id, cat.name, cat.type, cat.icon, cat.created_at, cat.updated_at, cat.deviceId]
+        `INSERT OR REPLACE INTO categories (id, name, type, icon, created_at, updated_at, deviceId, synced, parent_id) VALUES (?, ?, ?, ?, ?, ?, ?, 0, ?)`,
+        [cat.id, cat.name, cat.type, cat.icon, cat.created_at, cat.updated_at, cat.deviceId, cat.parent_id ?? null]
       );
       await addToSyncQueue('category_add', cat);
     }
@@ -798,6 +804,17 @@ export const importAllData = async (data: any) => {
         [e.id, e.name, e.description, e.date, e.total_cost ?? 0, e.created_at, e.updated_at, e.deviceId]
       );
       await addToSyncQueue('event_add', e);
+    }
+  }
+
+  if (data.budgets) {
+    for (const b of data.budgets) {
+      await runWithBindings(
+        `INSERT OR REPLACE INTO budgets (category, subcategory, amount, updated_at) VALUES (?, ?, ?, ?)`,
+        [b.category, b.subcategory || '', b.amount, b.updated_at]
+      );
+      const subcat = b.subcategory || '';
+      await addToSyncQueue('config_update', { key: `budget_${b.category}_${subcat}`, value: JSON.stringify(b), updated_at: b.updated_at });
     }
   }
 
@@ -1276,7 +1293,8 @@ export const addLoan = async (
   interest_rate: number = 0,
   interest_type: 'none' | 'simple' | 'compound' = 'none',
   account_id: string | null = null,
-  providedId?: string
+  providedId?: string,
+  event_id: string | null = null
 ) => {
   if (amount <= 0) throw new Error('Amount must be positive');
   const id = providedId || uuidv4();
@@ -1293,16 +1311,16 @@ export const addLoan = async (
 
   const loanData = {
     id, direction, party_id, amount, description, date, due_date, category,
-    interest_rate, interest_type, status: 'open', account_id, created_at: now, updated_at: now, deviceId
+    interest_rate, interest_type, status: 'open', account_id, created_at: now, updated_at: now, deviceId, event_id
   };
 
   await syncManager.performOperation('loan_add', loanData, async () => {
     await runWithBindings(
       `INSERT INTO loans (id, direction, party_id, amount, description, date, due_date, category,
-        interest_rate, interest_type, status, account_id, created_at, updated_at, deviceId, synced)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'open', ?, ?, ?, ?, 0)`,
+        interest_rate, interest_type, status, account_id, created_at, updated_at, deviceId, synced, event_id)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'open', ?, ?, ?, ?, 0, ?)`,
       [id, direction, party_id, amount, description, date, due_date, category,
-        interest_rate, interest_type, account_id, now, now, deviceId]
+        interest_rate, interest_type, account_id, now, now, deviceId, event_id]
     );
 
     // Create a corresponding ledger transaction
@@ -1331,7 +1349,7 @@ export const updateLoan = async (id: string, data: Partial<Omit<Loan, 'id' | 'cr
   const now = new Date().toISOString();
   const deviceId = localStorage.getItem('deviceId') || 'unknown';
   const allowed = new Set(['direction', 'party_id', 'amount', 'description', 'date', 'due_date',
-    'category', 'interest_rate', 'interest_type', 'status', 'account_id', 'loss_amount', 'loss_remarks']);
+    'category', 'interest_rate', 'interest_type', 'status', 'account_id', 'loss_amount', 'loss_remarks', 'event_id']);
   const sanitized: any = {};
   Object.keys(data).forEach(k => { if (allowed.has(k)) sanitized[k] = (data as any)[k] ?? null; });
   const setClause = Object.keys(sanitized).map(f => `${f} = ?`).join(', ');

@@ -75,9 +75,7 @@ const Categories: React.FC = () => {
         parent_id: parentCategoryId
       };
 
-      await syncManager.performOperation('category_add', categoryData, () => 
-        addCategory(newCategory.trim(), activeType, '', parentCategoryId, categoryId)
-      );
+      await addCategory(newCategory.trim(), activeType, '', parentCategoryId, categoryId);
 
       setNewCategory('');
       setParentCategoryId(null);

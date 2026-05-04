@@ -136,9 +136,7 @@ const AddTransaction: React.FC = () => {
       };
 
       if (id) {
-        await syncManager.performOperation('transaction_update', trxData, () =>
-          updateTransaction(id, trxData)
-        );
+        await updateTransaction(id, trxData);
 
         if (type === 'expense') {
           if (isFuel) {
@@ -155,19 +153,17 @@ const AddTransaction: React.FC = () => {
           }
         }
       } else {
-        await syncManager.performOperation('transaction_add', trxData, () =>
-          addTransaction(
-            trxData.type,
-            trxData.amount,
-            trxData.category,
-            trxData.description,
-            trxData.date,
-            trxData.payment_method,
-            trxData.account_id,
-            trxData.to_account_id,
-            trxData.subcategory,
-            trxData.id
-          )
+        await addTransaction(
+          trxData.type,
+          trxData.amount,
+          trxData.category,
+          trxData.description,
+          trxData.date,
+          trxData.payment_method,
+          trxData.account_id,
+          trxData.to_account_id,
+          trxData.subcategory,
+          trxData.id
         );
 
         if (isFuel && type === 'expense') {

@@ -201,8 +201,8 @@ class SyncManager {
     if (collection === 'transactions') {
       await runWithBindings(`
         INSERT OR REPLACE INTO transactions 
-        (id, type, amount, category, description, date, payment_method, account_id, to_account_id, created_at, updated_at, deviceId, synced, subcategory)
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 1, ?)
+        (id, type, amount, category, description, date, payment_method, account_id, to_account_id, created_at, updated_at, deviceId, synced, subcategory, event_id)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 1, ?, ?)
       `, [
         data.id,
         data.type,
@@ -216,7 +216,8 @@ class SyncManager {
         data.created_at,
         data.updated_at,
         data.deviceId ?? null,
-        data.subcategory ?? null
+        data.subcategory ?? null,
+        data.event_id ?? null
       ]);
     } else if (collection === 'accounts') {
       await runWithBindings(`
@@ -234,8 +235,8 @@ class SyncManager {
       ]);
     } else if (collection === 'categories') {
       await runWithBindings(`
-        INSERT OR REPLACE INTO categories (id, name, type, icon, created_at, updated_at, deviceId, synced)
-        VALUES (?, ?, ?, ?, ?, ?, ?, 1)
+        INSERT OR REPLACE INTO categories (id, name, type, icon, created_at, updated_at, deviceId, synced, parent_id)
+        VALUES (?, ?, ?, ?, ?, ?, ?, 1, ?)
       `, [
         data.id,
         data.name,
@@ -243,7 +244,8 @@ class SyncManager {
         data.icon ?? '',
         data.created_at,
         data.updated_at,
-        data.deviceId ?? null
+        data.deviceId ?? null,
+        data.parent_id ?? null
       ]);
     } else if (collection === 'goals') {
       await runWithBindings(`
@@ -325,8 +327,8 @@ class SyncManager {
       ]);
     } else if (collection === 'loans') {
       await runWithBindings(`
-        INSERT OR REPLACE INTO loans (id, direction, party_id, amount, description, date, due_date, category, interest_rate, interest_type, status, account_id, loss_amount, loss_remarks, created_at, updated_at, deviceId, synced)
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 1)
+        INSERT OR REPLACE INTO loans (id, direction, party_id, amount, description, date, due_date, category, interest_rate, interest_type, status, account_id, loss_amount, loss_remarks, created_at, updated_at, deviceId, synced, event_id)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 1, ?)
       `, [
         data.id,
         data.direction,
@@ -344,7 +346,8 @@ class SyncManager {
         data.loss_remarks ?? null,
         data.created_at,
         data.updated_at,
-        data.deviceId ?? null
+        data.deviceId ?? null,
+        data.event_id ?? null
       ]);
     } else if (collection === 'loan_repayments') {
       await runWithBindings(`
@@ -400,11 +403,33 @@ class SyncManager {
         data.value,
         data.updated_at
       ]);
+
+      if (data.key.startsWith('budget_')) {
+        try {
+          const budget = JSON.parse(data.value);
+          await runWithBindings(
+            `INSERT OR REPLACE INTO budgets (category, subcategory, amount, updated_at) VALUES (?, ?, ?, ?)`,
+            [budget.category, budget.subcategory || '', budget.amount, budget.updated_at]
+          );
+        } catch (e) { console.error('Failed to parse budget config', e); }
+      }
     }
   }
 
   private async removeFromLocalCache(collection: string, id: string) {
-    await runWithBindings(`DELETE FROM ${collection} WHERE id = ?`, [id]);
+    if (collection === 'config') {
+      if (id.startsWith('budget_')) {
+        const parts = id.split('_');
+        if (parts.length >= 3) {
+          const category = parts[1];
+          const subcategory = parts.slice(2).join('_');
+          await runWithBindings(`DELETE FROM budgets WHERE category = ? AND subcategory = ?`, [category, subcategory]);
+        }
+      }
+      await runWithBindings(`DELETE FROM config WHERE key = ?`, [id]);
+    } else {
+      await runWithBindings(`DELETE FROM ${collection} WHERE id = ?`, [id]);
+    }
   }
 
   public async processQueue() {

@@ -328,7 +328,7 @@ const initializeSchema = async () => {
     "ALTER TABLE loans ADD COLUMN loss_remarks TEXT;",
     "CREATE TABLE IF NOT EXISTS fuel_logs (id TEXT PRIMARY KEY, fuel_type TEXT NOT NULL, price_per_liter REAL NOT NULL, total_cost REAL NOT NULL, liters REAL NOT NULL, date TEXT NOT NULL, transaction_id TEXT, created_at TEXT NOT NULL, updated_at TEXT NOT NULL, deviceId TEXT, synced INTEGER DEFAULT 0);",
     "ALTER TABLE fuel_logs ADD COLUMN transaction_id TEXT;",
-    "CREATE TABLE IF NOT EXISTS config (key TEXT PRIMARY KEY, value TEXT NOT NULL, updated_at TEXT NOT NULL, synced INTEGER DEFAULT 0);"
+    "CREATE TABLE IF NOT EXISTS config (key TEXT PRIMARY KEY, value TEXT NOT NULL, updated_at TEXT NOT NULL, deviceId TEXT, synced INTEGER DEFAULT 0);"
   ];
 
   const addColumn = (table: string, column: string, type: string) => {
@@ -340,6 +340,7 @@ const initializeSchema = async () => {
   addColumn('transactions', 'event_id', 'TEXT');
   addColumn('loans', 'event_id', 'TEXT');
   addColumn('events', 'total_cost', 'REAL DEFAULT 0');
+  addColumn('config', 'deviceId', 'TEXT');
 
   for (const m of migrations) {
     try {

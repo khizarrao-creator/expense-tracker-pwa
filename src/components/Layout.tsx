@@ -1,13 +1,15 @@
-import React from 'react';
+import React, { useState } from 'react';
 import { Outlet, Link, useLocation } from 'react-router-dom';
 import { LayoutDashboard, List, PlusCircle, Settings, LogOut, CloudSync, Landmark, Book, LayoutGrid } from 'lucide-react';
 import { useAuth } from '../contexts/AuthContext';
 import { useSync } from '../contexts/SyncContext';
+import ConfirmModal from './ConfirmModal';
 
 const Layout: React.FC = () => {
   const { signOut } = useAuth();
   const { isSyncing, lastSynced, isOnline } = useSync();
   const location = useLocation();
+  const [showLogoutConfirm, setShowLogoutConfirm] = useState(false);
 
   const navItems = [
     { name: 'Dashboard', path: '/', icon: LayoutDashboard },
@@ -71,7 +73,7 @@ const Layout: React.FC = () => {
             {isSyncing ? 'Syncing...' : `Last sync: ${lastSynced ? lastSynced.toLocaleTimeString() : 'Never'}`}
           </div>
           <button
-            onClick={handleSignOut}
+            onClick={() => setShowLogoutConfirm(true)}
             className="flex items-center gap-3 px-4 py-2 w-full rounded-lg text-muted-foreground hover:bg-destructive/10 hover:text-destructive transition-colors"
           >
             <LogOut size={20} />
@@ -92,7 +94,7 @@ const Layout: React.FC = () => {
           </div>
           <div className="flex items-center gap-3">
             <CloudSync size={20} className={isSyncing ? 'animate-spin text-primary' : 'text-muted-foreground'} />
-            <button onClick={handleSignOut} className="text-muted-foreground">
+            <button onClick={() => setShowLogoutConfirm(true)} className="text-muted-foreground">
               <LogOut size={20} />
             </button>
           </div>
@@ -123,6 +125,16 @@ const Layout: React.FC = () => {
           );
         })}
       </nav>
+
+      <ConfirmModal
+        isOpen={showLogoutConfirm}
+        title="Sign Out?"
+        message="Are you sure you want to sign out? You will need to sign in again to access your synced data."
+        onConfirm={handleSignOut}
+        onCancel={() => setShowLogoutConfirm(false)}
+        variant="danger"
+        confirmText="Sign Out"
+      />
     </div>
   );
 };

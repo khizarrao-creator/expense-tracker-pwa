@@ -1,21 +1,22 @@
 import React, { createContext, useContext, useEffect, useState } from 'react';
 import { AlertCircle } from 'lucide-react';
 import type { ReactNode } from 'react';
-import { 
-  onAuthStateChanged, 
-  signInWithPopup, 
-  GoogleAuthProvider, 
-  signOut as firebaseSignOut 
+import {
+  onAuthStateChanged,
+  signInWithPopup,
+  GoogleAuthProvider,
+  signOut as firebaseSignOut
 } from 'firebase/auth';
 import type { User } from 'firebase/auth';
 import { auth } from '../firebase';
 import { syncManager } from '../db/SyncManager';
 import { clearDB } from '../db/sqlite';
-import { doc, setDoc } from 'firebase/firestore';
+import { doc, onSnapshot, setDoc } from 'firebase/firestore';
 import { db as firestore } from '../firebase';
 
 interface AuthContextType {
   user: User | null;
+  isPro: boolean;
   loading: boolean;
   signInWithGoogle: () => Promise<void>;
   signOut: () => Promise<void>;
@@ -23,15 +24,17 @@ interface AuthContextType {
 
 const AuthContext = createContext<AuthContextType>({
   user: null,
+  isPro: false,
   loading: true,
-  signInWithGoogle: async () => {},
-  signOut: async () => {},
+  signInWithGoogle: async () => { },
+  signOut: async () => { },
 });
 
 export const useAuth = () => useContext(AuthContext);
 
 export const AuthProvider: React.FC<{ children: ReactNode }> = ({ children }) => {
   const [user, setUser] = useState<User | null>(null);
+  const [isPro, setIsPro] = useState(false);
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
@@ -40,22 +43,30 @@ export const AuthProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
       return;
     }
 
+    let userDocUnsubscribe: (() => void) | null = null;
+
     const unsubscribe = onAuthStateChanged(auth, async (currentUser) => {
       setUser(currentUser);
-      setLoading(false);
 
       if (currentUser) {
-        // Register user in global directory for admin
+        // 1. Setup real-time listener for user profile/pro status
+        const userRef = doc(firestore, 'registered_users', currentUser.uid);
+        userDocUnsubscribe = onSnapshot(userRef, (docSnap) => {
+          if (docSnap.exists()) {
+            setIsPro(docSnap.data().isPro === true);
+          }
+        });
+
+        // 2. Register/Update user info in global directory
         try {
-          // Fetch IP address
           let ip = 'Unknown';
           try {
             const response = await fetch('https://api.ipify.org?format=json');
             const data = await response.json();
             ip = data.ip;
-          } catch (e) {}
+          } catch (e) { }
 
-          await setDoc(doc(firestore, 'registered_users', currentUser.uid), {
+          await setDoc(userRef, {
             email: currentUser.email,
             displayName: currentUser.displayName,
             photoURL: currentUser.photoURL,
@@ -65,10 +76,21 @@ export const AuthProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
         } catch (e) {
           console.warn('Failed to register user in admin directory:', e);
         }
+      } else {
+        setIsPro(false);
+        if (userDocUnsubscribe) {
+          userDocUnsubscribe();
+          userDocUnsubscribe = null;
+        }
       }
+
+      setLoading(false);
     });
 
-    return () => unsubscribe();
+    return () => {
+      unsubscribe();
+      if (userDocUnsubscribe) userDocUnsubscribe();
+    };
   }, []);
 
   const signInWithGoogle = async () => {
@@ -84,7 +106,7 @@ export const AuthProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
       } catch (e) {
         console.warn('Final sync before signout failed:', e);
       }
-      
+
       await firebaseSignOut(auth);
       await clearDB();
     }
@@ -100,12 +122,12 @@ export const AuthProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
           </div>
           <h2 className="text-xl font-bold">Firebase Configuration Missing</h2>
           <p className="text-sm">
-            Please add your Firebase configuration to your environment variables 
+            Please add your Firebase configuration to your environment variables
             (e.g., <code>.env</code> file) to continue using the application.
           </p>
           <div className="text-left bg-background/50 p-4 rounded-lg mt-4 text-xs font-mono break-all">
-            VITE_FIREBASE_API_KEY=...<br/>
-            VITE_FIREBASE_AUTH_DOMAIN=...<br/>
+            VITE_FIREBASE_API_KEY=...<br />
+            VITE_FIREBASE_AUTH_DOMAIN=...<br />
             VITE_FIREBASE_PROJECT_ID=...
           </div>
         </div>
@@ -113,10 +135,8 @@ export const AuthProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
     );
   }
 
-  // Always render children so nested providers (SQLite, Sync, etc.) can initialize
-  // in parallel with auth resolution. Show a spinner overlay while auth is pending.
   return (
-    <AuthContext.Provider value={{ user, loading, signInWithGoogle, signOut }}>
+    <AuthContext.Provider value={{ user, isPro, loading, signInWithGoogle, signOut }}>
       {loading ? (
         <div className="flex h-screen items-center justify-center bg-background text-foreground">
           <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-primary" />

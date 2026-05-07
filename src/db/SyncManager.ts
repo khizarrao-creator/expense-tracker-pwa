@@ -79,9 +79,12 @@ class SyncManager {
         const unsynced = await executeQuery(`SELECT * FROM ${col} WHERE synced = 0`);
         for (const item of unsynced) {
           // Check if already in queue
-          const inQueue = await executeQuery(`SELECT id FROM sync_queue WHERE payload LIKE ?`, [`%"id":"${item.id}"%`]);
+          const recordId = col === 'config' ? item.key : item.id;
+          const idMatchPattern = col === 'config' ? `%"key":"${recordId}"%` : `%"id":"${recordId}"%`;
+          
+          const inQueue = await executeQuery(`SELECT id FROM sync_queue WHERE payload LIKE ?`, [idMatchPattern]);
           if (inQueue.length === 0) {
-            console.log(`[SyncManager] Repairing: Adding ${col} ${item.id} to queue`);
+            console.log(`[SyncManager] Repairing: Adding ${col} ${recordId} to queue`);
             const type = col === 'goals' ? 'goal_add' :
               col === 'investments' ? 'investment_add' :
                 col === 'reminders' ? 'reminder_add' :
@@ -92,7 +95,8 @@ class SyncManager {
                           col === 'loans' ? 'loan_add' :
                             col === 'events' ? 'event_add' :
                               col === 'fuel_logs' ? 'fuel_log_add' :
-                                col.slice(0, -1) + '_add';
+                                col === 'config' ? 'config_update' :
+                                  col.slice(0, -1) + '_add';
 
             await runWithBindings(
               `INSERT INTO sync_queue (id, type, payload, timestamp, deviceId, status) VALUES (?, ?, ?, ?, ?, 'pending')`,
@@ -135,12 +139,13 @@ class SyncManager {
     });
   }
 
-  private async startSync() {
+  public async startSync() {
     if (!this.userId) return;
 
     // Auto-heal corrupted items from legacy typos queue poisoning
     try {
       await runWithBindings(`UPDATE sync_queue SET type = REPLACE(type, 'categorie_', 'category_') WHERE type LIKE 'categorie_%'`);
+      await runWithBindings(`UPDATE sync_queue SET type = 'config_update' WHERE type = 'confi_add'`);
     } catch (e) { }
 
     // 0. Auto-repair: Find any items marked synced=0 that aren't in the queue
@@ -168,13 +173,14 @@ class SyncManager {
         const snapshot = await getDocs(colRef);
         const serverIds = new Set(snapshot.docs.map(doc => doc.id));
 
-        const localItems = await executeQuery(`SELECT id FROM ${colName} WHERE synced = 1`);
+        const idCol = colName === 'config' ? 'key' : 'id';
+        const localItems = await executeQuery(`SELECT ${idCol} as id FROM ${colName} WHERE synced = 1`);
         const orphanedIds = localItems.filter(item => !serverIds.has(item.id)).map(item => item.id);
 
         if (orphanedIds.length > 0) {
           console.log(`[SyncManager] Found ${orphanedIds.length} orphaned items in ${colName}. Purging...`);
           for (const id of orphanedIds) {
-            await runWithBindings(`DELETE FROM ${colName} WHERE id = ?`, [id]);
+            await runWithBindings(`DELETE FROM ${colName} WHERE ${idCol} = ?`, [id]);
           }
         }
       } catch (error) {
@@ -186,14 +192,16 @@ class SyncManager {
 
   private async updateLocalCache(collection: string, data: any) {
     // 1. Check if record exists and its updated_at timestamp
-    const existing = await executeQuery(`SELECT updated_at FROM ${collection} WHERE id = ?`, [data.id]);
+    const idCol = collection === 'config' ? 'key' : 'id';
+    const recordId = collection === 'config' ? data.key : data.id;
+    const existing = await executeQuery(`SELECT updated_at FROM ${collection} WHERE ${idCol} = ?`, [recordId]);
 
     if (existing.length > 0) {
       const localUpdatedAt = new Date(existing[0].updated_at).getTime();
       const remoteUpdatedAt = new Date(data.updated_at).getTime();
 
       if (remoteUpdatedAt <= localUpdatedAt) {
-        console.log(`[SyncManager] Skipping update for ${collection}/${data.id} - local record is newer or same.`);
+        console.log(`[SyncManager] Skipping update for ${collection}/${recordId} - local record is newer or same.`);
         return;
       }
     }
@@ -475,8 +483,10 @@ class SyncManager {
           else table = tablePrefix + 's';
 
           if (['transactions', 'accounts', 'categories', 'goals', 'investments', 'reminders', 'tasks', 'loan_parties', 'loans', 'loan_repayments', 'events', 'fuel_logs', 'config'].includes(table)) {
-            console.log(`[SyncManager] Updating ${table} local record ${payload.id} to synced=1`);
-            await runWithBindings(`UPDATE ${table} SET synced = 1 WHERE id = ?`, [payload.id]);
+            const idCol = table === 'config' ? 'key' : 'id';
+            const recordId = table === 'config' ? payload.key : payload.id;
+            console.log(`[SyncManager] Updating ${table} local record ${recordId} to synced=1`);
+            await runWithBindings(`UPDATE ${table} SET synced = 1 WHERE ${idCol} = ?`, [recordId]);
             // Verify and notify UI
             window.dispatchEvent(new CustomEvent('app-sync-complete'));
           }

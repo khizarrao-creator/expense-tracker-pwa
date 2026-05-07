@@ -11,7 +11,8 @@ import {
   Handshake,
   Info,
   Layers,
-  Fuel
+  Fuel,
+  PieChart
 } from 'lucide-react';
 import { useApp } from '../contexts/AppContext';
 import {
@@ -123,6 +124,15 @@ const DEFAULT_OPTIONS: MoreOption[] = [
     icon: Fuel,
     color: 'text-blue-500',
     bgColor: 'bg-blue-500/10'
+  },
+  {
+    id: 'reports',
+    name: 'Analytics & Reports',
+    description: 'Comprehensive financial insights',
+    path: '/reports',
+    icon: PieChart,
+    color: 'text-fuchsia-500',
+    bgColor: 'bg-fuchsia-500/10'
   }
 ];
 

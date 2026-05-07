@@ -388,6 +388,17 @@ export const getCategories = async (type?: 'income' | 'expense', parent_id: stri
 export const addCategory = async (name: string, type: 'income' | 'expense', icon: string = '', parent_id: string | null = null, providedId?: string) => {
   if (!name || !name.trim()) throw new Error('Category name is required');
   const trimmedName = name.trim();
+  
+  // Check for duplicate name/type/parent locally
+  const existing = await runWithBindings(
+    `SELECT id FROM categories WHERE LOWER(name) = LOWER(?) AND type = ? AND (parent_id = ? OR (parent_id IS NULL AND ? IS NULL))`,
+    [trimmedName, type, parent_id, parent_id]
+  );
+  
+  if (existing.length > 0 && !providedId) {
+    return existing[0].id; // Return existing ID instead of creating duplicate
+  }
+
   const id = providedId || uuidv4();
   const now = new Date().toISOString();
   const deviceId = localStorage.getItem('deviceId') || 'unknown';
@@ -396,7 +407,7 @@ export const addCategory = async (name: string, type: 'income' | 'expense', icon
 
   await syncManager.performOperation('category_add', catData, () =>
     runWithBindings(
-      `INSERT INTO categories (id, name, type, icon, created_at, updated_at, deviceId, synced, parent_id) VALUES (?, ?, ?, ?, ?, ?, ?, 0, ?)`,
+      `INSERT OR REPLACE INTO categories (id, name, type, icon, created_at, updated_at, deviceId, synced, parent_id) VALUES (?, ?, ?, ?, ?, ?, ?, 0, ?)`,
       [id, trimmedName, type, icon ?? '', now, now, deviceId, parent_id]
     )
   );
@@ -407,6 +418,49 @@ export const deleteCategory = async (id: string) => {
   await syncManager.performOperation('category_delete', { id }, () =>
     runWithBindings(`DELETE FROM categories WHERE id = ?`, [id])
   );
+};
+
+export const updateCategory = async (id: string, updates: Partial<Category>) => {
+  const now = new Date().toISOString();
+  const deviceId = localStorage.getItem('deviceId') || 'unknown';
+  const data = { ...updates, updated_at: now, deviceId };
+
+  await syncManager.performOperation('category_update', { id, ...data }, () => {
+    const fields = Object.keys(data).map(f => `${f} = ?`).join(', ');
+    const values = [...Object.values(data), id];
+    return runWithBindings(`UPDATE categories SET ${fields}, synced = 0 WHERE id = ?`, values);
+  });
+};
+
+export const normalizeCategories = async () => {
+  const allCategories = await getCategories('all' as any, 'all');
+  const seen = new Map<string, string>(); // key: name|type|parent_id, value: first_id
+  const toDelete: string[] = [];
+
+  for (const cat of allCategories) {
+    const key = `${cat.name.trim().toLowerCase()}|${cat.type}|${cat.parent_id || 'root'}`;
+    if (seen.has(key)) {
+      const masterId = seen.get(key)!;
+      const duplicateId = cat.id;
+      
+      // Move subcategories
+      await runWithBindings(`UPDATE categories SET parent_id = ? WHERE parent_id = ?`, [masterId, duplicateId]);
+      
+      // Move goals and reminders
+      await runWithBindings(`UPDATE goals SET category_id = ? WHERE category_id = ?`, [masterId, duplicateId]);
+      await runWithBindings(`UPDATE reminders SET category_id = ? WHERE category_id = ?`, [masterId, duplicateId]);
+      
+      toDelete.push(duplicateId);
+    } else {
+      seen.set(key, cat.id);
+    }
+  }
+
+  for (const id of toDelete) {
+    await deleteCategory(id);
+  }
+  
+  return toDelete.length;
 };
 
 // Accounts
@@ -707,9 +761,20 @@ export const importAllData = async (data: any) => {
 
   if (categories) {
     for (const cat of categories) {
+      // Check if a category with same name/type/parent already exists to avoid duplication
+      const existing = await runWithBindings(
+        `SELECT id FROM categories WHERE LOWER(name) = LOWER(?) AND type = ? AND (parent_id = ? OR (parent_id IS NULL AND ? IS NULL))`,
+        [cat.name.trim(), cat.type, cat.parent_id ?? null, cat.parent_id ?? null]
+      );
+
+      if (existing.length > 0 && existing[0].id !== cat.id) {
+        // Skip importing this as it would create a name duplicate with a different ID
+        continue;
+      }
+
       await runWithBindings(
         `INSERT OR REPLACE INTO categories (id, name, type, icon, created_at, updated_at, deviceId, synced, parent_id) VALUES (?, ?, ?, ?, ?, ?, ?, 0, ?)`,
-        [cat.id, cat.name, cat.type, cat.icon, cat.created_at, cat.updated_at, cat.deviceId, cat.parent_id ?? null]
+        [cat.id, cat.name.trim(), cat.type, cat.icon, cat.created_at, cat.updated_at, cat.deviceId, cat.parent_id ?? null]
       );
       await addToSyncQueue('category_add', cat);
     }
@@ -1750,10 +1815,13 @@ export const getConfig = async (key: string): Promise<string | null> => {
 
 export const setConfig = async (key: string, value: string) => {
   const now = new Date().toISOString();
-  await syncManager.performOperation('config_update', { key, value }, () =>
+  const deviceId = localStorage.getItem('deviceId') || 'unknown';
+  const configData = { key, value, updated_at: now, deviceId };
+  
+  await syncManager.performOperation('config_update', configData, () =>
     runWithBindings(
-      `INSERT OR REPLACE INTO config (key, value, updated_at, synced) VALUES (?, ?, ?, 0)`,
-      [key, value, now]
+      `INSERT OR REPLACE INTO config (key, value, updated_at, synced, deviceId) VALUES (?, ?, ?, 0, ?)`,
+      [key, value, now, deviceId]
     )
   );
 };

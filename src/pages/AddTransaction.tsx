@@ -19,7 +19,9 @@ const AddTransaction: React.FC = () => {
   const [type, setType] = useState<'income' | 'expense' | 'transfer'>('expense');
   const [amount, setAmount] = useState('');
   const [category, setCategory] = useState('');
+  const [categoryId, setCategoryId] = useState('');
   const [subcategory, setSubcategory] = useState('');
+  const [subcategoryId, setSubcategoryId] = useState('');
   const [subcategories, setSubcategories] = useState<Category[]>([]);
   const [description, setDescription] = useState('');
   const [date, setDate] = useState(() => new Date().toISOString().split('T')[0]);
@@ -58,7 +60,9 @@ const AddTransaction: React.FC = () => {
           setType(trx.type);
           setAmount(trx.amount.toString());
           setCategory(trx.category);
+          setCategoryId(''); // Will be resolved by name matching if ID not stored
           setSubcategory(trx.subcategory || '');
+          setSubcategoryId('');
           setDescription(trx.description || '');
           setDate(trx.date);
           setPaymentMethod(trx.payment_method);
@@ -85,8 +89,11 @@ const AddTransaction: React.FC = () => {
   useEffect(() => {
     const loadSubcategories = async () => {
       if (category && type !== 'transfer') {
-        const parent = categories.find(c => c.name === category);
+        const parent = categoryId 
+          ? categories.find(c => c.id === categoryId)
+          : categories.find(c => c.name === category);
         if (parent) {
+          if (!categoryId) setCategoryId(parent.id);
           const subs = await getCategories(type as any, parent.id);
           setSubcategories(subs);
         }
@@ -238,13 +245,23 @@ const AddTransaction: React.FC = () => {
               <div>
                 <label className="block text-sm font-medium text-muted-foreground mb-1">Category</label>
                 <select
-                  value={category}
-                  onChange={(e) => setCategory(e.target.value)}
+                  value={categoryId || category}
+                  onChange={(e) => {
+                    const id = e.target.value;
+                    const cat = categories.find(c => c.id === id);
+                    if (cat) {
+                      setCategoryId(id);
+                      setCategory(cat.name);
+                      setSubcategoryId('');
+                      setSubcategory('');
+                    }
+                  }}
                   className="w-full px-4 py-3 bg-background border border-border rounded-xl focus:outline-none focus:ring-2 focus:ring-primary"
                   required
                 >
+                  <option value="" disabled>Select Category</option>
                   {categories.map((c) => (
-                    <option key={c.id} value={c.name}>{c.name}</option>
+                    <option key={c.id} value={c.id}>{c.name}</option>
                   ))}
                 </select>
               </div>
@@ -265,13 +282,23 @@ const AddTransaction: React.FC = () => {
               <div>
                 <label className="block text-sm font-medium text-muted-foreground mb-1">Subcategory</label>
                 <select
-                  value={subcategory}
-                  onChange={(e) => setSubcategory(e.target.value)}
+                  value={subcategoryId || subcategory}
+                  onChange={(e) => {
+                    const id = e.target.value;
+                    const sub = subcategories.find(s => s.id === id);
+                    if (sub) {
+                      setSubcategoryId(id);
+                      setSubcategory(sub.name);
+                    } else {
+                      setSubcategoryId('');
+                      setSubcategory('');
+                    }
+                  }}
                   className="w-full px-4 py-3 bg-background border border-border rounded-xl focus:outline-none focus:ring-2 focus:ring-primary"
                 >
                   <option value="">No Subcategory</option>
                   {subcategories.map((s) => (
-                    <option key={s.id} value={s.name}>{s.name}</option>
+                    <option key={s.id} value={s.id}>{s.name}</option>
                   ))}
                 </select>
               </div>

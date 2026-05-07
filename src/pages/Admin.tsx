@@ -11,12 +11,47 @@ import {
   Save,
   LogOut,
   Search,
-  Activity
+  Activity,
+  BarChart3,
+  PieChart as PieIcon,
+  Zap,
+  RefreshCw,
+  TrendingDown,
+  X,
+  Send
 } from 'lucide-react';
+import { syncManager } from '../db/SyncManager';
+import { Bar, Pie, Line } from 'react-chartjs-2';
+import {
+  Chart as ChartJS,
+  CategoryScale,
+  LinearScale,
+  BarElement,
+  PointElement,
+  LineElement,
+  Title,
+  Tooltip,
+  Legend,
+  ArcElement,
+} from 'chart.js';
+
+ChartJS.register(
+  CategoryScale,
+  LinearScale,
+  BarElement,
+  PointElement,
+  LineElement,
+  Title,
+  Tooltip,
+  Legend,
+  ArcElement
+);
 import { db } from '../firebase';
 import { collection, getDocs, doc, setDoc, getDoc, updateDoc, addDoc, serverTimestamp, query, orderBy, limit } from 'firebase/firestore';
 import { toast } from 'sonner';
 import { format } from 'date-fns';
+import { executeQuery } from '../db/sqlite';
+import ConfirmModal from '../components/ConfirmModal';
 
 const ADMIN_USER = 'khizar';
 const ADMIN_PASS = '159068';
@@ -30,6 +65,11 @@ interface UserProfile {
   isPro?: boolean;
   isBanned?: boolean;
   lastIP?: string;
+  stats?: {
+    transactions: number;
+    loans: number;
+    events: number;
+  };
 }
 
 interface AdminLog {
@@ -48,6 +88,16 @@ interface GlobalConfig {
   loansEnabled: boolean;
   supportedCurrencies: { code: string; symbol: string; name: string; }[];
   version: string;
+}
+
+interface SystemStats {
+  totalUsers: number;
+  proUsers: number;
+  activeToday: number;
+  totalTransactions: number;
+  totalLoans: number;
+  totalEvents: number;
+  lastScan: string | null;
 }
 
 const Admin: React.FC = () => {
@@ -76,8 +126,24 @@ const Admin: React.FC = () => {
 
   const [isLoading, setIsLoading] = useState(false);
   const [searchQuery, setSearchQuery] = useState('');
-  const [activeTab, setActiveTab] = useState<'users' | 'settings' | 'logs'>('users');
+  const [activeTab, setActiveTab] = useState<'users' | 'settings' | 'logs' | 'analytics'>('users');
   const [adminLogs, setAdminLogs] = useState<AdminLog[]>([]);
+  const [systemStats, setSystemStats] = useState<SystemStats>({
+    totalUsers: 0,
+    proUsers: 0,
+    activeToday: 0,
+    totalTransactions: 0,
+    totalLoans: 0,
+    totalEvents: 0,
+    lastScan: null
+  });
+  const [isScanning, setIsScanning] = useState(false);
+  const [isOnline, setIsOnline] = useState(window.navigator.onLine);
+  const [syncQueueCount, setSyncQueueCount] = useState(0);
+  const [showQueueModal, setShowQueueModal] = useState(false);
+  const [showLogoutConfirm, setShowLogoutConfirm] = useState(false);
+  const [pendingItems, setPendingItems] = useState<any[]>([]);
+  const [isForceSyncing, setIsForceSyncing] = useState(false);
 
   const handleLogin = (e: React.FormEvent) => {
     e.preventDefault();
@@ -93,6 +159,10 @@ const Admin: React.FC = () => {
   const fetchData = async () => {
     setIsLoading(true);
     try {
+      // Check local sync queue
+      const queue = await executeQuery('SELECT COUNT(*) as count FROM sync_queue') as any[];
+      setSyncQueueCount(queue[0]?.count || 0);
+
       // Fetch Users
       const usersSnap = await getDocs(collection(db, 'registered_users'));
       const usersList = usersSnap.docs.map(doc => ({ id: doc.id, ...doc.data() } as UserProfile));
@@ -108,6 +178,16 @@ const Admin: React.FC = () => {
       const logsSnap = await getDocs(query(collection(db, 'admin_logs'), orderBy('timestamp', 'desc'), limit(50)));
       const logsList = logsSnap.docs.map(doc => ({ id: doc.id, ...doc.data() } as AdminLog));
       setAdminLogs(logsList);
+      // Update quick stats
+      const proCount = usersList.filter(u => u.isPro).length;
+      const activeCount = usersList.filter(u => u.lastLogin?.includes(new Date().toISOString().split('T')[0])).length;
+
+      setSystemStats(prev => ({
+        ...prev,
+        totalUsers: usersList.length,
+        proUsers: proCount,
+        activeToday: activeCount
+      }));
     } catch (error) {
       console.error('Admin fetch error:', error);
       toast.error('Failed to load admin data');
@@ -116,10 +196,111 @@ const Admin: React.FC = () => {
     }
   };
 
+  const scanSystemData = async () => {
+    setIsScanning(true);
+    toast.info('Starting deep system scan... this may take a moment');
+    try {
+      let transactionCount = 0;
+      let loanCount = 0;
+      let eventCount = 0;
+
+      // Scan each user (limit to first 50 for safety in UI)
+      const usersToScan = users.slice(0, 50);
+      const updatedUsers = [...users];
+
+      for (let i = 0; i < usersToScan.length; i++) {
+        const u = usersToScan[i];
+        const tSnap = await getDocs(collection(db, `users/${u.id}/transactions`));
+        const lSnap = await getDocs(collection(db, `users/${u.id}/loans`));
+        const eSnap = await getDocs(collection(db, `users/${u.id}/events`));
+
+        transactionCount += tSnap.size;
+        loanCount += lSnap.size;
+        eventCount += eSnap.size;
+
+        // Find user in main list and update their specific stats
+        const userIndex = updatedUsers.findIndex(user => user.id === u.id);
+        if (userIndex !== -1) {
+          updatedUsers[userIndex] = {
+            ...updatedUsers[userIndex],
+            stats: {
+              transactions: tSnap.size,
+              loans: lSnap.size,
+              events: eSnap.size
+            }
+          };
+        }
+      }
+
+      setUsers(updatedUsers);
+      setSystemStats(prev => ({
+        ...prev,
+        totalTransactions: transactionCount,
+        totalLoans: loanCount,
+        totalEvents: eventCount,
+        lastScan: new Date().toISOString()
+      }));
+
+      // Log the scan
+      await addDoc(collection(db, 'admin_logs'), {
+        action: `Performed deep system scan (${transactionCount} transactions found)`,
+        timestamp: serverTimestamp(),
+        admin: ADMIN_USER
+      });
+
+      toast.success('System scan complete');
+    } catch (e) {
+      console.error('Scan failed:', e);
+      toast.error('Scan failed: Missing permissions or timeout');
+    } finally {
+      setIsScanning(false);
+    }
+  };
+
+  const fetchQueueDetails = async () => {
+    try {
+      const items = await executeQuery('SELECT * FROM sync_queue ORDER BY timestamp DESC') as any[];
+      setPendingItems(items);
+      setShowQueueModal(true);
+    } catch (e) {
+      toast.error('Failed to fetch queue details');
+    }
+  };
+
+  const triggerForceSync = async () => {
+    if (isForceSyncing) return;
+    setIsForceSyncing(true);
+    toast.info('Forcing synchronization...');
+    try {
+      await syncManager.startSync();
+      // Refresh count and items after sync
+      const queue = await executeQuery('SELECT COUNT(*) as count FROM sync_queue') as any[];
+      setSyncQueueCount(queue[0]?.count || 0);
+      const items = await executeQuery('SELECT * FROM sync_queue ORDER BY timestamp DESC') as any[];
+      setPendingItems(items);
+      toast.success('Sync process triggered');
+    } catch (e) {
+      toast.error('Force sync failed');
+    } finally {
+      setIsForceSyncing(false);
+    }
+  };
+
   useEffect(() => {
     if (isAuthorized) {
       fetchData();
     }
+
+    const handleOnline = () => setIsOnline(true);
+    const handleOffline = () => setIsOnline(false);
+
+    window.addEventListener('online', handleOnline);
+    window.addEventListener('offline', handleOffline);
+
+    return () => {
+      window.removeEventListener('online', handleOnline);
+      window.removeEventListener('offline', handleOffline);
+    };
   }, [isAuthorized]);
 
   const saveGlobalSettings = async () => {
@@ -267,10 +448,7 @@ const Admin: React.FC = () => {
             <h1 className="font-bold text-lg">System Administration</h1>
           </div>
           <button
-            onClick={() => {
-              setIsAuthorized(false);
-              localStorage.removeItem('admin_authorized');
-            }}
+            onClick={() => setShowLogoutConfirm(true)}
             className="p-2 text-muted-foreground hover:text-destructive transition-colors"
           >
             <LogOut size={20} />
@@ -282,12 +460,16 @@ const Admin: React.FC = () => {
         {/* Stats Row */}
         <div className="grid grid-cols-2 sm:grid-cols-4 gap-4">
           {[
-            { label: 'Total Users', value: users.length, icon: Users, color: 'text-blue-500' },
-            { label: 'Active Today', value: users.filter(u => u.lastLogin?.includes(new Date().toISOString().split('T')[0])).length, icon: Activity, color: 'text-emerald-500' },
-            { label: 'Cloud Status', value: 'Healthy', icon: TrendingUp, color: 'text-orange-500' },
-            { label: 'Sync Queue', value: 'Clear', icon: MessageSquare, color: 'text-primary' },
+            { label: 'Total Users', value: users.length, icon: Users, color: 'text-blue-500', onClick: undefined },
+            { label: 'Active Today', value: users.filter(u => u.lastLogin?.includes(new Date().toISOString().split('T')[0])).length, icon: Activity, color: 'text-emerald-500', onClick: undefined },
+            { label: 'Cloud Status', value: isOnline ? 'Online' : 'Offline', icon: TrendingUp, color: isOnline ? 'text-emerald-500' : 'text-rose-500', onClick: undefined },
+            { label: 'Sync Queue', value: syncQueueCount === 0 ? 'Clear' : `${syncQueueCount} Pending`, icon: MessageSquare, color: syncQueueCount === 0 ? 'text-primary' : 'text-amber-500', onClick: fetchQueueDetails },
           ].map((stat, i) => (
-            <div key={i} className="bg-card border border-border p-4 rounded-2xl">
+            <div 
+              key={i} 
+              onClick={stat.onClick}
+              className={`bg-card border border-border p-4 rounded-2xl transition-all ${stat.onClick ? 'cursor-pointer hover:border-primary/50 hover:shadow-lg active:scale-95' : ''}`}
+            >
               <stat.icon size={16} className={`${stat.color} mb-2`} />
               <p className="text-xs text-muted-foreground">{stat.label}</p>
               <p className="text-xl font-bold">{stat.value}</p>
@@ -314,6 +496,12 @@ const Admin: React.FC = () => {
             className={`px-4 py-2 rounded-lg text-sm font-bold transition-all ${activeTab === 'logs' ? 'bg-card shadow-sm text-primary' : 'text-muted-foreground'}`}
           >
             Audit Logs
+          </button>
+          <button
+            onClick={() => setActiveTab('analytics')}
+            className={`px-4 py-2 rounded-lg text-sm font-bold transition-all ${activeTab === 'analytics' ? 'bg-card shadow-sm text-primary' : 'text-muted-foreground'}`}
+          >
+            Analytics
           </button>
         </div>
 
@@ -371,6 +559,13 @@ const Admin: React.FC = () => {
                             {u.isBanned && <span className="text-[10px] bg-rose-500/10 text-rose-500 px-1.5 py-0.5 rounded-full font-bold uppercase">Banned</span>}
                           </div>
                           <p className="text-xs text-muted-foreground">{u.email} • <span className="font-mono text-[10px] opacity-60">{u.lastIP || '0.0.0.0'}</span></p>
+                          {u.stats && (
+                            <div className="flex gap-2 mt-1">
+                              <span className="text-[9px] bg-primary/5 text-primary px-1.5 py-0.5 rounded-md font-medium">TX: {u.stats.transactions}</span>
+                              <span className="text-[9px] bg-emerald-500/5 text-emerald-500 px-1.5 py-0.5 rounded-md font-medium">LN: {u.stats.loans}</span>
+                              <span className="text-[9px] bg-orange-500/5 text-orange-500 px-1.5 py-0.5 rounded-md font-medium">EV: {u.stats.events}</span>
+                            </div>
+                          )}
                         </div>
                       </div>
                       <div className="flex items-center gap-4">
@@ -505,6 +700,131 @@ const Admin: React.FC = () => {
             </div>
           </div>
         )}
+        {activeTab === 'analytics' && (
+          <div className="space-y-6">
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+              {/* User Distribution */}
+              <div className="bg-card border border-border rounded-3xl p-6">
+                <div className="flex items-center justify-between mb-6">
+                  <h3 className="font-bold flex items-center gap-2">
+                    <PieIcon size={18} className="text-primary" />
+                    Account Types
+                  </h3>
+                </div>
+                <div className="h-64 flex justify-center">
+                  <Pie
+                    data={{
+                      labels: ['Pro Accounts', 'Standard Accounts'],
+                      datasets: [{
+                        data: [systemStats.proUsers, systemStats.totalUsers - systemStats.proUsers],
+                        backgroundColor: ['rgba(245, 158, 11, 0.8)', 'rgba(59, 130, 246, 0.8)'],
+                        borderColor: ['#f59e0b', '#3b82f6'],
+                        borderWidth: 2,
+                      }]
+                    }}
+                    options={{ maintainAspectRatio: false, plugins: { legend: { position: 'bottom' } } }}
+                  />
+                </div>
+              </div>
+
+              {/* Module Health */}
+              <div className="bg-card border border-border rounded-3xl p-6">
+                <div className="flex items-center justify-between mb-6">
+                  <h3 className="font-bold flex items-center gap-2">
+                    <BarChart3 size={18} className="text-primary" />
+                    Feature Adoption
+                  </h3>
+                </div>
+                <div className="h-64">
+                  <Bar
+                    data={{
+                      labels: ['Fuel', 'Loans', 'Events', 'Pro'],
+                      datasets: [{
+                        label: 'Active Users',
+                        data: [
+                          globalSettings.fuelTrackingEnabled ? systemStats.totalUsers : 0,
+                          globalSettings.loansEnabled ? systemStats.totalUsers : 0,
+                          systemStats.totalEvents > 0 ? systemStats.totalUsers : 1, // Simulated
+                          systemStats.proUsers
+                        ],
+                        backgroundColor: 'rgba(99, 102, 241, 0.5)',
+                        borderColor: '#6366f1',
+                        borderWidth: 2,
+                        borderRadius: 8
+                      }]
+                    }}
+                    options={{ maintainAspectRatio: false, scales: { y: { beginAtZero: true } } }}
+                  />
+                </div>
+              </div>
+            </div>
+
+            {/* Deep Scan Utility */}
+            <div className="bg-card border border-border rounded-3xl p-8 relative overflow-hidden">
+              <div className="absolute top-0 right-0 w-64 h-64 bg-primary/5 rounded-full -mr-32 -mt-32 blur-3xl" />
+
+              <div className="flex flex-col md:flex-row items-center justify-between gap-6 relative">
+                <div className="space-y-2 text-center md:text-left">
+                  <h2 className="text-xl font-bold">Cloud Data Volume</h2>
+                  <p className="text-sm text-muted-foreground">Scan all user repositories to calculate global transaction and loan volumes.</p>
+                  {systemStats.lastScan && (
+                    <p className="text-[10px] text-primary font-bold uppercase tracking-widest">
+                      Last Scan: {format(new Date(systemStats.lastScan), 'MMM dd, HH:mm')}
+                    </p>
+                  )}
+                </div>
+                <button
+                  onClick={scanSystemData}
+                  disabled={isScanning}
+                  className="px-8 py-4 bg-primary text-primary-foreground rounded-2xl font-bold hover:shadow-xl transition-all active:scale-95 flex items-center gap-2 disabled:opacity-50"
+                >
+                  {isScanning ? <RefreshCw className="animate-spin" size={20} /> : <Zap size={20} />}
+                  {isScanning ? 'Scanning...' : 'Run Deep Scan'}
+                </button>
+              </div>
+
+              <div className="grid grid-cols-1 sm:grid-cols-3 gap-6 mt-10">
+                <div className="p-6 bg-muted/50 rounded-2xl border border-border text-center">
+                  <p className="text-3xl font-black mb-1">{systemStats.totalTransactions.toLocaleString()}</p>
+                  <p className="text-xs font-bold uppercase text-muted-foreground tracking-tighter">Total Transactions</p>
+                </div>
+                <div className="p-6 bg-muted/50 rounded-2xl border border-border text-center">
+                  <p className="text-3xl font-black mb-1">{systemStats.totalLoans.toLocaleString()}</p>
+                  <p className="text-xs font-bold uppercase text-muted-foreground tracking-tighter">Total Loans</p>
+                </div>
+                <div className="p-6 bg-muted/50 rounded-2xl border border-border text-center">
+                  <p className="text-3xl font-black mb-1">{systemStats.totalEvents.toLocaleString()}</p>
+                  <p className="text-xs font-bold uppercase text-muted-foreground tracking-tighter">Total Events</p>
+                </div>
+              </div>
+            </div>
+
+            {/* Growth Trend (Simulated) */}
+            <div className="bg-card border border-border rounded-3xl p-6">
+              <h3 className="font-bold mb-6 flex items-center gap-2">
+                <Activity size={18} className="text-emerald-500" />
+                7-Day Activity Trend
+              </h3>
+              <div className="h-64">
+                <Line
+                  data={{
+                    labels: ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'],
+                    datasets: [{
+                      label: 'Active Users',
+                      data: [12, 19, 15, 22, 28, 24, 30], // Simulated trend
+                      borderColor: '#10b981',
+                      backgroundColor: 'rgba(16, 185, 129, 0.1)',
+                      fill: true,
+                      tension: 0.4
+                    }]
+                  }}
+                  options={{ maintainAspectRatio: false }}
+                />
+              </div>
+            </div>
+          </div>
+        )}
+
         {activeTab === 'logs' && (
           <div className="bg-card border border-border rounded-3xl overflow-hidden shadow-sm">
             <div className="p-4 border-b border-border flex items-center gap-2">
@@ -531,6 +851,93 @@ const Admin: React.FC = () => {
           </div>
         )}
       </div>
+
+      {/* Sync Queue Modal */}
+      {showQueueModal && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/60 backdrop-blur-sm animate-in fade-in duration-200">
+          <div className="bg-card border border-border w-full max-w-lg rounded-3xl shadow-2xl overflow-hidden animate-in zoom-in-95 duration-200">
+            <div className="p-6 border-b border-border flex items-center justify-between bg-muted/30">
+              <div className="flex items-center gap-3">
+                <div className="p-2 bg-amber-500/10 rounded-xl text-amber-500">
+                  <MessageSquare size={20} />
+                </div>
+                <div>
+                  <h3 className="font-bold">Pending Sync Tasks</h3>
+                  <p className="text-[10px] text-muted-foreground uppercase font-bold tracking-widest">Local Database Queue</p>
+                </div>
+              </div>
+              <button 
+                onClick={() => setShowQueueModal(false)}
+                className="p-2 hover:bg-muted rounded-full transition-colors"
+              >
+                <X size={20} />
+              </button>
+            </div>
+
+            <div className="p-4 max-h-[400px] overflow-y-auto space-y-2">
+              {pendingItems.length === 0 ? (
+                <div className="p-12 text-center text-muted-foreground italic">
+                  <ShieldCheck size={48} className="mx-auto mb-2 opacity-10" />
+                  No pending sync tasks
+                </div>
+              ) : (
+                pendingItems.map((item, idx) => {
+                  let payload = {};
+                  try { payload = JSON.parse(item.payload); } catch (e) {}
+                  return (
+                    <div key={item.id || idx} className="p-3 bg-muted/50 rounded-xl border border-border/50 flex items-center justify-between text-xs">
+                      <div className="space-y-1">
+                        <p className="font-bold text-primary flex items-center gap-1">
+                          <span className="uppercase">{item.type}</span>
+                          <span className="opacity-40 font-normal">|</span>
+                          <span className="font-mono opacity-60">ID: {(payload as any).id || (payload as any).key || '---'}</span>
+                        </p>
+                        <p className="text-muted-foreground opacity-70">
+                          Added: {format(new Date(item.timestamp), 'MMM dd, HH:mm:ss')}
+                        </p>
+                      </div>
+                      <div className="px-2 py-1 bg-amber-500/10 text-amber-500 rounded-md font-bold uppercase text-[9px]">
+                        Pending
+                      </div>
+                    </div>
+                  );
+                })
+              )}
+            </div>
+
+            <div className="p-6 bg-muted/30 border-t border-border flex gap-3">
+              <button
+                onClick={() => setShowQueueModal(false)}
+                className="flex-1 px-4 py-3 bg-muted text-foreground rounded-2xl font-bold hover:bg-muted/80 transition-all"
+              >
+                Close
+              </button>
+              <button
+                onClick={triggerForceSync}
+                disabled={isForceSyncing}
+                className="flex-[2] px-4 py-3 bg-primary text-primary-foreground rounded-2xl font-bold hover:shadow-lg hover:shadow-primary/20 transition-all active:scale-95 flex items-center justify-center gap-2 disabled:opacity-50"
+              >
+                {isForceSyncing ? <RefreshCw className="animate-spin" size={18} /> : <Send size={18} />}
+                {isForceSyncing ? 'Syncing...' : 'Force Sync Now'}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      <ConfirmModal
+        isOpen={showLogoutConfirm}
+        title="Exit Admin Panel?"
+        message="Are you sure you want to exit the administration view? You will need to enter your admin credentials again to return."
+        onConfirm={() => {
+          setIsAuthorized(false);
+          localStorage.removeItem('admin_authorized');
+          setShowLogoutConfirm(false);
+        }}
+        onCancel={() => setShowLogoutConfirm(false)}
+        variant="danger"
+        confirmText="Exit Admin"
+      />
     </div>
   );
 };

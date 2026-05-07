@@ -1,8 +1,8 @@
 import React, { useState, useRef } from 'react';
 import * as XLSX from 'xlsx';
 import localforage from 'localforage';
-import { getTransactions, exportAllData, importAllData, clearAllData, vacuumDB } from '../db/queries';
-import { Download, Moon, Sun, Monitor, CloudSync, FileJson, Upload, AlertTriangle, LayoutList, ChevronRight } from 'lucide-react';
+import { getTransactions, exportAllData, importAllData, clearAllData, vacuumDB, normalizeCategories } from '../db/queries';
+import { Download, Moon, Sun, Monitor, CloudSync, FileJson, Upload, AlertTriangle, LayoutList, ChevronRight, User as UserIcon, Mail, Shield, LogOut, CheckCircle2 } from 'lucide-react';
 import { useNavigate } from 'react-router-dom';
 import { useCurrency } from '../contexts/CurrencyContext';
 import { useTheme } from '../contexts/ThemeContext';
@@ -17,11 +17,12 @@ const Settings: React.FC = () => {
   const navigate = useNavigate();
   const { theme, setTheme } = useTheme();
   const { forceSync, isSyncing, lastSynced } = useSync();
-  const { signOut } = useAuth();
-  
+  const { user, isPro, signOut } = useAuth();
+
   const [showClearConfirm, setShowClearConfirm] = useState(false);
   const [showMasterWipeConfirm, setShowMasterWipeConfirm] = useState(false);
   const [showImportConfirm, setShowImportConfirm] = useState(false);
+  const [showLogoutConfirm, setShowLogoutConfirm] = useState(false);
   const [pendingImportData, setPendingImportData] = useState<any>(null);
   const [isWiping, setIsWiping] = useState(false);
   const [username, setUsername] = useState('');
@@ -39,7 +40,7 @@ const Settings: React.FC = () => {
       const queries = await import('../db/queries');
       const saved = await queries.getConfig('username');
       if (saved) setUsername(saved);
-      
+
       // Get DB size
       const data = await localforage.getItem<Uint8Array>('expense-tracker-db');
       if (data) {
@@ -68,7 +69,7 @@ const Settings: React.FC = () => {
   const exportCSV = async () => {
     try {
       const data = await getTransactions(10000);
-      
+
       const worksheetData = data.map(t => ({
         'ID': t.id,
         'Type': t.type,
@@ -102,7 +103,7 @@ const Settings: React.FC = () => {
   const exportXLSX = async () => {
     try {
       const data = await getTransactions(10000);
-      
+
       const worksheetData = data.map(t => ({
         'ID': t.id,
         'Type': t.type,
@@ -118,7 +119,7 @@ const Settings: React.FC = () => {
       const worksheet = XLSX.utils.json_to_sheet(worksheetData);
       const workbook = XLSX.utils.book_new();
       XLSX.utils.book_append_sheet(workbook, worksheet, 'Transactions');
-      
+
       XLSX.writeFile(workbook, `expense_tracker_export_${new Date().toISOString().split('T')[0]}.xlsx`);
       toast.success('XLSX exported successfully');
     } catch (error) {
@@ -154,7 +155,7 @@ const Settings: React.FC = () => {
     try {
       toast.loading('Analyzing file...', { id: 'importProcess' });
       const extension = file.name.split('.').pop()?.toLowerCase();
-      
+
       if (extension === 'json') {
         const text = await file.text();
         const data = JSON.parse(text);
@@ -165,7 +166,7 @@ const Settings: React.FC = () => {
         const firstSheetName = workbook.SheetNames[0];
         const worksheet = workbook.Sheets[firstSheetName];
         const json = XLSX.utils.sheet_to_json<any>(worksheet);
-        
+
         const deviceId = localStorage.getItem('deviceId') || 'unknown';
         const transactions = json.map((row: any) => ({
           id: row['ID'] || crypto.randomUUID(),
@@ -186,7 +187,7 @@ const Settings: React.FC = () => {
         toast.error('Unsupported file format');
         return;
       }
-      
+
       toast.dismiss('importProcess');
       setShowImportConfirm(true);
     } catch (error) {
@@ -221,10 +222,10 @@ const Settings: React.FC = () => {
       toast.loading('Creating emergency backup...');
       const backupSuccess = await handleJsonExport();
       if (!backupSuccess) {
-         if (!confirm("Emergency backup failed. Do you want to proceed with deletion anyway?")) {
-            setIsWiping(false);
-            return;
-         }
+        if (!confirm("Emergency backup failed. Do you want to proceed with deletion anyway?")) {
+          setIsWiping(false);
+          return;
+        }
       }
 
       // 2. Wipe Remote (Firestore)
@@ -275,7 +276,7 @@ const Settings: React.FC = () => {
 
   return (
     <div className="max-w-xl mx-auto space-y-8">
-      <h1 
+      <h1
         className="text-2xl font-bold cursor-default select-none"
         onClick={handleTitleClick}
       >
@@ -312,27 +313,96 @@ const Settings: React.FC = () => {
         confirmText="Import & Merge"
       />
 
+      <ConfirmModal
+        isOpen={showLogoutConfirm}
+        title="Sign Out?"
+        message="Are you sure you want to sign out of your account? You will need to sign in again to access your synced data."
+        onConfirm={() => signOut()}
+        onCancel={() => setShowLogoutConfirm(false)}
+        variant="danger"
+        confirmText="Sign Out"
+      />
+
       {/* Currency & Appearance sections remain same but with updated styles if needed */}
       {/* Profile Section */}
-      <div className="bg-card p-6 rounded-2xl shadow-sm border border-border">
-        <h2 className="text-lg font-semibold mb-4 border-b border-border pb-4">Profile</h2>
-        <div className="space-y-4">
-          <div>
-            <label className="block text-sm font-medium text-muted-foreground mb-1">Your Name (for reminders)</label>
-            <div className="flex gap-2">
-              <input
-                type="text"
-                value={username}
-                onChange={(e) => setUsername(e.target.value)}
-                placeholder="e.g. Khizar"
-                className="flex-1 px-4 py-2.5 bg-background border border-border rounded-xl focus:outline-none focus:ring-2 focus:ring-primary outline-none"
+      <div className="bg-card p-6 rounded-2xl shadow-sm border border-border relative overflow-hidden">
+        <div className="absolute top-0 right-0 w-32 h-32 bg-primary/5 rounded-full -mr-16 -mt-16 blur-3xl" />
+
+        <div className="flex flex-col md:flex-row items-center gap-6 mb-8">
+          <div className="relative">
+            {(user?.photoURL || user?.providerData?.[0]?.photoURL) ? (
+              <img
+                src={user.photoURL || user.providerData[0].photoURL || ''}
+                alt="Profile"
+                className="w-24 h-24 rounded-2xl object-cover ring-4 ring-background shadow-xl"
+                onError={(e) => {
+                  (e.target as HTMLImageElement).style.display = 'none';
+                  (e.target as HTMLImageElement).parentElement?.querySelector('.avatar-fallback')?.classList.remove('hidden');
+                }}
               />
+            ) : null}
+            {(!(user?.photoURL || user?.providerData?.[0]?.photoURL)) && (
+              <div className="avatar-fallback w-24 h-24 rounded-2xl bg-primary/10 flex items-center justify-center text-primary ring-4 ring-background shadow-xl">
+                <UserIcon size={40} />
+              </div>
+            )}
+            <div className="avatar-fallback hidden w-24 h-24 rounded-2xl bg-primary/10 flex items-center justify-center text-primary ring-4 ring-background shadow-xl">
+              <UserIcon size={40} />
+            </div>
+            <div className="absolute -bottom-2 -right-2 bg-emerald-500 text-white p-1.5 rounded-full ring-4 ring-background shadow-lg">
+              <CheckCircle2 size={14} />
+            </div>
+          </div>
+
+          <div className="flex-1 text-center md:text-left space-y-1">
+            <h2 className="text-2xl font-bold tracking-tight">{user?.displayName || username || 'Guest User'}</h2>
+            <div className="flex items-center justify-center md:justify-start gap-2 text-muted-foreground text-sm">
+              <Mail size={14} />
+              <span>{user?.email || 'No email linked'}</span>
+            </div>
+            <div className="flex items-center justify-center md:justify-start gap-2 mt-2">
+              <span className="px-2.5 py-0.5 bg-primary/10 text-primary text-[10px] font-bold uppercase tracking-wider rounded-full flex items-center gap-1 border border-primary/20">
+                <Shield size={10} /> Account Active
+              </span>
+              {isPro && (
+                <span className="px-2.5 py-0.5 bg-emerald-500/10 text-emerald-500 text-[10px] font-bold uppercase tracking-wider rounded-full border border-emerald-500/20">
+                  Pro Verified
+                </span>
+              )}
+            </div>
+          </div>
+
+          <button
+            onClick={() => setShowLogoutConfirm(true)}
+            className="flex items-center gap-2 px-5 py-2.5 bg-destructive/10 text-destructive font-semibold rounded-xl hover:bg-destructive/20 transition-all active:scale-95 text-sm"
+          >
+            <LogOut size={18} />
+            Sign Out
+          </button>
+        </div>
+
+        <div className="space-y-4 pt-6 border-t border-border/50">
+          <div>
+            <label className="block text-xs font-bold uppercase tracking-widest text-muted-foreground mb-2 ml-1">Custom Display Name</label>
+            <div className="flex gap-2">
+              <div className="relative flex-1">
+                <div className="absolute left-3.5 top-1/2 -translate-y-1/2 text-muted-foreground">
+                  <UserIcon size={18} />
+                </div>
+                <input
+                  type="text"
+                  value={username}
+                  onChange={(e) => setUsername(e.target.value)}
+                  placeholder="Change your display name..."
+                  className="w-full pl-11 pr-4 py-3 bg-background/50 border border-border rounded-xl focus:outline-none focus:ring-2 focus:ring-primary outline-none transition-all"
+                />
+              </div>
               <button
                 onClick={handleSaveUsername}
                 disabled={isSavingUsername}
-                className="px-6 py-2.5 bg-primary text-primary-foreground rounded-xl font-bold hover:opacity-90 transition-opacity disabled:opacity-50"
+                className="px-8 py-3 bg-primary text-primary-foreground rounded-xl font-bold hover:shadow-lg hover:opacity-95 transition-all disabled:opacity-50 shadow-md"
               >
-                {isSavingUsername ? 'Saving...' : 'Save'}
+                {isSavingUsername ? '...' : 'Save'}
               </button>
             </div>
           </div>
@@ -349,9 +419,8 @@ const Settings: React.FC = () => {
                 setCurrency(c.code);
                 toast.success(`Currency changed to ${c.code}`);
               }}
-              className={`flex flex-col items-center justify-center p-4 rounded-xl border-2 transition-all ${
-                currency.code === c.code ? 'border-primary bg-primary/5 text-primary' : 'border-border text-muted-foreground hover:bg-muted'
-              }`}
+              className={`flex flex-col items-center justify-center p-4 rounded-xl border-2 transition-all ${currency.code === c.code ? 'border-primary bg-primary/5 text-primary' : 'border-border text-muted-foreground hover:bg-muted'
+                }`}
             >
               <span className="text-xl font-bold mb-1">{c.symbol}</span>
               <span className="text-xs font-medium uppercase">{c.code}</span>
@@ -386,9 +455,8 @@ const Settings: React.FC = () => {
             <button
               key={t}
               onClick={() => handleThemeChange(t)}
-              className={`flex flex-col items-center justify-center p-4 rounded-xl border-2 transition-all ${
-                theme === t ? 'border-primary bg-primary/5 text-primary' : 'border-border text-muted-foreground hover:bg-muted'
-              }`}
+              className={`flex flex-col items-center justify-center p-4 rounded-xl border-2 transition-all ${theme === t ? 'border-primary bg-primary/5 text-primary' : 'border-border text-muted-foreground hover:bg-muted'
+                }`}
             >
               {t === 'light' && <Sun size={24} className="mb-2" />}
               {t === 'dark' && <Moon size={24} className="mb-2" />}
@@ -411,9 +479,8 @@ const Settings: React.FC = () => {
           <button
             onClick={forceSync}
             disabled={isSyncing}
-            className={`flex items-center gap-2 px-4 py-2 rounded-lg font-medium transition-all ${
-              isSyncing ? 'bg-muted text-muted-foreground' : 'bg-primary/10 text-primary hover:bg-primary/20'
-            }`}
+            className={`flex items-center gap-2 px-4 py-2 rounded-lg font-medium transition-all ${isSyncing ? 'bg-muted text-muted-foreground' : 'bg-primary/10 text-primary hover:bg-primary/20'
+              }`}
           >
             <CloudSync size={18} className={isSyncing ? 'animate-spin' : ''} />
             {isSyncing ? 'Syncing...' : 'Sync Now'}
@@ -423,7 +490,7 @@ const Settings: React.FC = () => {
 
       <div className="bg-card p-6 rounded-2xl shadow-sm border border-border space-y-6">
         <h2 className="text-lg font-semibold border-b border-border pb-4 text-destructive">Danger Zone</h2>
-        
+
         <div className="space-y-6">
           <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
             <div>
@@ -445,11 +512,11 @@ const Settings: React.FC = () => {
                 <Upload size={16} />
                 Import
               </button>
-              <input 
-                type="file" 
-                ref={fileInputRef} 
-                onChange={handleDataImport} 
-                className="hidden" 
+              <input
+                type="file"
+                ref={fileInputRef}
+                onChange={handleDataImport}
+                className="hidden"
                 accept=".json,.csv,.xlsx"
               />
             </div>
@@ -489,6 +556,24 @@ const Settings: React.FC = () => {
             >
               <LayoutList size={16} />
               Optimize Now
+            </button>
+          </div>
+
+          <div className="pt-4 border-t border-border flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+            <div>
+              <h3 className="font-medium">Fix Category Duplicates</h3>
+              <p className="text-sm text-muted-foreground">Merge categories with same names to fix mapping issues</p>
+            </div>
+            <button
+              onClick={async () => {
+                const count = await normalizeCategories();
+                if (count > 0) toast.success(`Merged ${count} duplicate categories`);
+                else toast.info('No duplicate categories found');
+              }}
+              className="flex items-center gap-2 px-4 py-2 bg-blue-500/10 text-blue-500 font-medium rounded-lg hover:bg-blue-500/20 transition-colors text-sm"
+            >
+              <LayoutList size={16} />
+              Fix Categories
             </button>
           </div>
 

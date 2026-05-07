@@ -26,6 +26,7 @@ import Tasks from './pages/Tasks';
 import Loans from './pages/Loans';
 import Events from './pages/Events';
 import FuelTracking from './pages/FuelTracking';
+import Reports from './pages/Reports';
 import Admin from './pages/Admin';
 
 const ProtectedRoute: React.FC<{ children: React.ReactNode }> = ({ children }) => {
@@ -79,6 +80,7 @@ const App: React.FC = () => {
                       <Route path="loans" element={<Loans />} />
                       <Route path="events" element={<Events />} />
                       <Route path="fuel" element={<FuelTracking />} />
+                      <Route path="reports" element={<Reports />} />
                       <Route path="settings" element={<Settings />} />
                     </Route>
                     <Route path="/admin" element={<Admin />} />

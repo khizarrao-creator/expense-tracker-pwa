@@ -11,6 +11,7 @@ import { useAuth } from '../contexts/AuthContext';
 import { toast } from 'sonner';
 import { syncManager } from '../db/SyncManager';
 import ConfirmModal from '../components/ConfirmModal';
+import AdminTransitionOverlay from '../components/AdminTransitionOverlay';
 
 const Settings: React.FC = () => {
   const { currency, setCurrency, currencies } = useCurrency();
@@ -29,6 +30,7 @@ const Settings: React.FC = () => {
   const [dbSize, setDbSize] = useState<string>('0');
   const [isSavingUsername, setIsSavingUsername] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
+  const [showAdminTransition, setShowAdminTransition] = useState(false);
 
   const handleThemeChange = (newTheme: 'light' | 'dark' | 'system') => {
     setTheme(newTheme);
@@ -267,15 +269,24 @@ const Settings: React.FC = () => {
   const handleTitleClick = () => {
     const nextClicks = titleClicks + 1;
     if (nextClicks >= 5) {
-      navigate('/admin');
       setTitleClicks(0);
+      setShowAdminTransition(true);
     } else {
       setTitleClicks(nextClicks);
     }
   };
 
+  const handleAdminTransitionComplete = () => {
+    setShowAdminTransition(false);
+    navigate('/admin');
+  };
+
   return (
     <div className="max-w-xl mx-auto space-y-8">
+      <AdminTransitionOverlay
+        isActive={showAdminTransition}
+        onComplete={handleAdminTransitionComplete}
+      />
       <h1
         className="text-2xl font-bold cursor-default select-none"
         onClick={handleTitleClick}

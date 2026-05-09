@@ -1,7 +1,7 @@
 import React, { useState, useRef } from 'react';
 import * as XLSX from 'xlsx';
 import localforage from 'localforage';
-import { getTransactions, exportAllData, importAllData, clearAllData, vacuumDB, normalizeCategories } from '../db/queries';
+import { getTransactions, exportAllData, importAllData, clearAllData, vacuumDB, normalizeCategories, getDBSizeMB } from '../db/queries';
 import { Download, Moon, Sun, Monitor, CloudSync, FileJson, Upload, AlertTriangle, LayoutList, ChevronRight, User as UserIcon, Mail, Shield, LogOut, CheckCircle2 } from 'lucide-react';
 import { useNavigate } from 'react-router-dom';
 import { useCurrency } from '../contexts/CurrencyContext';
@@ -26,6 +26,7 @@ const Settings: React.FC = () => {
   const [showLogoutConfirm, setShowLogoutConfirm] = useState(false);
   const [pendingImportData, setPendingImportData] = useState<any>(null);
   const [isWiping, setIsWiping] = useState(false);
+  const [isOptimizing, setIsOptimizing] = useState(false);
   const [username, setUsername] = useState('');
   const [dbSize, setDbSize] = useState<string>('0');
   const [isSavingUsername, setIsSavingUsername] = useState(false);
@@ -43,11 +44,8 @@ const Settings: React.FC = () => {
       const saved = await queries.getConfig('username');
       if (saved) setUsername(saved);
 
-      // Get DB size
-      const data = await localforage.getItem<Uint8Array>('expense-tracker-db');
-      if (data) {
-        setDbSize((data.length / (1024 * 1024)).toFixed(2));
-      }
+      // Get live DB size from the in-memory SQLite instance (post-VACUUM accurate)
+      setDbSize(getDBSizeMB().toString());
     };
     loadData();
   }, []);
@@ -559,14 +557,24 @@ const Settings: React.FC = () => {
           <div className="pt-4 border-t border-border flex flex-col sm:flex-row sm:items-center justify-between gap-4">
             <div>
               <h3 className="font-medium">Optimize Database</h3>
-              <p className="text-sm text-muted-foreground">Cleanup unused space. Current Size: <span className="font-mono font-bold text-primary">{dbSize} MB</span></p>
+              <p className="text-sm text-muted-foreground">Compact unused space. Current size: <span className="font-mono font-bold text-primary">{dbSize} MB</span></p>
             </div>
             <button
-              onClick={() => vacuumDB()}
-              className="flex items-center gap-2 px-4 py-2 bg-emerald-500/10 text-emerald-500 font-medium rounded-lg hover:bg-emerald-500/20 transition-colors text-sm"
+              onClick={async () => {
+                setIsOptimizing(true);
+                try {
+                  await vacuumDB();
+                  // Refresh displayed size immediately after compaction
+                  setDbSize(getDBSizeMB().toString());
+                } finally {
+                  setIsOptimizing(false);
+                }
+              }}
+              disabled={isOptimizing}
+              className="flex items-center gap-2 px-4 py-2 bg-emerald-500/10 text-emerald-500 font-medium rounded-lg hover:bg-emerald-500/20 transition-colors text-sm disabled:opacity-50"
             >
-              <LayoutList size={16} />
-              Optimize Now
+              <LayoutList size={16} className={isOptimizing ? 'animate-spin' : ''} />
+              {isOptimizing ? 'Optimizing...' : 'Optimize Now'}
             </button>
           </div>
 

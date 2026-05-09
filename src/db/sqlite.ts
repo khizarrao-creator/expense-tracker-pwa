@@ -10,6 +10,58 @@ let SQL: SqlJsStatic | null = null;
 
 const DB_STORE_NAME = 'expense-tracker-db';
 
+// ─── Debounced Save ───────────────────────────────────────────────────────────
+// Instead of writing to IndexedDB on every single mutation, we coalesce all
+// writes that happen within a 1.5s window into a single flush. This prevents
+// the storage-full error that occurs when a sync batch fires 50+ writes at once.
+let _saveTimer: ReturnType<typeof setTimeout> | null = null;
+let _pendingSave = false;
+
+const scheduleSave = () => {
+  _pendingSave = true;
+  if (_saveTimer) return; // already scheduled
+  _saveTimer = setTimeout(async () => {
+    _saveTimer = null;
+    if (_pendingSave) {
+      _pendingSave = false;
+      await flushSave();
+    }
+  }, 1500);
+};
+
+/** Force an immediate flush — used by initDB and vacuumDB only. */
+const flushSave = async () => {
+  if (!db) return;
+  try {
+    // Run VACUUM before saving to compact free pages from deleted rows.
+    // This keeps the serialized file size small and avoids false quota errors.
+    db.run('VACUUM');
+    const data = db.export();
+    const sizeMB = (data.length / (1024 * 1024)).toFixed(2);
+    console.log(`[SQLite] Flushing database to IndexedDB (${sizeMB} MB)...`);
+    await localforage.setItem(DB_STORE_NAME, data);
+  } catch (e: any) {
+    console.error('[SQLite] Storage error:', e);
+    const isQuotaError =
+      e.name === 'QuotaExceededError' ||
+      e.name === 'NS_ERROR_DOM_QUOTA_REACHED' ||
+      e.message?.toLowerCase().includes('quota') ||
+      e.message?.toLowerCase().includes('full disk');
+
+    if (isQuotaError) {
+      toast.error(
+        'Storage Full — run "Optimize Database" in Settings → Data Management to free space.',
+        { id: 'storage-quota-error', duration: 12000 }
+      );
+    } else {
+      toast.error(
+        `Save Failed: ${e.message || 'Unknown error'}. Try optimizing from Settings.`,
+        { id: 'storage-save-error' }
+      );
+    }
+  }
+};
+
 export const initDB = async () => {
   if (db) return { db, SQL };
 
@@ -33,7 +85,9 @@ export const initDB = async () => {
     }
 
     await initializeSchema();
-    await saveDB();
+    // Immediate flush on startup — VACUUM runs inside flushSave to compact
+    // any free pages left from the previous session before we start work.
+    await flushSave();
 
     return { db, SQL };
   } catch (error) {
@@ -43,34 +97,26 @@ export const initDB = async () => {
   }
 };
 
-const saveDB = async () => {
-  if (!db) return;
-  try {
-    const data = db.export();
-    const sizeMB = (data.length / (1024 * 1024)).toFixed(2);
-    console.log(`[SQLite] Saving database (${sizeMB} MB)...`);
-    await localforage.setItem(DB_STORE_NAME, data);
-  } catch (e: any) {
-    console.error('[SQLite] Storage error:', e);
-    if (e.name === 'QuotaExceededError' || e.message?.includes('full disk')) {
-      toast.error('Storage Full! Your data is not being saved locally. Please free up disk space or clear browser data.', { 
-        id: 'storage-quota-error',
-        duration: 10000 
-      });
-    } else {
-      toast.error(`Save Failed: ${e.message || 'Unknown error'}. Try optimizing from Settings.`, { id: 'storage-save-error' });
-    }
-  }
-};
-
 export const vacuumDB = async () => {
   if (!db) return;
   try {
-    db.run('VACUUM');
-    await saveDB();
+    // flushSave already runs VACUUM internally; calling it directly gives us
+    // an immediate, synchronous compact + persist with user-facing feedback.
+    await flushSave();
     toast.success('Database optimized successfully');
   } catch (e) {
     console.error('[SQLite] Vacuum failed:', e);
+  }
+};
+
+/** Expose current DB size in MB for Settings UI. */
+export const getDBSizeMB = (): number => {
+  if (!db) return 0;
+  try {
+    const data = db.export();
+    return parseFloat((data.length / (1024 * 1024)).toFixed(2));
+  } catch {
+    return 0;
   }
 };
 
@@ -531,10 +577,11 @@ export const executeQuery = async (query: string, params: any[] = []) => {
 
   stmt.free();
 
-  // If the query was a mutation, save the DB
+  // Schedule a debounced save for mutations — all writes within the same 1.5s
+  // window (e.g. a 50-item sync batch) collapse into ONE IndexedDB write.
   const isMutation = query.trim().toUpperCase().match(/^(INSERT|UPDATE|DELETE|CREATE|DROP|ALTER)/);
   if (isMutation) {
-    await saveDB();
+    scheduleSave();
   }
 
   return results;

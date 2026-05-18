@@ -18,6 +18,8 @@ export interface Transaction {
   synced: number;
   subcategory: string | null;
   event_id: string | null;
+  to_amount: number | null;
+  exchange_rate: number | null;
 }
 
 export interface Account {
@@ -25,6 +27,7 @@ export interface Account {
   name: string;
   type: string;
   initial_balance: number;
+  currency: string;
   color: string;
   created_at: string;
   updated_at: string;
@@ -78,7 +81,9 @@ export const addTransaction = async (
   to_account_id: string | null = null,
   subcategory: string | null = null,
   providedId?: string,
-  event_id: string | null = null
+  event_id: string | null = null,
+  to_amount: number | null = null,
+  exchange_rate: number | null = null
 ) => {
   const id = providedId || uuidv4();
   const now = new Date().toISOString();
@@ -88,14 +93,16 @@ export const addTransaction = async (
     id, type, amount, category, description: description ?? null, date,
     payment_method: payment_method ?? '', account_id: account_id ?? null,
     to_account_id: to_account_id ?? null, created_at: now, updated_at: now, deviceId,
-    subcategory: subcategory ?? null, event_id: event_id ?? null
+    subcategory: subcategory ?? null, event_id: event_id ?? null,
+    to_amount: to_amount ?? (type === 'transfer' ? amount : null),
+    exchange_rate: exchange_rate ?? (type === 'transfer' ? 1 : null)
   };
 
   await syncManager.performOperation('transaction_add', trxData, () =>
     runWithBindings(
-      `INSERT INTO transactions (id, type, amount, category, description, date, payment_method, account_id, to_account_id, created_at, updated_at, deviceId, synced, subcategory, event_id) 
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 0, ?, ?)`,
-      [id, type, amount, category, description ?? null, date, payment_method ?? '', account_id ?? null, to_account_id ?? null, now, now, deviceId, subcategory ?? null, event_id ?? null]
+      `INSERT INTO transactions (id, type, amount, category, description, date, payment_method, account_id, to_account_id, created_at, updated_at, deviceId, synced, subcategory, event_id, to_amount, exchange_rate) 
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 0, ?, ?, ?, ?)`,
+      [id, type, amount, category, description ?? null, date, payment_method ?? '', account_id ?? null, to_account_id ?? null, now, now, deviceId, subcategory ?? null, event_id ?? null, trxData.to_amount, trxData.exchange_rate]
     )
   );
   return id;
@@ -103,7 +110,7 @@ export const addTransaction = async (
 
 const TRANSACTION_UPDATABLE_FIELDS = new Set([
   'type', 'amount', 'category', 'description', 'date',
-  'payment_method', 'account_id', 'to_account_id', 'updated_at', 'deviceId', 'subcategory', 'event_id'
+  'payment_method', 'account_id', 'to_account_id', 'updated_at', 'deviceId', 'subcategory', 'event_id', 'to_amount', 'exchange_rate'
 ]);
 
 export const updateTransaction = async (
@@ -139,9 +146,9 @@ export const getTransaction = async (id: string): Promise<Transaction | null> =>
   return results[0] || null;
 };
 
-export const getTransactions = async (limit: number = 50, offset: number = 0): Promise<(Transaction & { account_name?: string, to_account_name?: string })[]> => {
+export const getTransactions = async (limit: number = 50, offset: number = 0): Promise<(Transaction & { account_name?: string, to_account_name?: string, account_currency?: string, to_account_currency?: string })[]> => {
   return await runWithBindings(
-    `SELECT t.*, a.name as account_name, b.name as to_account_name
+    `SELECT t.*, a.name as account_name, a.currency as account_currency, b.name as to_account_name, b.currency as to_account_currency
      FROM transactions t 
      LEFT JOIN accounts a ON t.account_id = a.id 
      LEFT JOIN accounts b ON t.to_account_id = b.id
@@ -291,6 +298,23 @@ export const deleteBudget = async (category: string, subcategory: string | null 
   const subcat = subcategory || '';
   await syncManager.performOperation('config_delete', { key: `budget_${category}_${subcat}` }, () =>
     runWithBindings(`DELETE FROM budgets WHERE category = ? AND subcategory = ?`, [category, subcat])
+  );
+};
+
+// --- Config ---
+export const getConfig = async (key: string): Promise<string | null> => {
+  const results = await runWithBindings(`SELECT value FROM config WHERE key = ?`, [key]);
+  return results[0]?.value || null;
+};
+
+export const setConfig = async (key: string, value: string) => {
+  const now = new Date().toISOString();
+  const deviceId = localStorage.getItem('deviceId') || 'unknown';
+  await syncManager.performOperation('config_update', { key, value, updated_at: now, deviceId }, () =>
+    runWithBindings(
+      `INSERT OR REPLACE INTO config (key, value, updated_at, deviceId) VALUES (?, ?, ?, ?)`,
+      [key, value, now, deviceId]
+    )
   );
 };
 
@@ -469,7 +493,14 @@ export const getAccounts = async (): Promise<Account[]> => {
   return await executeQuery(`SELECT * FROM accounts ORDER BY name ASC`);
 };
 
-export const addAccount = async (name: string, type: string, initial_balance: number = 0, color: string | null = null, providedId?: string) => {
+export const addAccount = async (
+  name: string,
+  type: string,
+  initial_balance: number = 0,
+  color: string | null = null,
+  providedId?: string,
+  currency: string = 'PKR'
+) => {
   const id = providedId || uuidv4();
   const now = new Date().toISOString();
   const deviceId = localStorage.getItem('deviceId') || 'unknown';
@@ -479,6 +510,7 @@ export const addAccount = async (name: string, type: string, initial_balance: nu
     name,
     type,
     initial_balance: Number(initial_balance || 0),
+    currency,
     color,
     created_at: now,
     updated_at: now,
@@ -487,8 +519,8 @@ export const addAccount = async (name: string, type: string, initial_balance: nu
 
   await syncManager.performOperation('account_add', accData, () =>
     runWithBindings(
-      `INSERT INTO accounts (id, name, type, initial_balance, color, created_at, updated_at, deviceId, synced) VALUES (?, ?, ?, ?, ?, ?, ?, ?, 0)`,
-      [id, name, type, Number(initial_balance || 0), color ?? null, now, now, deviceId]
+      `INSERT INTO accounts (id, name, type, initial_balance, currency, color, created_at, updated_at, deviceId, synced) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 0)`,
+      [id, name, type, Number(initial_balance || 0), currency, color ?? null, now, now, deviceId]
     )
   );
   return id;
@@ -501,7 +533,7 @@ export const deleteAccount = async (id: string) => {
 };
 
 const ACCOUNT_UPDATABLE_FIELDS = new Set([
-  'name', 'type', 'initial_balance', 'color', 'updated_at', 'deviceId'
+  'name', 'type', 'initial_balance', 'currency', 'color', 'updated_at', 'deviceId'
 ]);
 
 export const updateAccount = async (id: string, data: Partial<Omit<Account, 'id' | 'created_at'>>) => {
@@ -534,11 +566,13 @@ export const getSummaryByAccount = async () => {
     SELECT 
       a.id, 
       a.name, 
+      a.type,
       a.initial_balance,
+      a.currency,
       (SELECT COALESCE(SUM(amount), 0) FROM transactions WHERE type = 'income' AND account_id = a.id) as income,
       (SELECT COALESCE(SUM(amount), 0) FROM transactions WHERE type = 'expense' AND account_id = a.id) as expense,
       (SELECT COALESCE(SUM(amount), 0) FROM transactions WHERE type = 'transfer' AND account_id = a.id) as transfer_out,
-      (SELECT COALESCE(SUM(amount), 0) FROM transactions WHERE type = 'transfer' AND to_account_id = a.id) as transfer_in
+      (SELECT COALESCE(SUM(to_amount), SUM(amount), 0) FROM transactions WHERE type = 'transfer' AND to_account_id = a.id) as transfer_in
     FROM accounts a
   `);
 };
@@ -896,6 +930,34 @@ export const importAllData = async (data: any) => {
 };
 // --- Investments ---
 
+export interface AssetTransaction {
+  id: string;
+  asset_symbol: string;
+  txn_type: 'BUY' | 'SELL' | 'DEPOSIT' | 'WITHDRAWAL';
+  qty: number;
+  unit_price: number;
+  quote_asset: string;
+  fee_asset: string | null;
+  fee_qty: number;
+  source: string;
+  timestamp: string;
+  created_at: string;
+  updated_at: string;
+  deviceId?: string;
+  synced?: number;
+}
+
+export interface InventoryLedger {
+  id: string;
+  asset_symbol: string;
+  qty_change: number;
+  pkr_value_change: number;
+  running_qty: number;
+  running_pkr_value: number;
+  avg_cost: number;
+  timestamp: string;
+}
+
 export interface Investment {
   id: string;
   name: string;
@@ -903,6 +965,10 @@ export interface Investment {
   units: number;
   average_buy_price: number;
   current_price: number;
+  currency: string;
+  buy_exchange_rate: number;
+  current_exchange_rate: number;
+  funding_account_id: string | null;
   created_at: string;
   updated_at: string;
   synced: number;
@@ -960,26 +1026,50 @@ export const addInvestment = async (
   units: number,
   average_buy_price: number,
   current_price: number,
+  currency: string = 'USD',
+  buy_exchange_rate: number = 1,
+  current_exchange_rate: number = 1,
+  funding_account_id: string | null = null,
   providedId?: string
 ) => {
   const id = providedId || uuidv4();
   const now = new Date().toISOString();
   const deviceId = localStorage.getItem('deviceId') || 'unknown';
 
-  const invData = { id, name, type, units, average_buy_price, current_price, created_at: now, updated_at: now, deviceId };
+  const invData = {
+    id, name, type, units, average_buy_price, current_price,
+    currency, buy_exchange_rate, current_exchange_rate, funding_account_id,
+    created_at: now, updated_at: now, deviceId
+  };
 
-  await syncManager.performOperation('investment_add', invData, () =>
-    runWithBindings(
-      `INSERT INTO investments (id, name, type, units, average_buy_price, current_price, created_at, updated_at, deviceId, synced) 
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 0)`,
-      [id, name, type, units, average_buy_price, current_price, now, now, deviceId]
-    )
-  );
+  await syncManager.performOperation('investment_add', invData, async () => {
+    await runWithBindings(
+      `INSERT INTO investments (id, name, type, units, average_buy_price, current_price, currency, buy_exchange_rate, current_exchange_rate, funding_account_id, created_at, updated_at, deviceId, synced) 
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 0)`,
+      [id, name, type, units, average_buy_price, current_price, currency, buy_exchange_rate, current_exchange_rate, funding_account_id, now, now, deviceId]
+    );
+
+    // Create a transaction if funding account is provided
+    if (funding_account_id) {
+      await addTransaction(
+        'expense',
+        units * average_buy_price * buy_exchange_rate,
+        'Investment',
+        `Investment: ${name} (${units} units)`,
+        now.split('T')[0],
+        '',
+        funding_account_id,
+        null,
+        type,
+        `trx_inv_${id}`
+      );
+    }
+  });
   return id;
 };
 
 const INVESTMENT_UPDATABLE_FIELDS = new Set([
-  'name', 'type', 'units', 'average_buy_price', 'current_price', 'updated_at', 'deviceId'
+  'name', 'type', 'units', 'average_buy_price', 'current_price', 'currency', 'buy_exchange_rate', 'current_exchange_rate', 'funding_account_id', 'updated_at', 'deviceId'
 ]);
 
 export const updateInvestment = async (id: string, data: Partial<Omit<Investment, 'id' | 'created_at' | 'synced'>>) => {
@@ -999,18 +1089,432 @@ export const updateInvestment = async (id: string, data: Partial<Omit<Investment
 
   const updateData = { id, ...sanitizedData, updated_at: now, deviceId };
 
-  await syncManager.performOperation('investment_update', updateData, () =>
-    runWithBindings(
+  await syncManager.performOperation('investment_update', updateData, async () => {
+    await runWithBindings(
       `UPDATE investments SET ${setClause}, updated_at = ?, deviceId = ?, synced = 0 WHERE id = ?`,
       [...values, now, deviceId, id]
-    )
+    );
+
+    // Also update linked transaction if it exists
+    const inv = (await runWithBindings(`SELECT * FROM investments WHERE id = ?`, [id]))[0];
+    if (inv && inv.funding_account_id) {
+      const amount = inv.units * inv.average_buy_price * inv.buy_exchange_rate;
+      await runWithBindings(
+        `UPDATE transactions SET amount = ?, updated_at = ?, synced = 0 WHERE id = ?`,
+        [amount, now, `trx_inv_${id}`]
+      );
+    }
+  });
+};
+
+export const updateInvestmentInMemory = async (id: string, data: Partial<Omit<Investment, 'id' | 'created_at' | 'synced'>>) => {
+  const now = new Date().toISOString();
+  const deviceId = localStorage.getItem('deviceId') || 'unknown';
+
+  const sanitizedData: any = {};
+  Object.keys(data).forEach(key => {
+    if (INVESTMENT_UPDATABLE_FIELDS.has(key)) {
+      sanitizedData[key] = (data as any)[key] ?? null;
+    }
+  });
+
+  const fields = Object.keys(sanitizedData);
+  const values = Object.values(sanitizedData);
+  const setClause = fields.map(f => `${f} = ?`).join(', ');
+
+  // Execute query with skipSave = true to keep it in WASM memory only
+  await executeQuery(
+    `UPDATE investments SET ${setClause}, updated_at = ?, deviceId = ?, synced = 0 WHERE id = ?`,
+    [...values, now, deviceId, id],
+    true
   );
 };
 
 export const deleteInvestment = async (id: string) => {
-  await syncManager.performOperation('investment_delete', { id }, () =>
-    runWithBindings(`DELETE FROM investments WHERE id = ?`, [id])
+  await syncManager.performOperation('investment_delete', { id }, async () => {
+    // Check if it's a crypto asset
+    const invs = await executeQuery(`SELECT name, type FROM investments WHERE id = ?`, [id]);
+    const inv = invs[0];
+
+    await runWithBindings(`DELETE FROM investments WHERE id = ?`, [id]);
+    // Also delete linked transaction
+    await runWithBindings(`DELETE FROM transactions WHERE id = ?`, [`trx_inv_${id}`]);
+
+    if (inv && inv.type === 'Crypto') {
+      // Also delete all transaction records for this asset
+      await runWithBindings(`DELETE FROM asset_transactions WHERE asset_symbol = ?`, [inv.name.toUpperCase()]);
+      // Replay chronological ledger to rebuild
+      await replayInventoryLedger();
+    }
+  });
+};
+
+export const addAssetTransaction = async (
+  symbol: string,
+  txnType: 'BUY' | 'SELL' | 'DEPOSIT' | 'WITHDRAWAL',
+  qty: number,
+  unitPrice: number,
+  quoteAsset: string,
+  feeAsset: string | null = null,
+  feeQty: number = 0,
+  source: string = 'Manual',
+  timestamp?: string
+) => {
+  const id = uuidv4();
+  const now = new Date().toISOString();
+  const txTimestamp = timestamp || now;
+  const deviceId = localStorage.getItem('deviceId') || 'unknown';
+
+  await runWithBindings(
+    `INSERT INTO asset_transactions (id, asset_symbol, txn_type, qty, unit_price, quote_asset, fee_asset, fee_qty, source, timestamp, created_at, updated_at, deviceId, synced)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 0)`,
+    [id, symbol.toUpperCase(), txnType, qty, unitPrice, quoteAsset.toUpperCase(), feeAsset ? feeAsset.toUpperCase() : null, feeQty, source, txTimestamp, now, now, deviceId]
   );
+
+  // Auto-replay ledger to recalculate inventory and costs
+  await replayInventoryLedger();
+  return id;
+};
+
+export const deleteAssetTransaction = async (id: string) => {
+  await runWithBindings(`DELETE FROM asset_transactions WHERE id = ?`, [id]);
+  // Auto-replay ledger to recalculate inventory and costs
+  await replayInventoryLedger();
+};
+
+export const getAssetTransactions = async (): Promise<AssetTransaction[]> => {
+  return await executeQuery(`SELECT * FROM asset_transactions ORDER BY timestamp DESC`);
+};
+
+export const getInventoryLedger = async (symbol?: string): Promise<InventoryLedger[]> => {
+  if (symbol) {
+    return await executeQuery(`SELECT * FROM inventory_ledger WHERE asset_symbol = ? ORDER BY timestamp DESC`, [symbol.toUpperCase()]);
+  }
+  return await executeQuery(`SELECT * FROM inventory_ledger ORDER BY timestamp DESC`);
+};
+
+export const replayInventoryLedger = async () => {
+  console.log('[Ledger] Replaying chronological transaction ledger...');
+
+  // 1. Fetch all asset transactions sorted chronologically by timestamp
+  const txns = await runWithBindings(`SELECT * FROM asset_transactions ORDER BY timestamp ASC`, []);
+  if (!Array.isArray(txns) || txns.length === 0) {
+    console.log('[Ledger] No asset transactions found. Clearing inventory.');
+    await runWithBindings(`DELETE FROM inventory_ledger`, []);
+    await runWithBindings(`DELETE FROM investments WHERE type = 'Crypto'`, []);
+    return;
+  }
+
+  // Clear current inventory ledger
+  await runWithBindings(`DELETE FROM inventory_ledger`, []);
+
+  // Fetch latest USD-PKR exchange rate as the global fallback
+  let usdToPKR = 278.5;
+  try {
+    const res = await fetch(`https://api.exchangerate-api.com/v4/latest/USD`);
+    if (res.ok) {
+      const data = await res.json();
+      if (data.rates && data.rates.PKR) {
+        usdToPKR = data.rates.PKR;
+      }
+    }
+  } catch (e) {
+    console.warn('Replay fallback FX rate fetch failed, using default', e);
+  }
+
+  const rateCache: Record<string, number> = {};
+  const getHistoricalRate = async (dateStr: string) => {
+    if (rateCache[dateStr]) return rateCache[dateStr];
+    try {
+      const res = await fetch(`https://api.coinbase.com/v2/prices/USD-PKR/spot?date=${dateStr}`);
+      if (res.ok) {
+        const json = await res.json();
+        if (json.data && json.data.amount) {
+          const val = parseFloat(json.data.amount);
+          rateCache[dateStr] = val;
+          return val;
+        }
+      }
+    } catch { }
+    return usdToPKR;
+  };
+
+  // Holdings Map: Tracks running state of all assets
+  // asset_symbol -> { qty: number; pkrVal: number; avgCost: number }
+  const holdings = new Map<string, { qty: number; pkrVal: number; avgCost: number }>();
+
+  const getHolding = (symbol: string) => {
+    if (!holdings.has(symbol)) {
+      holdings.set(symbol, { qty: 0, pkrVal: 0, avgCost: 0 });
+    }
+    return holdings.get(symbol)!;
+  };
+
+  const setHolding = (symbol: string, qty: number, pkrVal: number) => {
+    let finalQty = Math.max(0, qty);
+    let finalPkrVal = Math.max(0, pkrVal);
+    let avgCost = finalQty > 0 ? finalPkrVal / finalQty : 0;
+    holdings.set(symbol, { qty: finalQty, pkrVal: finalPkrVal, avgCost });
+  };
+
+  // Process all transactions
+  for (const tx of txns) {
+    const symbol = tx.asset_symbol.toUpperCase().trim();
+    const type = tx.txn_type;
+    const qty = parseFloat(tx.qty || 0);
+    const unitPrice = parseFloat(tx.unit_price || 0);
+    const quoteAsset = tx.quote_asset ? tx.quote_asset.toUpperCase().trim() : '';
+    const dateStr = tx.timestamp.split('T')[0];
+
+    // Compute fee cost in PKR if fee exists
+    let feeAsset = tx.fee_asset ? tx.fee_asset.toUpperCase().trim() : null;
+    let feeQty = parseFloat(tx.fee_qty || 0);
+    let feeCostPKR = 0;
+
+    if (feeQty > 0 && feeAsset) {
+      const feeHolding = getHolding(feeAsset);
+      if (feeHolding.qty >= feeQty) {
+        feeCostPKR = feeQty * feeHolding.avgCost;
+        // Deduct fee from fee_asset inventory
+        const newFeeQty = feeHolding.qty - feeQty;
+        const newFeePkrVal = feeHolding.pkrVal - feeCostPKR;
+        setHolding(feeAsset, newFeeQty, newFeePkrVal);
+
+        // Write CR entry for fee_asset
+        const ledgerId = uuidv4();
+        await runWithBindings(
+          `INSERT INTO inventory_ledger (id, asset_symbol, qty_change, pkr_value_change, running_qty, running_pkr_value, avg_cost, timestamp)
+           VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
+          [ledgerId, feeAsset, -feeQty, -feeCostPKR, newFeeQty, newFeePkrVal, feeHolding.avgCost, tx.timestamp]
+        );
+      } else {
+        // Fallback fee cost conversion using exchange rate
+        const fxRate = await getHistoricalRate(dateStr);
+        feeCostPKR = feeQty * fxRate;
+      }
+    }
+
+    if (type === 'DEPOSIT') {
+      // Fiat deposit or manual inventory deposit
+      const fxRate = quoteAsset === 'PKR' ? 1 : await getHistoricalRate(dateStr);
+      const pkrValChange = (qty * unitPrice * fxRate) + feeCostPKR;
+
+      const holding = getHolding(symbol);
+      const newQty = holding.qty + qty;
+      const newPkrVal = holding.pkrVal + pkrValChange;
+      setHolding(symbol, newQty, newPkrVal);
+
+      // Write DR ledger entry
+      const ledgerId = uuidv4();
+      await runWithBindings(
+        `INSERT INTO inventory_ledger (id, asset_symbol, qty_change, pkr_value_change, running_qty, running_pkr_value, avg_cost, timestamp)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
+        [ledgerId, symbol, qty, pkrValChange, newQty, newPkrVal, newQty > 0 ? newPkrVal / newQty : 0, tx.timestamp]
+      );
+    }
+    else if (type === 'WITHDRAWAL') {
+      const holding = getHolding(symbol);
+      const costBasis = qty * holding.avgCost;
+      const newQty = holding.qty - qty;
+      const newPkrVal = holding.pkrVal - costBasis;
+      setHolding(symbol, newQty, newPkrVal);
+
+      // Write CR ledger entry
+      const ledgerId = uuidv4();
+      await runWithBindings(
+        `INSERT INTO inventory_ledger (id, asset_symbol, qty_change, pkr_value_change, running_qty, running_pkr_value, avg_cost, timestamp)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
+        [ledgerId, symbol, -qty, -costBasis, newQty, newPkrVal, holding.avgCost, tx.timestamp]
+      );
+    }
+    else if (type === 'BUY') {
+      // Purchase symbol using quoteAsset
+      let pkrCost = 0;
+
+      if (quoteAsset === 'PKR') {
+        // Cash buy
+        pkrCost = (qty * unitPrice) + feeCostPKR;
+      } else {
+        // Asset-to-Asset Purchase (e.g. buy SOL using USDT)
+        const quoteQtySpent = qty * unitPrice;
+        const quoteHolding = getHolding(quoteAsset);
+
+        let quotePKRValueSpent = 0;
+        if (quoteHolding.qty >= quoteQtySpent) {
+          quotePKRValueSpent = quoteQtySpent * quoteHolding.avgCost;
+          // Deduct from quoteAsset inventory (Credit)
+          const newQuoteQty = quoteHolding.qty - quoteQtySpent;
+          const newQuotePkrVal = quoteHolding.pkrVal - quotePKRValueSpent;
+          setHolding(quoteAsset, newQuoteQty, newQuotePkrVal);
+
+          // Write CR ledger entry for quoteAsset
+          const quoteLedgerId = uuidv4();
+          await runWithBindings(
+            `INSERT INTO inventory_ledger (id, asset_symbol, qty_change, pkr_value_change, running_qty, running_pkr_value, avg_cost, timestamp)
+             VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
+            [quoteLedgerId, quoteAsset, -quoteQtySpent, -quotePKRValueSpent, newQuoteQty, newQuotePkrVal, quoteHolding.avgCost, tx.timestamp]
+          );
+        } else {
+          // Fallback quote asset rate if inventory was insufficient
+          const fxRate = await getHistoricalRate(dateStr);
+          quotePKRValueSpent = quoteQtySpent * fxRate;
+        }
+
+        pkrCost = quotePKRValueSpent + feeCostPKR;
+      }
+
+      // Add to symbol inventory (Debit)
+      const holding = getHolding(symbol);
+      const newQty = holding.qty + qty;
+      const newPkrVal = holding.pkrVal + pkrCost;
+      setHolding(symbol, newQty, newPkrVal);
+
+      // Write DR ledger entry for symbol
+      const ledgerId = uuidv4();
+      await runWithBindings(
+        `INSERT INTO inventory_ledger (id, asset_symbol, qty_change, pkr_value_change, running_qty, running_pkr_value, avg_cost, timestamp)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
+        [ledgerId, symbol, qty, pkrCost, newQty, newPkrVal, newQty > 0 ? newPkrVal / newQty : 0, tx.timestamp]
+      );
+    }
+    else if (type === 'SELL') {
+      // Sell symbol for quoteAsset
+      const holding = getHolding(symbol);
+      const costBasisSpent = (qty * holding.avgCost);
+      const newQty = holding.qty - qty;
+      const newPkrVal = holding.pkrVal - costBasisSpent;
+      setHolding(symbol, newQty, newPkrVal);
+
+      // Write CR ledger entry for sold symbol
+      const ledgerId = uuidv4();
+      await runWithBindings(
+        `INSERT INTO inventory_ledger (id, asset_symbol, qty_change, pkr_value_change, running_qty, running_pkr_value, avg_cost, timestamp)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
+        [ledgerId, symbol, -qty, -costBasisSpent, newQty, newPkrVal, holding.avgCost, tx.timestamp]
+      );
+
+      // Receive quoteAsset (Debit quoteAsset)
+      const receivedQuoteQty = qty * unitPrice;
+      if (quoteAsset === 'PKR') {
+        // Sold directly for cash, no WAC mapping needed for PKR, realized PnL recorded
+      } else {
+        // Sold for another crypto (SOL to USDT)
+        // USDT inherits the exact PKR cost basis of the sold SOL!
+        const quoteHolding = getHolding(quoteAsset);
+        const newQuoteQty = quoteHolding.qty + receivedQuoteQty;
+        const newQuotePkrVal = quoteHolding.pkrVal + costBasisSpent;
+        setHolding(quoteAsset, newQuoteQty, newQuotePkrVal);
+
+        // Write DR ledger entry for received quoteAsset
+        const quoteLedgerId = uuidv4();
+        await runWithBindings(
+          `INSERT INTO inventory_ledger (id, asset_symbol, qty_change, pkr_value_change, running_qty, running_pkr_value, avg_cost, timestamp)
+           VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
+          [quoteLedgerId, quoteAsset, receivedQuoteQty, costBasisSpent, newQuoteQty, newQuotePkrVal, newQuoteQty > 0 ? newQuotePkrVal / newQuoteQty : 0, tx.timestamp]
+        );
+      }
+    }
+  }
+
+  // 4. Re-populate the main investments table with the final calculated WAC holdings!
+  // Get existing current prices for crypto assets so we don't reset them to average buy price!
+  const existingHoldings = await executeQuery(`SELECT name, current_price, current_exchange_rate FROM investments WHERE type = 'Crypto'`);
+  const currentPricesMap = new Map<string, { price: number; exRate: number }>();
+  existingHoldings.forEach((h: any) => {
+    if (h.name && h.current_price !== null) {
+      currentPricesMap.set(h.name.toUpperCase(), {
+        price: h.current_price,
+        exRate: h.current_exchange_rate || usdToPKR
+      });
+    }
+  });
+
+  await runWithBindings(`DELETE FROM investments WHERE type = 'Crypto'`, []);
+  const deviceId = localStorage.getItem('deviceId') || 'unknown';
+  const now = new Date().toISOString();
+
+  for (const [symbol, hold] of holdings.entries()) {
+    if (hold.qty > 0.000001) {
+      const invId = uuidv4();
+      const avgPriceUSD = hold.avgCost / usdToPKR;
+
+      // Look up existing current price or fetch live, fallback to avgPriceUSD
+      const existing = currentPricesMap.get(symbol.toUpperCase());
+      let currentPriceVal = avgPriceUSD;
+      let currentExRateVal = usdToPKR;
+
+      if (existing && existing.price > 0 && Math.abs(existing.price - avgPriceUSD) > 0.00001) {
+        currentPriceVal = existing.price;
+        // Self-heal: If the preserved exchange rate is invalid (e.g., 1 or null), heal it to usdToPKR!
+        currentExRateVal = (existing.exRate && existing.exRate > 10) ? existing.exRate : usdToPKR;
+      } else {
+        try {
+          const livePrice = await fetchCryptoPrice(symbol);
+          if (livePrice !== null && livePrice > 0) {
+            currentPriceVal = livePrice;
+          }
+        } catch (e) {
+          console.error(`[Ledger] Failed to fetch initial live price for ${symbol}:`, e);
+        }
+      }
+
+      await runWithBindings(
+        `INSERT INTO investments (id, name, type, units, average_buy_price, current_price, currency, buy_exchange_rate, current_exchange_rate, created_at, updated_at, deviceId, synced)
+         VALUES (?, ?, 'Crypto', ?, ?, ?, 'USD', ?, ?, ?, ?, ?, 0)`,
+        [invId, symbol, hold.qty, avgPriceUSD, currentPriceVal, usdToPKR, currentExRateVal, now, now, deviceId]
+      );
+    }
+  }
+
+  console.log('[Ledger] Chronological replay and WAC cost sync completed successfully!');
+};
+
+export const syncMexcTradesToAssetTransactions = async (apiKey: string, apiSecret: string, symbols: string[]) => {
+  console.log('[MEXC Sync] Syncing trades to asset_transactions...');
+  let importedCount = 0;
+
+  for (const symbol of symbols) {
+    try {
+      const { getMEXCTrades } = await import('./queries');
+      const trades = await getMEXCTrades(apiKey, apiSecret, symbol);
+      if (Array.isArray(trades)) {
+        for (const t of trades) {
+          const txId = t.id ? `mexc_trade_${t.id}` : `mexc_trade_${t.time}_${t.qty}`;
+
+          // Check if already exists to avoid duplicates
+          const existing = await runWithBindings(`SELECT id FROM asset_transactions WHERE id = ?`, [txId]);
+          if (existing.length === 0) {
+            const isBuyer = t.isBuyer === true || t.side === 'BUY';
+            const txnType = isBuyer ? 'BUY' : 'SELL';
+            const qty = parseFloat(t.qty);
+            const unitPrice = parseFloat(t.price);
+            const quoteAsset = 'USDT';
+            const timestamp = new Date(t.time).toISOString();
+            const now = new Date().toISOString();
+            const deviceId = localStorage.getItem('deviceId') || 'unknown';
+
+            let feeAsset = t.commissionAsset || null;
+            let feeQty = t.commission ? parseFloat(t.commission) : 0;
+
+            await runWithBindings(
+              `INSERT INTO asset_transactions (id, asset_symbol, txn_type, qty, unit_price, quote_asset, fee_asset, fee_qty, source, timestamp, created_at, updated_at, deviceId, synced)
+               VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'MEXC', ?, ?, ?, ?, 0)`,
+              [txId, symbol.toUpperCase(), txnType, qty, unitPrice, quoteAsset, feeAsset, feeQty, timestamp, now, now, deviceId]
+            );
+            importedCount++;
+          }
+        }
+      }
+    } catch (e) {
+      console.error(`[MEXC Sync] Failed to sync trades for ${symbol}:`, e);
+    }
+  }
+
+  if (importedCount > 0) {
+    console.log(`[MEXC Sync] Successfully imported ${importedCount} trades.`);
+    await replayInventoryLedger();
+  }
+  return importedCount;
 };
 
 export const calculatePortfolioValue = async () => {
@@ -1030,6 +1534,227 @@ export const getInvestmentProfitLoss = async () => {
     profit_loss: current_total - cost_basis,
     profit_loss_pct: cost_basis > 0 ? ((current_total - cost_basis) / cost_basis) * 100 : 0
   };
+};
+
+// --- External Data Fetching ---
+
+export const fetchCryptoPrice = async (symbol: string): Promise<number | null> => {
+  const cleanSymbol = symbol.toUpperCase().trim();
+  if (cleanSymbol === 'USDT' || cleanSymbol === 'USD') {
+    return 1.0;
+  }
+  try {
+    // MEXC public API for ticker price
+    // Symbol format is BTCUSDT
+    const response = await fetch(`/mexc-api/api/v3/ticker/price?symbol=${cleanSymbol}USDT`);
+    const data = await response.json();
+    return data.price ? parseFloat(data.price) : null;
+  } catch (error) {
+    console.error('Failed to fetch crypto price:', error);
+    return null;
+  }
+};
+
+export const fetchGoldPrice = async (_currency: string = 'USD'): Promise<number | null> => {
+  try {
+    // Using a public endpoint if available, otherwise return null
+    // Gold is typically quoted per ounce. 
+    // This is a placeholder for a real implementation if FreeGoldAPI is used.
+    const response = await fetch('https://api.gold-api.com/price/XAU');
+    const data = await response.json();
+    // data.price is usually per ounce
+    return data.price || null;
+  } catch (error) {
+    console.error('Failed to fetch gold price:', error);
+    return null;
+  }
+};
+
+// --- MEXC Account Integration ---
+
+async function hmacSHA256(secret: string, message: string) {
+  const encoder = new TextEncoder();
+  const keyData = encoder.encode(secret);
+  const messageData = encoder.encode(message);
+
+  const key = await crypto.subtle.importKey(
+    'raw',
+    keyData,
+    { name: 'HMAC', hash: 'SHA-256' },
+    false,
+    ['sign']
+  );
+
+  const signature = await crypto.subtle.sign('HMAC', key, messageData);
+  return Array.from(new Uint8Array(signature))
+    .map(b => b.toString(16).padStart(2, '0'))
+    .join('');
+}
+
+export const getMEXCData = async (apiKey: string, apiSecret: string, _endpoint: string = 'account') => {
+  try {
+    const timestamp = Date.now();
+    const recvWindow = 5000;
+    const queryParams = new URLSearchParams({
+      timestamp: timestamp.toString(),
+      recvWindow: recvWindow.toString()
+    });
+
+    const queryString = queryParams.toString();
+    const signature = await hmacSHA256(apiSecret, queryString);
+
+    const url = `/mexc-api/api/v3/account?${queryString}&signature=${signature}`;
+
+    const response = await fetch(url, {
+      headers: {
+        'X-MEXC-APIKEY': apiKey,
+        'Content-Type': 'application/json'
+      }
+    });
+
+    return await response.json();
+  } catch (error) {
+    console.error('MEXC API Error:', error);
+    return { error: 'Failed to fetch MEXC data' };
+  }
+};
+
+export const getMEXCOrders = async (apiKey: string, apiSecret: string, symbol: string) => {
+  try {
+    const timestamp = Date.now();
+    const queryParams = new URLSearchParams({
+      symbol: symbol.toUpperCase() + 'USDT',
+      timestamp: timestamp.toString()
+    });
+
+    const queryString = queryParams.toString();
+    const signature = await hmacSHA256(apiSecret, queryString);
+
+    const url = `/mexc-api/api/v3/allOrders?${queryString}&signature=${signature}`;
+
+    const response = await fetch(url, {
+      headers: {
+        'X-MEXC-APIKEY': apiKey,
+        'Content-Type': 'application/json'
+      }
+    });
+
+    return await response.json();
+  } catch (error) {
+    console.error('MEXC API Error:', error);
+    return { error: 'Failed to fetch MEXC orders' };
+  }
+};
+
+export const getMEXCTrades = async (apiKey: string, apiSecret: string, symbol: string) => {
+  try {
+    const timestamp = Date.now();
+    const queryParams = new URLSearchParams({
+      symbol: symbol.toUpperCase() + 'USDT',
+      timestamp: timestamp.toString()
+    });
+
+    const queryString = queryParams.toString();
+    const signature = await hmacSHA256(apiSecret, queryString);
+
+    const url = `/mexc-api/api/v3/myTrades?${queryString}&signature=${signature}`;
+
+    const response = await fetch(url, {
+      headers: {
+        'X-MEXC-APIKEY': apiKey,
+        'Content-Type': 'application/json'
+      }
+    });
+
+    return await response.json();
+  } catch (error) {
+    console.error('MEXC API Error:', error);
+    return { error: 'Failed to fetch MEXC trades' };
+  }
+};
+
+export const getMEXCDeposits = async (apiKey: string, apiSecret: string, startTime?: number, endTime?: number) => {
+  try {
+    const timestamp = Date.now();
+    const queryParams = new URLSearchParams({
+      timestamp: timestamp.toString()
+    });
+
+    if (startTime) queryParams.append('startTime', startTime.toString());
+    if (endTime) queryParams.append('endTime', endTime.toString());
+
+    // If no startTime, MEXC defaults to 7-30 days. 
+    // We can explicitly set a 89-day window if needed to avoid the 90-day error.
+
+    const queryString = queryParams.toString();
+    const signature = await hmacSHA256(apiSecret, queryString);
+    const url = `/mexc-api/api/v3/capital/deposit/hisrec?${queryString}&signature=${signature}`;
+
+    const response = await fetch(url, {
+      headers: { 'X-MEXC-APIKEY': apiKey }
+    });
+    console.log(`MEXC Deposit API Status: ${response.status}`);
+    const text = await response.text();
+    console.log('MEXC Deposits Raw:', text);
+    return text ? JSON.parse(text) : [];
+  } catch (error) {
+    console.error('MEXC Deposit Error:', error);
+    return [];
+  }
+};
+
+export const getMEXCWithdrawals = async (apiKey: string, apiSecret: string, startTime?: number, endTime?: number) => {
+  try {
+    const timestamp = Date.now();
+    const queryParams = new URLSearchParams({
+      timestamp: timestamp.toString()
+    });
+
+    if (startTime) queryParams.append('startTime', startTime.toString());
+    if (endTime) queryParams.append('endTime', endTime.toString());
+
+    const queryString = queryParams.toString();
+    const signature = await hmacSHA256(apiSecret, queryString);
+    const url = `/mexc-api/api/v3/capital/withdraw/history?${queryString}&signature=${signature}`;
+
+    const response = await fetch(url, {
+      headers: { 'X-MEXC-APIKEY': apiKey }
+    });
+    console.log(`MEXC Withdrawal API Status: ${response.status}`);
+    const text = await response.text();
+    console.log('MEXC Withdrawals Raw:', text);
+    return text ? JSON.parse(text) : [];
+  } catch (error) {
+    console.error('MEXC Withdraw Error:', error);
+    return [];
+  }
+};
+
+export const getMEXCTransfers = async (apiKey: string, apiSecret: string, startTime?: number, endTime?: number) => {
+  try {
+    const timestamp = Date.now();
+    const queryParams = new URLSearchParams({
+      timestamp: timestamp.toString()
+    });
+
+    if (startTime) queryParams.append('startTime', startTime.toString());
+    if (endTime) queryParams.append('endTime', endTime.toString());
+
+    const queryString = queryParams.toString();
+    const signature = await hmacSHA256(apiSecret, queryString);
+    const url = `/mexc-api/api/v3/asset/transfer?${queryString}&signature=${signature}`;
+
+    const response = await fetch(url, {
+      headers: { 'X-MEXC-APIKEY': apiKey }
+    });
+    console.log(`MEXC Transfer API Status: ${response.status} ${response.statusText}`);
+    const text = await response.text();
+    console.log('MEXC Internal Transfers Raw:', text);
+    return text ? JSON.parse(text) : [];
+  } catch (error) {
+    console.error('MEXC Transfer Error:', error);
+    return [];
+  }
 };
 // --- Reminders ---
 
@@ -1809,20 +2534,4 @@ export const linkItemsToEvent = async (eventId: string, transactionIds: string[]
   }
 };
 
-export const getConfig = async (key: string): Promise<string | null> => {
-  const results = await executeQuery(`SELECT value FROM config WHERE key = ?`, [key]);
-  return results[0]?.value || null;
-};
 
-export const setConfig = async (key: string, value: string) => {
-  const now = new Date().toISOString();
-  const deviceId = localStorage.getItem('deviceId') || 'unknown';
-  const configData = { key, value, updated_at: now, deviceId };
-
-  await syncManager.performOperation('config_update', configData, () =>
-    runWithBindings(
-      `INSERT OR REPLACE INTO config (key, value, updated_at, synced, deviceId) VALUES (?, ?, ?, 0, ?)`,
-      [key, value, now, deviceId]
-    )
-  );
-};

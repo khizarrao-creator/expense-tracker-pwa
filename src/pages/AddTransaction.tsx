@@ -5,8 +5,8 @@ import { useNavigate, useParams } from 'react-router-dom';
 import { Landmark } from 'lucide-react';
 import { useCurrency } from '../contexts/CurrencyContext';
 import { toast } from 'sonner';
-import { syncManager } from '../db/SyncManager';
 import { v4 as uuidv4 } from 'uuid';
+import { RefreshCw, ArrowRightLeft } from 'lucide-react';
 
 const AddTransaction: React.FC = () => {
   const navigate = useNavigate();
@@ -35,6 +35,18 @@ const AddTransaction: React.FC = () => {
   const [fuelType, setFuelType] = useState('Petrol');
   const [pricePerLiter, setPricePerLiter] = useState('');
   const [existingFuelLogId, setExistingFuelLogId] = useState<string | null>(null);
+
+  // Multi-Currency Transfer
+  const [rates, setRates] = useState<Record<string, number>>({});
+  const [exchangeRate, setExchangeRate] = useState<string>('1');
+  const [toAmount, setToAmount] = useState<string>('');
+  const [useCustomRate, setUseCustomRate] = useState(false);
+  const [fetchingRates, setFetchingRates] = useState(false);
+
+  // MEXC Integration
+  const [mexcBalances, setMexcBalances] = useState<Record<string, string>>({});
+
+
 
 
   useEffect(() => {
@@ -79,12 +91,121 @@ const AddTransaction: React.FC = () => {
               setExistingFuelLogId(fuelLog.id);
             }
           }
+
+          if (trx.type === 'transfer') {
+            setExchangeRate(trx.exchange_rate?.toString() || '1');
+            setToAmount(trx.to_amount?.toString() || trx.amount.toString());
+            // If the rate stored is not 1, assume custom or at least show it
+            if (trx.exchange_rate && trx.exchange_rate !== 1) {
+              setUseCustomRate(true);
+            }
+          }
         }
         setLoading(false);
       }
     };
     loadInitialData();
+    fetchRates(); // Prefetch rates
+    loadMexcKeys();
   }, [id, type]);
+
+  const loadMexcKeys = async () => {
+    const { getConfig } = await import('../db/queries');
+    const [key, secret] = await Promise.all([
+      getConfig('mexc_api_key'),
+      getConfig('mexc_api_secret')
+    ]);
+    if (key && secret) {
+      fetchMexcBalances(key, secret);
+    }
+  };
+
+  const fetchMexcBalances = async (key: string, secret: string) => {
+    try {
+      const { getMEXCData } = await import('../db/queries');
+      const data = await getMEXCData(key, secret);
+      if (data && data.balances) {
+        const balances: Record<string, string> = {};
+        data.balances.forEach((b: any) => {
+          if (parseFloat(b.free) > 0 || parseFloat(b.locked) > 0) {
+            balances[b.asset] = (parseFloat(b.free) + parseFloat(b.locked)).toString();
+          }
+        });
+        setMexcBalances(balances);
+      }
+    } catch (e) {
+      console.error('Failed to fetch MEXC balances', e);
+    }
+  };
+
+
+
+  const fetchRates = async () => {
+    setFetchingRates(true);
+    try {
+      const res = await fetch('https://api.exchangerate-api.com/v4/latest/USD');
+      if (!res.ok) throw new Error('Failed to fetch rates');
+      const data = await res.json();
+      
+      // If we have MEXC keys and it's a crypto transfer, we can augment with MEXC prices
+      const ratesData = { ...data.rates };
+      setRates(ratesData);
+    } catch (error) {
+      console.error('Error fetching rates:', error);
+      setRates({ USD: 1, PKR: 280, EUR: 0.92, GBP: 0.79, AED: 3.67, SAR: 3.75 });
+    } finally {
+      setFetchingRates(false);
+    }
+  };
+
+  const fromAccount = accounts.find(a => a.id === accountId);
+  const toAccount = accounts.find(a => a.id === toAccountId);
+  const isCrossCurrency = type === 'transfer' && fromAccount && toAccount && fromAccount.currency !== toAccount.currency;
+
+  useEffect(() => {
+    const updateExchangeRate = async () => {
+      if (isCrossCurrency && !useCustomRate) {
+        // Priority 1: If it's crypto-to-crypto or crypto-to-USD, try MEXC
+        const isFromCrypto = ['BTC', 'ETH', 'USDT', 'BNB', 'SOL'].includes(fromAccount.currency);
+        const isToCrypto = ['BTC', 'ETH', 'USDT', 'BNB', 'SOL'].includes(toAccount.currency);
+
+        if (isFromCrypto || isToCrypto) {
+          const { fetchCryptoPrice } = await import('../db/queries');
+          if (fromAccount.currency === 'USDT' || fromAccount.currency === 'USD') {
+            const price = await fetchCryptoPrice(toAccount.currency);
+            if (price) {
+              // 1 USDT = (1/price) Crypto (e.g. 1 USDT = 1/60000 BTC)
+              setExchangeRate((1 / price).toFixed(10));
+              return;
+            }
+          } else if (toAccount.currency === 'USDT' || toAccount.currency === 'USD') {
+            const price = await fetchCryptoPrice(fromAccount.currency);
+            if (price) {
+              // 1 Crypto = price USDT (e.g. 1 BTC = 60000 USDT)
+              setExchangeRate(price.toString());
+              return;
+            }
+          }
+        }
+
+        // Fallback to fiat rates
+        if (Object.keys(rates).length > 0) {
+          const rateFrom = rates[fromAccount.currency] || 1;
+          const rateTo = rates[toAccount.currency] || 1;
+          const actualRate = rateTo / rateFrom;
+          setExchangeRate(actualRate.toFixed(6));
+        }
+      }
+    };
+    updateExchangeRate();
+  }, [isCrossCurrency, useCustomRate, accountId, toAccountId, rates]);
+
+  useEffect(() => {
+    if (type === 'transfer' && amount && exchangeRate && !isNaN(Number(amount)) && !isNaN(Number(exchangeRate))) {
+      // Use 8 decimals for crypto/target amounts to support precision
+      setToAmount((Number(amount) * Number(exchangeRate)).toFixed(8).replace(/\.?0+$/, ''));
+    }
+  }, [amount, exchangeRate, type]);
 
   useEffect(() => {
     const loadSubcategories = async () => {
@@ -139,7 +260,9 @@ const AddTransaction: React.FC = () => {
         created_at: now,
         updated_at: now,
         deviceId,
-        subcategory: type === 'transfer' ? null : subcategory || null
+        subcategory: type === 'transfer' ? null : subcategory || null,
+        to_amount: type === 'transfer' ? Number(toAmount || amount) : null,
+        exchange_rate: type === 'transfer' ? Number(exchangeRate || 1) : 1
       };
 
       if (id) {
@@ -170,7 +293,10 @@ const AddTransaction: React.FC = () => {
           trxData.account_id,
           trxData.to_account_id,
           trxData.subcategory,
-          trxData.id
+          trxData.id,
+          undefined,
+          trxData.to_amount,
+          trxData.exchange_rate
         );
 
         if (isFuel && type === 'expense') {
@@ -237,8 +363,84 @@ const AddTransaction: React.FC = () => {
                 className="w-full pl-8 pr-4 py-3 bg-background border border-border rounded-xl focus:outline-none focus:ring-2 focus:ring-primary text-xl font-medium"
                 required
               />
+              {type === 'transfer' && fromAccount && (
+                <div className="absolute right-4 top-1/2 -translate-y-1/2 text-xs font-bold text-muted-foreground uppercase tracking-wider">
+                  {fromAccount.currency}
+                </div>
+              )}
             </div>
           </div>
+
+          {isCrossCurrency && (
+            <div className="space-y-4 animate-in fade-in slide-in-from-top-2 duration-300">
+              <div className="p-4 bg-primary/5 border border-primary/20 rounded-2xl space-y-3">
+                <div className="flex items-center justify-between">
+                  <label className="text-xs font-bold text-primary uppercase tracking-widest">Target Amount ({toAccount.currency})</label>
+                  <div className="bg-primary/10 text-primary px-2 py-0.5 rounded text-[10px] font-bold">CONVERSION</div>
+                </div>
+                
+                <div className="flex items-center gap-3">
+                  <input
+                    type="number"
+                    step="0.00000001"
+                    value={toAmount}
+                    onChange={(e) => {
+                      setToAmount(e.target.value);
+                      if (amount && Number(amount) > 0) {
+                        setExchangeRate((Number(e.target.value) / Number(amount)).toFixed(10));
+                        setUseCustomRate(true);
+                      }
+                    }}
+                    className="flex-1 bg-background border border-border/50 rounded-xl px-4 py-2 text-lg font-bold focus:outline-none focus:ring-2 focus:ring-primary"
+                  />
+                  <div className="text-muted-foreground">
+                    <ArrowRightLeft size={16} />
+                  </div>
+                </div>
+
+                <div className="pt-2 border-t border-primary/10">
+                  <div className="flex items-center justify-between mb-2">
+                    <div className="flex flex-col">
+                      <span className="text-xs font-medium text-muted-foreground">Exchange Rate</span>
+                      {Number(exchangeRate) > 0 && (
+                        <span className="text-[10px] text-primary/60 font-medium">
+                          1 {toAccount.currency} = {(1 / Number(exchangeRate)).toFixed(4)} {fromAccount.currency}
+                        </span>
+                      )}
+                    </div>
+                    <button 
+                      type="button"
+                      onClick={() => setUseCustomRate(!useCustomRate)}
+                      className={`text-[10px] font-bold px-2 py-1 rounded transition-colors ${useCustomRate ? 'bg-primary text-primary-foreground' : 'bg-muted text-muted-foreground'}`}
+                    >
+                      {useCustomRate ? 'CUSTOM' : 'AUTO'}
+                    </button>
+                  </div>
+                  
+                  <div className="flex items-center gap-2">
+                    <span className="text-xs text-muted-foreground">1 {fromAccount.currency} = </span>
+                    <input
+                      type="number"
+                      step="0.0000000001"
+                      value={exchangeRate}
+                      readOnly={!useCustomRate}
+                      onChange={(e) => setExchangeRate(e.target.value)}
+                      className={`flex-1 bg-transparent text-sm font-bold focus:outline-none border-b ${useCustomRate ? 'border-primary' : 'border-transparent'}`}
+                    />
+                    <span className="text-xs text-muted-foreground">{toAccount.currency}</span>
+                    <button 
+                      type="button" 
+                      onClick={fetchRates} 
+                      disabled={fetchingRates}
+                      className="p-1 hover:bg-primary/10 rounded-full transition-colors text-primary"
+                    >
+                      <RefreshCw size={14} className={fetchingRates ? 'animate-spin' : ''} />
+                    </button>
+                  </div>
+                </div>
+              </div>
+            </div>
+          )}
 
           <div className="grid grid-cols-2 gap-4">
             {type !== 'transfer' ? (
@@ -338,6 +540,14 @@ const AddTransaction: React.FC = () => {
                   <Landmark size={18} />
                 </div>
               </div>
+              {fromAccount?.name.toLowerCase().includes('mexc') && mexcBalances[fromAccount.currency] && (
+                <div className="mt-1 px-2 flex justify-between items-center animate-in fade-in duration-500">
+                  <span className="text-[10px] font-bold text-primary uppercase tracking-wider">Live MEXC Balance:</span>
+                  <span className="text-[10px] font-mono font-bold text-foreground">
+                    {parseFloat(mexcBalances[fromAccount.currency]).toLocaleString(undefined, { maximumFractionDigits: 8 })} {fromAccount.currency}
+                  </span>
+                </div>
+              )}
             </div>
 
             {type === 'transfer' && (
@@ -358,6 +568,14 @@ const AddTransaction: React.FC = () => {
                     <Landmark size={18} />
                   </div>
                 </div>
+                {toAccount?.name.toLowerCase().includes('mexc') && mexcBalances[toAccount.currency] && (
+                  <div className="mt-1 px-2 flex justify-between items-center animate-in fade-in duration-500">
+                    <span className="text-[10px] font-bold text-primary uppercase tracking-wider">Live MEXC Balance:</span>
+                    <span className="text-[10px] font-mono font-bold text-foreground">
+                      {parseFloat(mexcBalances[toAccount.currency]).toLocaleString(undefined, { maximumFractionDigits: 8 })} {toAccount.currency}
+                    </span>
+                  </div>
+                )}
               </div>
             )}
           </div>

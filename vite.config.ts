@@ -46,5 +46,14 @@ export default defineConfig({
         ]
       }
     })
-  ]
+  ],
+  server: {
+    proxy: {
+      '/mexc-api': {
+        target: 'https://api.mexc.com',
+        changeOrigin: true,
+        rewrite: (path) => path.replace(/^\/mexc-api/, '')
+      }
+    }
+  }
 })

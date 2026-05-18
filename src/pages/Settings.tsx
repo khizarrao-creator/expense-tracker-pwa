@@ -1,13 +1,13 @@
 import React, { useState, useRef } from 'react';
 import * as XLSX from 'xlsx';
-import localforage from 'localforage';
 import { getTransactions, exportAllData, importAllData, clearAllData, vacuumDB, normalizeCategories, getDBSizeMB } from '../db/queries';
-import { Download, Moon, Sun, Monitor, CloudSync, FileJson, Upload, AlertTriangle, LayoutList, ChevronRight, User as UserIcon, Mail, Shield, LogOut, CheckCircle2 } from 'lucide-react';
+import { Download, Moon, Sun, Monitor, CloudSync, FileJson, Upload, AlertTriangle, LayoutList, ChevronRight, User as UserIcon, Mail, Shield, LogOut, CheckCircle2, X, Eye, EyeOff, Key } from 'lucide-react';
 import { useNavigate } from 'react-router-dom';
 import { useCurrency } from '../contexts/CurrencyContext';
 import { useTheme } from '../contexts/ThemeContext';
 import { useSync } from '../contexts/SyncContext';
 import { useAuth } from '../contexts/AuthContext';
+import { useApp } from '../contexts/AppContext';
 import { toast } from 'sonner';
 import { syncManager } from '../db/SyncManager';
 import ConfirmModal from '../components/ConfirmModal';
@@ -19,6 +19,7 @@ const Settings: React.FC = () => {
   const { theme, setTheme } = useTheme();
   const { forceSync, isSyncing, lastSynced } = useSync();
   const { user, isPro, signOut } = useAuth();
+  const { config: appConfig } = useApp();
 
   const [showClearConfirm, setShowClearConfirm] = useState(false);
   const [showMasterWipeConfirm, setShowMasterWipeConfirm] = useState(false);
@@ -32,6 +33,17 @@ const Settings: React.FC = () => {
   const [isSavingUsername, setIsSavingUsername] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const [showAdminTransition, setShowAdminTransition] = useState(false);
+
+  // Exchange Settings States
+  const [isExchangeSettingsOpen, setIsExchangeSettingsOpen] = useState(false);
+  const [selectedExchangeId, setSelectedExchangeId] = useState('mexc');
+  const [apiKeyInput, setApiKeyInput] = useState('');
+  const [apiSecretInput, setApiSecretInput] = useState('');
+  const [showApiKeys, setShowApiKeys] = useState(false);
+  const [isTesting, setIsTesting] = useState(false);
+  const [testStatus, setTestStatus] = useState<{ success: boolean; message: string } | null>(null);
+  const [connectionStatus, setConnectionStatus] = useState<'idle' | 'connected' | 'not_configured'>('idle');
+  const [isSavingKeys, setIsSavingKeys] = useState(false);
 
   const handleThemeChange = (newTheme: 'light' | 'dark' | 'system') => {
     setTheme(newTheme);
@@ -49,6 +61,121 @@ const Settings: React.FC = () => {
     };
     loadData();
   }, []);
+
+  // Fetch Exchange API Keys when selection or modal state changes
+  React.useEffect(() => {
+    const loadExchangeKeys = async () => {
+      const { getConfig } = await import('../db/queries');
+      const keyName = `${selectedExchangeId}_api_key`;
+      const secretName = `${selectedExchangeId}_api_secret`;
+      
+      const [key, secret] = await Promise.all([
+        getConfig(keyName),
+        getConfig(secretName)
+      ]);
+      
+      if (key && secret) {
+        setApiKeyInput(key);
+        setApiSecretInput(secret);
+        setConnectionStatus('connected');
+      } else {
+        setApiKeyInput('');
+        setApiSecretInput('');
+        setConnectionStatus('not_configured');
+      }
+      setTestStatus(null);
+    };
+    if (isExchangeSettingsOpen) {
+      loadExchangeKeys();
+    }
+  }, [selectedExchangeId, isExchangeSettingsOpen]);
+
+  const handleSaveKeys = async () => {
+    if (!apiKeyInput.trim() || !apiSecretInput.trim()) {
+      toast.error('Both API Key and API Secret are required');
+      return;
+    }
+    setIsSavingKeys(true);
+    try {
+      const { setConfig } = await import('../db/queries');
+      const keyName = `${selectedExchangeId}_api_key`;
+      const secretName = `${selectedExchangeId}_api_secret`;
+      
+      await Promise.all([
+        setConfig(keyName, apiKeyInput.trim()),
+        setConfig(secretName, apiSecretInput.trim())
+      ]);
+      
+      toast.success('Exchange credentials saved successfully');
+      setConnectionStatus('connected');
+    } catch (e) {
+      toast.error('Failed to save exchange credentials');
+    } finally {
+      setIsSavingKeys(false);
+    }
+  };
+
+  const handleClearKeys = async () => {
+    if (!confirm('Are you sure you want to remove this exchange configuration?')) return;
+    setIsSavingKeys(true);
+    try {
+      const { setConfig } = await import('../db/queries');
+      const keyName = `${selectedExchangeId}_api_key`;
+      const secretName = `${selectedExchangeId}_api_secret`;
+      
+      await Promise.all([
+        setConfig(keyName, ''),
+        setConfig(secretName, '')
+      ]);
+      
+      setApiKeyInput('');
+      setApiSecretInput('');
+      setConnectionStatus('not_configured');
+      setTestStatus(null);
+      toast.success('Exchange credentials removed');
+    } catch (e) {
+      toast.error('Failed to clear credentials');
+    } finally {
+      setIsSavingKeys(false);
+    }
+  };
+
+  const handleTestConnection = async () => {
+    if (!apiKeyInput.trim() || !apiSecretInput.trim()) {
+      toast.error('Please enter API Key and Secret first');
+      return;
+    }
+    setIsTesting(true);
+    setTestStatus(null);
+    try {
+      if (selectedExchangeId === 'mexc') {
+        const { getMEXCData } = await import('../db/queries');
+        const res = await getMEXCData(apiKeyInput.trim(), apiSecretInput.trim());
+        if (res && res.error) {
+          setTestStatus({ success: false, message: `Error: ${res.error}` });
+          toast.error(`Connection failed: ${res.error}`);
+        } else if (res && res.balances) {
+          const activeBalances = res.balances.filter((b: any) => parseFloat(b.free) > 0 || parseFloat(b.locked) > 0);
+          setTestStatus({ 
+            success: true, 
+            message: `Connected successfully! Verified ${activeBalances.length} active asset wallets.` 
+          });
+          toast.success('Connection test passed!');
+        } else {
+          setTestStatus({ success: false, message: 'Invalid response from exchange API' });
+          toast.error('Invalid response format');
+        }
+      } else {
+        setTestStatus({ success: true, message: `Connectivity simulation successful for ${selectedExchangeId}` });
+        toast.success(`Simulation passed for ${selectedExchangeId}`);
+      }
+    } catch (e: any) {
+      setTestStatus({ success: false, message: e.message || 'Network error connecting to exchange' });
+      toast.error('Connection test failed');
+    } finally {
+      setIsTesting(false);
+    }
+  };
 
   const handleSaveUsername = async () => {
     if (!username.trim()) {
@@ -457,6 +584,26 @@ const Settings: React.FC = () => {
         </button>
       </div>
 
+      {/* Exchange Integration Card */}
+      <div className="bg-card p-6 rounded-2xl shadow-sm border border-border">
+        <h2 className="text-lg font-semibold mb-4 border-b border-border pb-4">Integrations</h2>
+        <button
+          onClick={() => setIsExchangeSettingsOpen(true)}
+          className="w-full flex items-center justify-between p-4 rounded-xl border border-border hover:bg-muted transition-colors text-left group"
+        >
+          <div className="flex items-center gap-3">
+            <div className="bg-primary/10 text-primary p-2 rounded-lg group-hover:bg-primary/20 transition-colors">
+              <CloudSync size={20} />
+            </div>
+            <div>
+              <h3 className="font-medium text-foreground">Exchange Connections</h3>
+              <p className="text-sm text-muted-foreground">Manage and test secure API integrations for live wallets</p>
+            </div>
+          </div>
+          <ChevronRight size={20} className="text-muted-foreground group-hover:translate-x-1 transition-transform" />
+        </button>
+      </div>
+
       <div className="bg-card p-6 rounded-2xl shadow-sm border border-border">
         <h2 className="text-lg font-semibold mb-4 border-b border-border pb-4">Appearance</h2>
         <div className="grid grid-cols-3 gap-3">
@@ -612,6 +759,138 @@ const Settings: React.FC = () => {
           </div>
         </div>
       </div>
+      {/* Exchange Connections Modal */}
+      {isExchangeSettingsOpen && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/80 backdrop-blur-sm animate-in fade-in duration-300">
+          <div className="bg-card w-full max-w-md rounded-3xl p-6 border border-border shadow-2xl space-y-6 animate-in zoom-in duration-300 relative max-h-[90vh] overflow-y-auto">
+            <div className="flex justify-between items-center pb-4 border-b border-border">
+              <div>
+                <h2 className="text-xl font-bold">Exchange Connections</h2>
+                <p className="text-xs text-muted-foreground">Integrate live crypto exchange balances & data</p>
+              </div>
+              <button 
+                onClick={() => setIsExchangeSettingsOpen(false)}
+                className="p-2 text-muted-foreground hover:bg-muted rounded-full transition-colors"
+              >
+                <X size={20} />
+              </button>
+            </div>
+
+            {/* Selection of available exchanges */}
+            <div className="space-y-2">
+              <label className="text-xs font-bold uppercase tracking-wider text-muted-foreground">Select Exchange</label>
+              <div className="grid grid-cols-2 gap-2">
+                {(appConfig.exchanges || [
+                  { id: 'mexc', name: 'MEXC Global', enabled: true }
+                ]).filter(ex => ex.enabled).map((ex) => (
+                  <button
+                    key={ex.id}
+                    onClick={() => setSelectedExchangeId(ex.id)}
+                    className={`flex flex-col items-center justify-center p-4 rounded-2xl border-2 transition-all ${
+                      selectedExchangeId === ex.id 
+                        ? 'border-primary bg-primary/5 text-primary' 
+                        : 'border-border text-muted-foreground hover:bg-muted'
+                    }`}
+                  >
+                    <span className="text-sm font-bold">{ex.name}</span>
+                    <span className="text-[10px] text-muted-foreground font-mono mt-0.5">{ex.id}</span>
+                  </button>
+                ))}
+              </div>
+            </div>
+
+            {/* Credentials */}
+            <div className="space-y-4">
+              <div className="flex justify-between items-center">
+                <label className="text-xs font-bold uppercase tracking-wider text-muted-foreground">Credentials</label>
+                <span className={`px-2 py-0.5 rounded text-[10px] font-black uppercase tracking-wider ${
+                  connectionStatus === 'connected' ? 'bg-emerald-500/10 text-emerald-500' : 'bg-muted text-muted-foreground'
+                }`}>
+                  {connectionStatus === 'connected' ? 'Connected' : 'Not Configured'}
+                </span>
+              </div>
+
+              <div className="space-y-3">
+                <div className="relative">
+                  <div className="absolute left-3 top-1/2 -translate-y-1/2 text-muted-foreground">
+                    <Key size={16} />
+                  </div>
+                  <input
+                    type={showApiKeys ? 'text' : 'password'}
+                    placeholder="Exchange API Key"
+                    value={apiKeyInput}
+                    onChange={(e) => setApiKeyInput(e.target.value)}
+                    className="w-full pl-10 pr-10 py-3 bg-muted/30 border border-border rounded-xl focus:outline-none focus:ring-2 focus:ring-primary text-sm font-medium"
+                  />
+                  <button
+                    type="button"
+                    onClick={() => setShowApiKeys(!showApiKeys)}
+                    className="absolute right-3 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground transition-colors"
+                  >
+                    {showApiKeys ? <EyeOff size={16} /> : <Eye size={16} />}
+                  </button>
+                </div>
+
+                <div className="relative">
+                  <div className="absolute left-3 top-1/2 -translate-y-1/2 text-muted-foreground">
+                    <Key size={16} />
+                  </div>
+                  <input
+                    type={showApiKeys ? 'text' : 'password'}
+                    placeholder="Exchange API Secret"
+                    value={apiSecretInput}
+                    onChange={(e) => setApiSecretInput(e.target.value)}
+                    className="w-full pl-10 pr-10 py-3 bg-muted/30 border border-border rounded-xl focus:outline-none focus:ring-2 focus:ring-primary text-sm font-medium"
+                  />
+                </div>
+              </div>
+            </div>
+
+            {/* Test Status Panel */}
+            {testStatus && (
+              <div className={`p-4 rounded-2xl border text-xs leading-normal animate-in slide-in-from-top-2 ${
+                testStatus.success 
+                  ? 'bg-emerald-500/10 border-emerald-500/20 text-emerald-600 dark:text-emerald-400' 
+                  : 'bg-destructive/10 border-destructive/20 text-destructive'
+              }`}>
+                <p className="font-bold mb-1">{testStatus.success ? '✓ Connection Verified' : '✗ Connection Failed'}</p>
+                <p className="opacity-90">{testStatus.message}</p>
+              </div>
+            )}
+
+            {/* Buttons */}
+            <div className="space-y-2 pt-2">
+              <div className="flex gap-2">
+                <button
+                  onClick={handleTestConnection}
+                  disabled={isTesting || !apiKeyInput || !apiSecretInput}
+                  className="flex-1 py-3 bg-muted hover:bg-muted/80 text-foreground font-bold rounded-xl text-xs uppercase tracking-wider transition-all disabled:opacity-50"
+                >
+                  {isTesting ? 'Testing...' : 'Test Connection'}
+                </button>
+                
+                <button
+                  onClick={handleSaveKeys}
+                  disabled={isSavingKeys || !apiKeyInput || !apiSecretInput}
+                  className="flex-1 py-3 bg-primary hover:opacity-90 text-primary-foreground font-bold rounded-xl text-xs uppercase tracking-wider transition-all disabled:opacity-50"
+                >
+                  {isSavingKeys ? 'Saving...' : 'Save Config'}
+                </button>
+              </div>
+
+              {connectionStatus === 'connected' && (
+                <button
+                  onClick={handleClearKeys}
+                  disabled={isSavingKeys}
+                  className="w-full py-3 bg-destructive/10 hover:bg-destructive/20 text-destructive font-bold rounded-xl text-xs uppercase tracking-wider transition-all"
+                >
+                  Remove Connection Configuration
+                </button>
+              )}
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 };

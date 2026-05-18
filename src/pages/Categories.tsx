@@ -4,7 +4,6 @@ import type { Category } from '../db/queries';
 import { LayoutList, Plus, Trash2, GripVertical, ChevronRight } from 'lucide-react';
 import { toast } from 'sonner';
 import ConfirmModal from '../components/ConfirmModal';
-import { v4 as uuidv4 } from 'uuid';
 import {
   DndContext,
   DragOverlay,

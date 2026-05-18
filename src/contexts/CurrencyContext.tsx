@@ -19,7 +19,7 @@ const DEFAULT_CURRENCIES: Currency[] = [
 interface CurrencyContextType {
   currency: Currency;
   setCurrency: (code: string) => void;
-  formatAmount: (amount: number) => string;
+  formatAmount: (amount: number, customSymbol?: string, maxDecimals?: number) => string;
   currencies: Currency[];
 }
 
@@ -72,10 +72,11 @@ export const CurrencyProvider: React.FC<{ children: React.ReactNode }> = ({ chil
     }
   };
 
-  const formatAmount = (amount: number) => {
-    return `${currency.symbol}${amount.toLocaleString(undefined, {
-      minimumFractionDigits: 2,
-      maximumFractionDigits: 2,
+  const formatAmount = (amount: number, customSymbol?: string, maxDecimals: number = 2) => {
+    const symbol = customSymbol || currency.symbol;
+    return `${symbol}${amount.toLocaleString(undefined, {
+      minimumFractionDigits: Math.min(2, maxDecimals),
+      maximumFractionDigits: maxDecimals,
     })}`;
   };
 

@@ -14,6 +14,7 @@ interface GlobalConfig {
   loansEnabled: boolean;
   supportedCurrencies: { code: string; symbol: string; name: string; }[];
   version: string;
+  exchanges?: { id: string; name: string; logoUrl?: string; enabled: boolean; }[];
 }
 
 interface AppContextType {
@@ -79,6 +80,11 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     const unsubscribe = onSnapshot(doc(db, 'system', 'global_config'), (doc) => {
       if (doc.exists()) {
         const newConfig = doc.data() as GlobalConfig;
+        if (!newConfig.exchanges) {
+          newConfig.exchanges = [
+            { id: 'mexc', name: 'MEXC Global', logoUrl: '', enabled: true }
+          ];
+        }
         setConfig(newConfig);
         setShowAnnouncement(true);
       }

@@ -24,7 +24,6 @@ const AdminTransitionOverlay: React.FC<AdminTransitionOverlayProps> = ({ isActiv
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const animFrameRef = useRef<number>(0);
   const particlesRef = useRef<Particle[]>([]);
-  const startTimeRef = useRef<number>(0);
 
   const [phase, setPhase] = useState<'idle' | 'enter' | 'auth' | 'unlock' | 'exit'>('idle');
   const [authProgress, setAuthProgress] = useState(0);

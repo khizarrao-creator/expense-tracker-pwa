@@ -13,8 +13,8 @@ const Transactions: React.FC = () => {
   const [searchParams, setSearchParams] = useSearchParams();
   const initialAccountFilter = searchParams.get('account') || 'all';
 
-  const { formatAmount } = useCurrency();
-  const [transactions, setTransactions] = useState<(Transaction & { account_name?: string, to_account_name?: string })[]>([]);
+  const { formatAmount, currencies } = useCurrency();
+  const [transactions, setTransactions] = useState<(Transaction & { account_name?: string, to_account_name?: string, account_currency?: string, to_account_currency?: string })[]>([]);
   const [accounts, setAccounts] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
   const [searchTerm, setSearchTerm] = useState('');
@@ -277,12 +277,20 @@ const Transactions: React.FC = () => {
               </div>
 
               <div className="flex items-center justify-between sm:justify-end w-full sm:w-auto pt-3 sm:pt-0 border-t sm:border-0 border-border mt-2 sm:mt-0">
-                <span className={`font-bold text-lg md:mr-2 ${trx.type === 'income' ? 'text-emerald-500' :
-                  trx.type === 'transfer' ? 'text-blue-500' :
-                    'text-foreground'
-                  }`}>
-                  {trx.type === 'income' ? '+' : trx.type === 'transfer' ? '⇄' : '-'}{formatAmount(trx.amount)}
-                </span>
+                <div className="flex flex-col items-end">
+                  <span className={`font-bold text-lg md:mr-2 ${trx.type === 'income' ? 'text-emerald-500' :
+                    trx.type === 'transfer' ? 'text-blue-500' :
+                      'text-foreground'
+                    }`}>
+                    {trx.type === 'income' ? '+' : trx.type === 'transfer' ? '⇄' : '-'}
+                    {formatAmount(trx.amount, currencies.find(c => c.code === trx.account_currency)?.symbol)}
+                  </span>
+                  {trx.type === 'transfer' && trx.to_amount && trx.to_amount !== trx.amount && (
+                    <span className="text-[10px] font-medium text-muted-foreground mr-2">
+                      = {formatAmount(trx.to_amount, currencies.find(c => c.code === (trx as any).to_account_currency)?.symbol, 8)}
+                    </span>
+                  )}
+                </div>
                 <div className="flex sm:opacity-0 group-hover:opacity-100 transition-opacity gap-1">
                   <button
                     onClick={() => navigate(`/edit/${trx.id}`)}

@@ -29,6 +29,8 @@ const scheduleSave = () => {
   }, 1500);
 };
 
+let lastErrorToastTime = 0;
+
 /** Force an immediate flush — used by initDB and vacuumDB only. */
 const flushSave = async () => {
   if (!db) return;
@@ -54,10 +56,14 @@ const flushSave = async () => {
         { id: 'storage-quota-error', duration: 12000 }
       );
     } else {
-      toast.error(
-        `Save Failed: ${e.message || 'Unknown error'}. Try optimizing from Settings.`,
-        { id: 'storage-save-error' }
-      );
+      const nowTime = Date.now();
+      if (nowTime - lastErrorToastTime > 30000) {
+        lastErrorToastTime = nowTime;
+        toast.error(
+          `Save Failed: ${e.message || 'Unknown error'}. Try optimizing from Settings.`,
+          { id: 'storage-save-error' }
+        );
+      }
     }
   }
 };
@@ -130,6 +136,7 @@ const initializeSchema = async () => {
       name TEXT NOT NULL,
       type TEXT,
       initial_balance REAL DEFAULT 0,
+      currency TEXT DEFAULT 'USD',
       color TEXT,
       created_at TEXT NOT NULL,
       updated_at TEXT NOT NULL,
@@ -166,6 +173,8 @@ const initializeSchema = async () => {
       synced INTEGER DEFAULT 0,
       subcategory TEXT,
       event_id TEXT,
+      to_amount REAL,
+      exchange_rate REAL,
       FOREIGN KEY (account_id) REFERENCES accounts(id),
       FOREIGN KEY (to_account_id) REFERENCES accounts(id)
     );
@@ -199,10 +208,15 @@ const initializeSchema = async () => {
       units REAL DEFAULT 0,
       average_buy_price REAL DEFAULT 0,
       current_price REAL DEFAULT 0,
+      currency TEXT DEFAULT 'USD',
+      buy_exchange_rate REAL DEFAULT 1,
+      current_exchange_rate REAL DEFAULT 1,
+      funding_account_id TEXT,
       created_at TEXT NOT NULL,
       updated_at TEXT NOT NULL,
       deviceId TEXT,
-      synced INTEGER DEFAULT 0
+      synced INTEGER DEFAULT 0,
+      FOREIGN KEY (funding_account_id) REFERENCES accounts(id)
     );
 
     CREATE TABLE IF NOT EXISTS reminders (
@@ -326,6 +340,40 @@ const initializeSchema = async () => {
       updated_at TEXT NOT NULL,
       synced INTEGER DEFAULT 0
     );
+
+    CREATE TABLE IF NOT EXISTS assets (
+      id TEXT PRIMARY KEY,
+      symbol TEXT NOT NULL UNIQUE,
+      type TEXT NOT NULL DEFAULT 'Crypto'
+    );
+
+    CREATE TABLE IF NOT EXISTS asset_transactions (
+      id TEXT PRIMARY KEY,
+      asset_symbol TEXT NOT NULL,
+      txn_type TEXT NOT NULL CHECK(txn_type IN ('BUY', 'SELL', 'DEPOSIT', 'WITHDRAWAL')),
+      qty REAL NOT NULL,
+      unit_price REAL NOT NULL,
+      quote_asset TEXT NOT NULL,
+      fee_asset TEXT,
+      fee_qty REAL DEFAULT 0,
+      source TEXT NOT NULL,
+      timestamp TEXT NOT NULL,
+      created_at TEXT NOT NULL,
+      updated_at TEXT NOT NULL,
+      deviceId TEXT,
+      synced INTEGER DEFAULT 0
+    );
+
+    CREATE TABLE IF NOT EXISTS inventory_ledger (
+      id TEXT PRIMARY KEY,
+      asset_symbol TEXT NOT NULL,
+      qty_change REAL NOT NULL,
+      pkr_value_change REAL NOT NULL,
+      running_qty REAL NOT NULL,
+      running_pkr_value REAL NOT NULL,
+      avg_cost REAL NOT NULL,
+      timestamp TEXT NOT NULL
+    );
   `);
 
   // 2. Robust Migrations (Add missing columns one by one for existing users)
@@ -374,7 +422,14 @@ const initializeSchema = async () => {
     "ALTER TABLE loans ADD COLUMN loss_remarks TEXT;",
     "CREATE TABLE IF NOT EXISTS fuel_logs (id TEXT PRIMARY KEY, fuel_type TEXT NOT NULL, price_per_liter REAL NOT NULL, total_cost REAL NOT NULL, liters REAL NOT NULL, date TEXT NOT NULL, transaction_id TEXT, created_at TEXT NOT NULL, updated_at TEXT NOT NULL, deviceId TEXT, synced INTEGER DEFAULT 0);",
     "ALTER TABLE fuel_logs ADD COLUMN transaction_id TEXT;",
-    "CREATE TABLE IF NOT EXISTS config (key TEXT PRIMARY KEY, value TEXT NOT NULL, updated_at TEXT NOT NULL, deviceId TEXT, synced INTEGER DEFAULT 0);"
+    "CREATE TABLE IF NOT EXISTS config (key TEXT PRIMARY KEY, value TEXT NOT NULL, updated_at TEXT NOT NULL, deviceId TEXT, synced INTEGER DEFAULT 0);",
+    "ALTER TABLE investments ADD COLUMN currency TEXT DEFAULT 'USD';",
+    "ALTER TABLE investments ADD COLUMN buy_exchange_rate REAL DEFAULT 1;",
+    "ALTER TABLE investments ADD COLUMN current_exchange_rate REAL DEFAULT 1;",
+    "ALTER TABLE investments ADD COLUMN funding_account_id TEXT;",
+    "ALTER TABLE accounts ADD COLUMN currency TEXT DEFAULT 'PKR';",
+    "ALTER TABLE transactions ADD COLUMN to_amount REAL;",
+    "ALTER TABLE transactions ADD COLUMN exchange_rate REAL;"
   ];
 
   const addColumn = (table: string, column: string, type: string) => {
@@ -452,10 +507,12 @@ const initializeSchema = async () => {
         deviceId TEXT,
         synced INTEGER DEFAULT 0,
         subcategory TEXT,
-        event_id TEXT
+        event_id TEXT,
+        to_amount REAL,
+        exchange_rate REAL
       );
-      INSERT INTO transactions_new (id, type, amount, category, description, date, payment_method, account_id, to_account_id, created_at, updated_at, deviceId, synced, subcategory, event_id)
-      SELECT id, type, amount, category, description, date, payment_method, account_id, to_account_id, created_at, COALESCE(updated_at, created_at), deviceId, 0, subcategory, NULL FROM transactions;
+      INSERT INTO transactions_new (id, type, amount, category, description, date, payment_method, account_id, to_account_id, created_at, updated_at, deviceId, synced, subcategory, event_id, to_amount, exchange_rate)
+      SELECT id, type, amount, category, description, date, payment_method, account_id, to_account_id, created_at, COALESCE(updated_at, created_at), deviceId, 0, subcategory, NULL, amount, 1 FROM transactions;
       DROP TABLE transactions;
       ALTER TABLE transactions_new RENAME TO transactions;
       COMMIT;
@@ -565,7 +622,7 @@ const initializeSchema = async () => {
   `);
 };
 
-export const executeQuery = async (query: string, params: any[] = []) => {
+export const executeQuery = async (query: string, params: any[] = [], skipSave: boolean = false) => {
   if (!db) await initDB();
 
   const results: any[] = [];
@@ -580,7 +637,7 @@ export const executeQuery = async (query: string, params: any[] = []) => {
   // Schedule a debounced save for mutations — all writes within the same 1.5s
   // window (e.g. a 50-item sync batch) collapse into ONE IndexedDB write.
   const isMutation = query.trim().toUpperCase().match(/^(INSERT|UPDATE|DELETE|CREATE|DROP|ALTER)/);
-  if (isMutation) {
+  if (isMutation && !skipSave) {
     scheduleSave();
   }
 

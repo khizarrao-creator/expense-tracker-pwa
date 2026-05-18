@@ -16,7 +16,6 @@ import {
   PieChart as PieIcon,
   Zap,
   RefreshCw,
-  TrendingDown,
   X,
   Send
 } from 'lucide-react';
@@ -88,6 +87,7 @@ interface GlobalConfig {
   loansEnabled: boolean;
   supportedCurrencies: { code: string; symbol: string; name: string; }[];
   version: string;
+  exchanges?: { id: string; name: string; logoUrl?: string; enabled: boolean; }[];
 }
 
 interface SystemStats {
@@ -121,8 +121,72 @@ const Admin: React.FC = () => {
       { code: 'AED', symbol: 'د.إ', name: 'UAE Dirham' },
       { code: 'SAR', symbol: 'ر.س', name: 'Saudi Riyal' },
     ],
-    version: '1.0.0'
+    version: '1.0.0',
+    exchanges: [
+      { id: 'mexc', name: 'MEXC Global', logoUrl: '', enabled: true }
+    ]
   });
+
+  const [hasBackup, setHasBackup] = useState(false);
+  const [initialSettings, setInitialSettings] = useState<GlobalConfig | null>(null);
+
+  const [newExchangeId, setNewExchangeId] = useState('');
+  const [newExchangeName, setNewExchangeName] = useState('');
+  const [newExchangeLogoUrl, setNewExchangeLogoUrl] = useState('');
+  const [newExchangeEnabled, setNewExchangeEnabled] = useState(true);
+
+  const handleAddExchange = () => {
+    if (!newExchangeId.trim() || !newExchangeName.trim()) {
+      toast.error('Exchange ID and Name are required');
+      return;
+    }
+    const id = newExchangeId.trim().toLowerCase();
+    const name = newExchangeName.trim();
+    
+    const currentExchanges = globalSettings.exchanges || [];
+    if (currentExchanges.some(e => e.id === id)) {
+      toast.error(`Exchange with ID "${id}" already exists`);
+      return;
+    }
+    
+    const updatedExchanges = [
+      ...currentExchanges,
+      { id, name, logoUrl: newExchangeLogoUrl.trim(), enabled: newExchangeEnabled }
+    ];
+    
+    setGlobalSettings({
+      ...globalSettings,
+      exchanges: updatedExchanges
+    });
+    
+    setNewExchangeId('');
+    setNewExchangeName('');
+    setNewExchangeLogoUrl('');
+    setNewExchangeEnabled(true);
+    toast.success(`Exchange "${name}" added. Click "Save Global Config" to persist.`);
+  };
+
+  const handleToggleExchange = (exchangeId: string) => {
+    const currentExchanges = globalSettings.exchanges || [];
+    const updatedExchanges = currentExchanges.map(e => 
+      e.id === exchangeId ? { ...e, enabled: !e.enabled } : e
+    );
+    setGlobalSettings({
+      ...globalSettings,
+      exchanges: updatedExchanges
+    });
+    toast.info('Exchange status updated. Click "Save Global Config" to persist.');
+  };
+
+  const handleDeleteExchange = (exchangeId: string) => {
+    const currentExchanges = globalSettings.exchanges || [];
+    const updatedExchanges = currentExchanges.filter(e => e.id !== exchangeId);
+    setGlobalSettings({
+      ...globalSettings,
+      exchanges: updatedExchanges
+    });
+    toast.success('Exchange removed. Click "Save Global Config" to persist.');
+  };
 
   const [isLoading, setIsLoading] = useState(false);
   const [searchQuery, setSearchQuery] = useState('');
@@ -171,8 +235,19 @@ const Admin: React.FC = () => {
       // Fetch Global Settings
       const settingsDoc = await getDoc(doc(db, 'system', 'global_config'));
       if (settingsDoc.exists()) {
-        setGlobalSettings(settingsDoc.data() as GlobalConfig);
+        const data = settingsDoc.data() as GlobalConfig;
+        if (!data.exchanges) {
+          data.exchanges = [
+            { id: 'mexc', name: 'MEXC Global', logoUrl: '', enabled: true }
+          ];
+        }
+        setGlobalSettings(data);
+        setInitialSettings(data);
       }
+
+      // Check for restore backup
+      const backupDoc = await getDoc(doc(db, 'system', 'global_config_backup'));
+      setHasBackup(backupDoc.exists());
 
       // Fetch Logs
       const logsSnap = await getDocs(query(collection(db, 'admin_logs'), orderBy('timestamp', 'desc'), limit(50)));
@@ -305,6 +380,14 @@ const Admin: React.FC = () => {
 
   const saveGlobalSettings = async () => {
     try {
+      // 1. Fetch current cloud state to save as a rolling restore point
+      const currentDoc = await getDoc(doc(db, 'system', 'global_config'));
+      if (currentDoc.exists()) {
+        await setDoc(doc(db, 'system', 'global_config_backup'), currentDoc.data());
+        setHasBackup(true);
+      }
+
+      // 2. Overwrite active cloud config
       await setDoc(doc(db, 'system', 'global_config'), globalSettings);
 
       // Log action
@@ -314,9 +397,47 @@ const Admin: React.FC = () => {
         admin: ADMIN_USER
       });
 
+      setInitialSettings(globalSettings);
       toast.success('Global settings updated');
+      fetchData(); // Reload logs and data metrics
     } catch (error) {
       toast.error('Failed to save settings');
+    }
+  };
+
+  const revertGlobalSettings = async () => {
+    if (!confirm('Are you sure you want to revert to the previous cloud configuration? This will restore all prior global configurations and overwrite current active settings.')) return;
+    setIsLoading(true);
+    try {
+      const backupDoc = await getDoc(doc(db, 'system', 'global_config_backup'));
+      if (backupDoc.exists()) {
+        const backupData = backupDoc.data() as GlobalConfig;
+        
+        await setDoc(doc(db, 'system', 'global_config'), backupData);
+        
+        await addDoc(collection(db, 'admin_logs'), {
+          action: 'Reverted global configuration to backup version',
+          timestamp: serverTimestamp(),
+          admin: ADMIN_USER
+        });
+
+        toast.success('Global settings successfully reverted to backup');
+        fetchData();
+      } else {
+        toast.error('No backup configuration found');
+      }
+    } catch (e) {
+      console.error('Revert failed:', e);
+      toast.error('Failed to revert configuration');
+    } finally {
+      setIsLoading(false);
+    }
+  };
+
+  const handleResetSessionChanges = () => {
+    if (initialSettings) {
+      setGlobalSettings(initialSettings);
+      toast.success('Reset all unsaved session changes');
     }
   };
 
@@ -680,7 +801,92 @@ const Admin: React.FC = () => {
                 </div>
               </div>
 
-              <div className="pt-4 flex gap-3">
+              {/* Exchanges Administration Card */}
+              <div className="mt-8 border-t border-border pt-6 space-y-6">
+                <div className="flex items-center gap-2">
+                  <Activity className="text-primary" size={20} />
+                  <h3 className="font-bold text-base">Global Exchanges Configuration</h3>
+                </div>
+                
+                {/* List of current exchanges */}
+                <div className="space-y-3">
+                  <p className="text-xs font-bold uppercase tracking-wider text-muted-foreground">Active Exchanges</p>
+                  {(globalSettings.exchanges || []).length === 0 ? (
+                    <p className="text-sm text-muted-foreground italic">No exchanges configured globally</p>
+                  ) : (
+                    <div className="grid grid-cols-1 gap-2">
+                      {(globalSettings.exchanges || []).map((ex) => (
+                        <div key={ex.id} className="flex items-center justify-between p-4 bg-muted/30 rounded-2xl border border-border/50">
+                          <div className="flex items-center gap-3">
+                            <div className="w-10 h-10 rounded-xl bg-primary/10 flex items-center justify-center font-bold text-sm text-primary">
+                              {ex.name[0].toUpperCase()}
+                            </div>
+                            <div>
+                              <p className="font-bold text-sm">{ex.name}</p>
+                              <p className="text-[10px] font-mono text-muted-foreground">ID: {ex.id}</p>
+                            </div>
+                          </div>
+                          
+                          <div className="flex items-center gap-3">
+                            <button
+                              onClick={() => handleToggleExchange(ex.id)}
+                              className={`px-3 py-1.5 rounded-lg text-xs font-black uppercase tracking-wider transition-all ${
+                                ex.enabled 
+                                  ? 'bg-emerald-500/10 text-emerald-500 hover:bg-emerald-500/20' 
+                                  : 'bg-muted text-muted-foreground hover:bg-muted/80'
+                              }`}
+                            >
+                              {ex.enabled ? 'Enabled' : 'Disabled'}
+                            </button>
+                            
+                            <button
+                              onClick={() => handleDeleteExchange(ex.id)}
+                              className="p-2 bg-destructive/10 text-destructive hover:bg-destructive/20 rounded-lg transition-colors"
+                            >
+                              <X size={16} />
+                            </button>
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  )}
+                </div>
+
+                {/* Add new exchange form */}
+                <div className="bg-muted/30 p-5 rounded-3xl border border-border space-y-4">
+                  <p className="text-xs font-bold uppercase tracking-wider text-muted-foreground">Add New Exchange</p>
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                    <div className="space-y-1">
+                      <label className="text-[10px] font-bold uppercase text-muted-foreground ml-1">Exchange ID</label>
+                      <input
+                        type="text"
+                        value={newExchangeId}
+                        onChange={(e) => setNewExchangeId(e.target.value)}
+                        placeholder="e.g. binance, mexc"
+                        className="w-full bg-card border border-border rounded-xl px-4 py-2.5 text-xs outline-none focus:ring-2 focus:ring-primary font-bold"
+                      />
+                    </div>
+                    <div className="space-y-1">
+                      <label className="text-[10px] font-bold uppercase text-muted-foreground ml-1">Exchange Name</label>
+                      <input
+                        type="text"
+                        value={newExchangeName}
+                        onChange={(e) => setNewExchangeName(e.target.value)}
+                        placeholder="e.g. Binance Global, MEXC Global"
+                        className="w-full bg-card border border-border rounded-xl px-4 py-2.5 text-xs outline-none focus:ring-2 focus:ring-primary font-bold"
+                      />
+                    </div>
+                  </div>
+                  <button
+                    onClick={handleAddExchange}
+                    className="w-full bg-primary/10 hover:bg-primary text-primary hover:text-primary-foreground py-3 rounded-xl font-bold text-xs uppercase tracking-wider transition-all"
+                  >
+                    Add Exchange Entry
+                  </button>
+                </div>
+              </div>
+
+              <div className="pt-4 flex flex-col sm:flex-row gap-3">
                 <button
                   onClick={saveGlobalSettings}
                   className="flex-1 bg-primary text-primary-foreground py-4 rounded-2xl font-bold hover:opacity-90 transition-all flex items-center justify-center gap-2 shadow-lg shadow-primary/20"
@@ -688,6 +894,25 @@ const Admin: React.FC = () => {
                   <Save size={18} />
                   Save Global Config
                 </button>
+
+                {initialSettings && JSON.stringify(globalSettings) !== JSON.stringify(initialSettings) && (
+                  <button
+                    onClick={handleResetSessionChanges}
+                    className="flex-1 bg-muted hover:bg-muted/80 text-foreground py-4 rounded-2xl font-bold transition-all text-xs flex items-center justify-center gap-2"
+                  >
+                    Undo Changes
+                  </button>
+                )}
+
+                {hasBackup && (
+                  <button
+                    onClick={revertGlobalSettings}
+                    className="flex-1 bg-destructive/10 hover:bg-destructive/20 text-destructive py-4 rounded-2xl font-bold transition-all flex items-center justify-center gap-2 border border-destructive/20"
+                  >
+                    <RefreshCw size={18} />
+                    Revert to Backup
+                  </button>
+                )}
               </div>
             </div>
 

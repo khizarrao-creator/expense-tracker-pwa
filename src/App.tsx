@@ -28,6 +28,7 @@ import Events from './pages/Events';
 import FuelTracking from './pages/FuelTracking';
 import Reports from './pages/Reports';
 import Admin from './pages/Admin';
+import MexcDetails from './pages/MexcDetails';
 
 const ProtectedRoute: React.FC<{ children: React.ReactNode }> = ({ children }) => {
   const { user, loading } = useAuth();
@@ -82,6 +83,7 @@ const App: React.FC = () => {
                       <Route path="fuel" element={<FuelTracking />} />
                       <Route path="reports" element={<Reports />} />
                       <Route path="settings" element={<Settings />} />
+                      <Route path="mexc-details/:id" element={<MexcDetails />} />
                     </Route>
                     <Route path="/admin" element={<Admin />} />
                   </Routes>

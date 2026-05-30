@@ -964,6 +964,7 @@ export interface Investment {
   type: string;
   units: number;
   average_buy_price: number;
+  trade_avg_buy_price: number;
   current_price: number;
   currency: string;
   buy_exchange_rate: number;
@@ -1030,23 +1031,25 @@ export const addInvestment = async (
   buy_exchange_rate: number = 1,
   current_exchange_rate: number = 1,
   funding_account_id: string | null = null,
-  providedId?: string
+  providedId?: string,
+  trade_avg_buy_price?: number
 ) => {
   const id = providedId || uuidv4();
   const now = new Date().toISOString();
   const deviceId = localStorage.getItem('deviceId') || 'unknown';
+  const tradePrice = trade_avg_buy_price ?? average_buy_price;
 
   const invData = {
-    id, name, type, units, average_buy_price, current_price,
+    id, name, type, units, average_buy_price, trade_avg_buy_price: tradePrice, current_price,
     currency, buy_exchange_rate, current_exchange_rate, funding_account_id,
     created_at: now, updated_at: now, deviceId
   };
 
   await syncManager.performOperation('investment_add', invData, async () => {
     await runWithBindings(
-      `INSERT INTO investments (id, name, type, units, average_buy_price, current_price, currency, buy_exchange_rate, current_exchange_rate, funding_account_id, created_at, updated_at, deviceId, synced) 
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 0)`,
-      [id, name, type, units, average_buy_price, current_price, currency, buy_exchange_rate, current_exchange_rate, funding_account_id, now, now, deviceId]
+      `INSERT INTO investments (id, name, type, units, average_buy_price, trade_avg_buy_price, current_price, currency, buy_exchange_rate, current_exchange_rate, funding_account_id, created_at, updated_at, deviceId, synced) 
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 0)`,
+      [id, name, type, units, average_buy_price, tradePrice, current_price, currency, buy_exchange_rate, current_exchange_rate, funding_account_id, now, now, deviceId]
     );
 
     // Create a transaction if funding account is provided
@@ -1069,7 +1072,7 @@ export const addInvestment = async (
 };
 
 const INVESTMENT_UPDATABLE_FIELDS = new Set([
-  'name', 'type', 'units', 'average_buy_price', 'current_price', 'currency', 'buy_exchange_rate', 'current_exchange_rate', 'funding_account_id', 'updated_at', 'deviceId'
+  'name', 'type', 'units', 'average_buy_price', 'trade_avg_buy_price', 'current_price', 'currency', 'buy_exchange_rate', 'current_exchange_rate', 'funding_account_id', 'updated_at', 'deviceId'
 ]);
 
 export const updateInvestment = async (id: string, data: Partial<Omit<Investment, 'id' | 'created_at' | 'synced'>>) => {
@@ -1196,6 +1199,16 @@ export const getInventoryLedger = async (symbol?: string): Promise<InventoryLedg
 export const replayInventoryLedger = async () => {
   console.log('[Ledger] Replaying chronological transaction ledger...');
 
+  // Clean up any duplicate investments with the same name and type
+  await runWithBindings(`
+    DELETE FROM investments 
+    WHERE id NOT IN (
+      SELECT MIN(id) 
+      FROM investments 
+      GROUP BY LOWER(name), type
+    )
+  `, []);
+
   // 1. Fetch all asset transactions sorted chronologically by timestamp
   const txns = await runWithBindings(`SELECT * FROM asset_transactions ORDER BY timestamp ASC`, []);
   if (!Array.isArray(txns) || txns.length === 0) {
@@ -1240,21 +1253,22 @@ export const replayInventoryLedger = async () => {
   };
 
   // Holdings Map: Tracks running state of all assets
-  // asset_symbol -> { qty: number; pkrVal: number; avgCost: number }
-  const holdings = new Map<string, { qty: number; pkrVal: number; avgCost: number }>();
+  const holdings = new Map<string, { qty: number; pkrVal: number; avgCost: number; tradeCostUSD: number; avgTradePriceUSD: number }>();
 
   const getHolding = (symbol: string) => {
     if (!holdings.has(symbol)) {
-      holdings.set(symbol, { qty: 0, pkrVal: 0, avgCost: 0 });
+      holdings.set(symbol, { qty: 0, pkrVal: 0, avgCost: 0, tradeCostUSD: 0, avgTradePriceUSD: 0 });
     }
     return holdings.get(symbol)!;
   };
 
-  const setHolding = (symbol: string, qty: number, pkrVal: number) => {
+  const setHolding = (symbol: string, qty: number, pkrVal: number, tradeCostUSD: number) => {
     let finalQty = Math.max(0, qty);
     let finalPkrVal = Math.max(0, pkrVal);
+    let finalTradeCostUSD = Math.max(0, tradeCostUSD);
     let avgCost = finalQty > 0 ? finalPkrVal / finalQty : 0;
-    holdings.set(symbol, { qty: finalQty, pkrVal: finalPkrVal, avgCost });
+    let avgTradePriceUSD = finalQty > 0 ? finalTradeCostUSD / finalQty : 0;
+    holdings.set(symbol, { qty: finalQty, pkrVal: finalPkrVal, avgCost, tradeCostUSD: finalTradeCostUSD, avgTradePriceUSD });
   };
 
   // Process all transactions
@@ -1278,7 +1292,9 @@ export const replayInventoryLedger = async () => {
         // Deduct fee from fee_asset inventory
         const newFeeQty = feeHolding.qty - feeQty;
         const newFeePkrVal = feeHolding.pkrVal - feeCostPKR;
-        setHolding(feeAsset, newFeeQty, newFeePkrVal);
+        const feeTradeCostBasis = feeQty * feeHolding.avgTradePriceUSD;
+        const newFeeTradeCostUSD = feeHolding.tradeCostUSD - feeTradeCostBasis;
+        setHolding(feeAsset, newFeeQty, newFeePkrVal, newFeeTradeCostUSD);
 
         // Write CR entry for fee_asset
         const ledgerId = uuidv4();
@@ -1302,7 +1318,15 @@ export const replayInventoryLedger = async () => {
       const holding = getHolding(symbol);
       const newQty = holding.qty + qty;
       const newPkrVal = holding.pkrVal + pkrValChange;
-      setHolding(symbol, newQty, newPkrVal);
+
+      const quoteAssetUpper = quoteAsset.toUpperCase().trim();
+      let unitPriceUSD = unitPrice;
+      if (quoteAssetUpper === 'PKR') {
+        const fxRateVal = await getHistoricalRate(dateStr);
+        unitPriceUSD = fxRateVal > 0 ? unitPrice / fxRateVal : unitPrice / usdToPKR;
+      }
+      const newTradeCostUSD = holding.tradeCostUSD + (qty * unitPriceUSD);
+      setHolding(symbol, newQty, newPkrVal, newTradeCostUSD);
 
       // Write DR ledger entry
       const ledgerId = uuidv4();
@@ -1315,9 +1339,11 @@ export const replayInventoryLedger = async () => {
     else if (type === 'WITHDRAWAL') {
       const holding = getHolding(symbol);
       const costBasis = qty * holding.avgCost;
+      const tradeCostBasis = qty * holding.avgTradePriceUSD;
       const newQty = holding.qty - qty;
       const newPkrVal = holding.pkrVal - costBasis;
-      setHolding(symbol, newQty, newPkrVal);
+      const newTradeCostUSD = holding.tradeCostUSD - tradeCostBasis;
+      setHolding(symbol, newQty, newPkrVal, newTradeCostUSD);
 
       // Write CR ledger entry
       const ledgerId = uuidv4();
@@ -1330,6 +1356,7 @@ export const replayInventoryLedger = async () => {
     else if (type === 'BUY') {
       // Purchase symbol using quoteAsset
       let pkrCost = 0;
+      let quoteTradeCostBasis = 0;
 
       if (quoteAsset === 'PKR') {
         // Cash buy
@@ -1342,10 +1369,12 @@ export const replayInventoryLedger = async () => {
         let quotePKRValueSpent = 0;
         if (quoteHolding.qty >= quoteQtySpent) {
           quotePKRValueSpent = quoteQtySpent * quoteHolding.avgCost;
+          quoteTradeCostBasis = quoteQtySpent * quoteHolding.avgTradePriceUSD;
           // Deduct from quoteAsset inventory (Credit)
           const newQuoteQty = quoteHolding.qty - quoteQtySpent;
           const newQuotePkrVal = quoteHolding.pkrVal - quotePKRValueSpent;
-          setHolding(quoteAsset, newQuoteQty, newQuotePkrVal);
+          const newQuoteTradeCostUSD = quoteHolding.tradeCostUSD - quoteTradeCostBasis;
+          setHolding(quoteAsset, newQuoteQty, newQuotePkrVal, newQuoteTradeCostUSD);
 
           // Write CR ledger entry for quoteAsset
           const quoteLedgerId = uuidv4();
@@ -1358,6 +1387,7 @@ export const replayInventoryLedger = async () => {
           // Fallback quote asset rate if inventory was insufficient
           const fxRate = await getHistoricalRate(dateStr);
           quotePKRValueSpent = quoteQtySpent * fxRate;
+          quoteTradeCostBasis = quoteQtySpent; // Fallback assuming 1:1 USD
         }
 
         pkrCost = quotePKRValueSpent + feeCostPKR;
@@ -1367,7 +1397,15 @@ export const replayInventoryLedger = async () => {
       const holding = getHolding(symbol);
       const newQty = holding.qty + qty;
       const newPkrVal = holding.pkrVal + pkrCost;
-      setHolding(symbol, newQty, newPkrVal);
+
+      const quoteAssetUpper = quoteAsset.toUpperCase().trim();
+      let unitPriceUSD = unitPrice;
+      if (quoteAssetUpper === 'PKR') {
+        const fxRateVal = await getHistoricalRate(dateStr);
+        unitPriceUSD = fxRateVal > 0 ? unitPrice / fxRateVal : unitPrice / usdToPKR;
+      }
+      const newTradeCostUSD = holding.tradeCostUSD + (qty * unitPriceUSD);
+      setHolding(symbol, newQty, newPkrVal, newTradeCostUSD);
 
       // Write DR ledger entry for symbol
       const ledgerId = uuidv4();
@@ -1381,9 +1419,11 @@ export const replayInventoryLedger = async () => {
       // Sell symbol for quoteAsset
       const holding = getHolding(symbol);
       const costBasisSpent = (qty * holding.avgCost);
+      const tradeCostBasisSpent = (qty * holding.avgTradePriceUSD);
       const newQty = holding.qty - qty;
       const newPkrVal = holding.pkrVal - costBasisSpent;
-      setHolding(symbol, newQty, newPkrVal);
+      const newTradeCostUSD = holding.tradeCostUSD - tradeCostBasisSpent;
+      setHolding(symbol, newQty, newPkrVal, newTradeCostUSD);
 
       // Write CR ledger entry for sold symbol
       const ledgerId = uuidv4();
@@ -1403,7 +1443,8 @@ export const replayInventoryLedger = async () => {
         const quoteHolding = getHolding(quoteAsset);
         const newQuoteQty = quoteHolding.qty + receivedQuoteQty;
         const newQuotePkrVal = quoteHolding.pkrVal + costBasisSpent;
-        setHolding(quoteAsset, newQuoteQty, newQuotePkrVal);
+        const newQuoteTradeCostUSD = quoteHolding.tradeCostUSD + tradeCostBasisSpent;
+        setHolding(quoteAsset, newQuoteQty, newQuotePkrVal, newQuoteTradeCostUSD);
 
         // Write DR ledger entry for received quoteAsset
         const quoteLedgerId = uuidv4();
@@ -1417,15 +1458,19 @@ export const replayInventoryLedger = async () => {
   }
 
   // 4. Re-populate the main investments table with the final calculated WAC holdings!
-  // Get existing current prices for crypto assets so we don't reset them to average buy price!
-  const existingHoldings = await executeQuery(`SELECT name, current_price, current_exchange_rate FROM investments WHERE type = 'Crypto'`);
+  // Get existing IDs and current prices for crypto assets so we don't reset them or duplicate them!
+  const existingHoldings = await executeQuery(`SELECT id, name, current_price, current_exchange_rate FROM investments WHERE type = 'Crypto'`);
+  const existingIdMap = new Map<string, string>();
   const currentPricesMap = new Map<string, { price: number; exRate: number }>();
   existingHoldings.forEach((h: any) => {
-    if (h.name && h.current_price !== null) {
-      currentPricesMap.set(h.name.toUpperCase(), {
-        price: h.current_price,
-        exRate: h.current_exchange_rate || usdToPKR
-      });
+    if (h.name) {
+      existingIdMap.set(h.name.toUpperCase(), h.id);
+      if (h.current_price !== null) {
+        currentPricesMap.set(h.name.toUpperCase(), {
+          price: h.current_price,
+          exRate: h.current_exchange_rate || usdToPKR
+        });
+      }
     }
   });
 
@@ -1435,7 +1480,8 @@ export const replayInventoryLedger = async () => {
 
   for (const [symbol, hold] of holdings.entries()) {
     if (hold.qty > 0.000001) {
-      const invId = uuidv4();
+      const existingId = existingIdMap.get(symbol.toUpperCase());
+      const invId = existingId || uuidv4();
       const avgPriceUSD = hold.avgCost / usdToPKR;
 
       // Look up existing current price or fetch live, fallback to avgPriceUSD
@@ -1459,9 +1505,9 @@ export const replayInventoryLedger = async () => {
       }
 
       await runWithBindings(
-        `INSERT INTO investments (id, name, type, units, average_buy_price, current_price, currency, buy_exchange_rate, current_exchange_rate, created_at, updated_at, deviceId, synced)
-         VALUES (?, ?, 'Crypto', ?, ?, ?, 'USD', ?, ?, ?, ?, ?, 0)`,
-        [invId, symbol, hold.qty, avgPriceUSD, currentPriceVal, usdToPKR, currentExRateVal, now, now, deviceId]
+        `INSERT INTO investments (id, name, type, units, average_buy_price, trade_avg_buy_price, current_price, currency, buy_exchange_rate, current_exchange_rate, created_at, updated_at, deviceId, synced)
+         VALUES (?, ?, 'Crypto', ?, ?, ?, ?, 'USD', ?, ?, ?, ?, ?, 0)`,
+        [invId, symbol, hold.qty, avgPriceUSD, hold.avgTradePriceUSD, currentPriceVal, usdToPKR, currentExRateVal, now, now, deviceId]
       );
     }
   }
@@ -1518,15 +1564,15 @@ export const syncMexcTradesToAssetTransactions = async (apiKey: string, apiSecre
 };
 
 export const calculatePortfolioValue = async () => {
-  const results = await executeQuery(`SELECT SUM(units * current_price) as total_value FROM investments`);
+  const results = await executeQuery(`SELECT SUM(units * current_price * COALESCE(current_exchange_rate, 1)) as total_value FROM investments`);
   return results[0]?.total_value || 0;
 };
 
 export const getInvestmentProfitLoss = async () => {
   const results = await executeQuery(`
     SELECT 
-      SUM(units * current_price) as current_total,
-      SUM(units * average_buy_price) as cost_basis
+      SUM(units * current_price * COALESCE(current_exchange_rate, 1)) as current_total,
+      SUM(units * average_buy_price * COALESCE(buy_exchange_rate, 1)) as cost_basis
     FROM investments
   `);
   const { current_total, cost_basis } = results[0] || { current_total: 0, cost_basis: 0 };

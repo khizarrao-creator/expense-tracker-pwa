@@ -136,7 +136,7 @@ const initializeSchema = async () => {
       name TEXT NOT NULL,
       type TEXT,
       initial_balance REAL DEFAULT 0,
-      currency TEXT DEFAULT 'USD',
+      currency TEXT DEFAULT 'PKR',
       color TEXT,
       created_at TEXT NOT NULL,
       updated_at TEXT NOT NULL,
@@ -207,6 +207,7 @@ const initializeSchema = async () => {
       type TEXT NOT NULL, -- Gold, Stock, Crypto, Cash
       units REAL DEFAULT 0,
       average_buy_price REAL DEFAULT 0,
+      trade_avg_buy_price REAL DEFAULT 0,
       current_price REAL DEFAULT 0,
       currency TEXT DEFAULT 'USD',
       buy_exchange_rate REAL DEFAULT 1,
@@ -429,7 +430,8 @@ const initializeSchema = async () => {
     "ALTER TABLE investments ADD COLUMN funding_account_id TEXT;",
     "ALTER TABLE accounts ADD COLUMN currency TEXT DEFAULT 'PKR';",
     "ALTER TABLE transactions ADD COLUMN to_amount REAL;",
-    "ALTER TABLE transactions ADD COLUMN exchange_rate REAL;"
+    "ALTER TABLE transactions ADD COLUMN exchange_rate REAL;",
+    "ALTER TABLE investments ADD COLUMN trade_avg_buy_price REAL DEFAULT 0;"
   ];
 
   const addColumn = (table: string, column: string, type: string) => {
@@ -573,10 +575,11 @@ const initializeSchema = async () => {
       { id: 'credit-id', name: 'Credit Card', type: 'credit' },
     ];
 
+    const defaultCurrency = localStorage.getItem('currency') || 'PKR';
     for (const acc of defaultAccounts) {
       db.run(
-        "INSERT INTO accounts (id, name, type, initial_balance, created_at, updated_at) VALUES (?, ?, ?, 0, ?, ?)",
-        [acc.id, acc.name, acc.type, now, now]
+        "INSERT INTO accounts (id, name, type, initial_balance, currency, created_at, updated_at) VALUES (?, ?, ?, 0, ?, ?, ?)",
+        [acc.id, acc.name, acc.type, defaultCurrency, now, now]
       );
     }
   }

@@ -1,4 +1,5 @@
 import React, { useEffect, useState, useCallback, useRef } from 'react';
+import { Link } from 'react-router-dom';
 import {
   getExpensesByCategoryByPeriod,
   getNetWorth,
@@ -12,11 +13,18 @@ import {
   getBudgetVsActual,
   getDailySpendingForMonth,
   getCategories,
+  getTransactions,
+  getReminders,
+  getGoals,
+  getSummaryByAccount,
   type ChartPeriod,
   type BudgetVsActualRow,
   type DailySpend,
+  type Transaction,
+  type Reminder,
+  type Goal,
 } from '../db/queries';
-import { Doughnut, Pie, Bar } from 'react-chartjs-2';
+import { Doughnut, Bar } from 'react-chartjs-2';
 import {
   Chart as ChartJS,
   ArcElement,
@@ -29,7 +37,9 @@ import {
 import {
   ArrowDownIcon, ArrowUpIcon, Wallet, Zap, TrendingUp, TrendingDown,
   Banknote, AlertTriangle, ShieldCheck, Clock,
-  Pencil, Trash2, Plus, Check, X as XIcon
+  Pencil, Trash2, Plus, Check, X as XIcon,
+  ArrowRight, Calendar, Target, Activity,
+  RefreshCw
 } from 'lucide-react';
 import { useCurrency } from '../contexts/CurrencyContext';
 
@@ -55,8 +65,8 @@ const PeriodToggle: React.FC<PeriodToggleProps> = ({ value, onChange }) => (
         key={opt.value}
         onClick={() => onChange(opt.value)}
         className={`px-2.5 py-1 text-xs font-semibold rounded-md transition-all duration-200 ${value === opt.value
-            ? 'bg-primary text-primary-foreground shadow-sm'
-            : 'text-muted-foreground hover:text-foreground'
+          ? 'bg-primary text-primary-foreground shadow-sm'
+          : 'text-muted-foreground hover:text-foreground'
           }`}
       >
         {opt.label}
@@ -328,6 +338,107 @@ const SpendingHeatmap: React.FC<HeatmapProps> = ({ year, month, dailyData, forma
   );
 };
 
+// ─── Financial Health Score ──────────────────────────────────────────────────
+
+interface FinancialHealthScoreProps {
+  savingsRate: number;
+  budgetRows: BudgetVsActualRow[];
+  netWorth: number;
+  portfolioValue: number;
+  formatAmount: (n: number) => string;
+}
+
+const FinancialHealthScore: React.FC<FinancialHealthScoreProps> = ({
+  savingsRate,
+  budgetRows,
+  netWorth,
+  portfolioValue,
+}) => {
+  const overBudgetCount = budgetRows.filter(r => r.pct > 100).length;
+  const totalBudgets = budgetRows.length;
+
+  const savingsScore = savingsRate > 0 ? Math.min(40, savingsRate * 1.33) : 0;
+  const budgetScore = totalBudgets > 0 ? Math.max(0, 30 - (overBudgetCount / totalBudgets) * 30) : 30;
+  const investmentRatio = netWorth > 0 ? (portfolioValue / netWorth) * 100 : 0;
+  const investmentScore = investmentRatio > 0 ? Math.min(30, investmentRatio * 1.5) : 0;
+
+  const totalScore = Math.round(savingsScore + budgetScore + investmentScore);
+
+  let statusText = 'Fair';
+  let statusColor = 'text-amber-500';
+  let strokeColor = 'stroke-amber-500';
+  let tip = 'Try setting and adhering to a strict monthly budget to keep expenses down.';
+
+  if (totalScore >= 80) {
+    statusText = 'Excellent';
+    statusColor = 'text-emerald-500';
+    strokeColor = 'stroke-emerald-500';
+    tip = 'Great job! You maintain high savings and are growing your investments.';
+  } else if (totalScore >= 60) {
+    statusText = 'Good';
+    statusColor = 'text-primary';
+    strokeColor = 'stroke-primary';
+    tip = 'Your financial health is solid. Consider increasing your crypto/stock portfolio.';
+  } else if (totalScore < 40) {
+    statusText = 'Needs Attention';
+    statusColor = 'text-destructive';
+    strokeColor = 'stroke-destructive';
+    tip = 'High burn rate or over-budget categories detected. Focus on reducing variable expenses.';
+  }
+
+  const radius = 36;
+  const circumference = 2 * Math.PI * radius;
+  const strokeDashoffset = circumference - (totalScore / 100) * circumference;
+
+  return (
+    <div className="bg-card p-4 md:p-6 rounded-2xl shadow-sm border border-border flex flex-col justify-between min-h-[220px]">
+      <div>
+        <h2 className="text-base md:text-lg font-semibold flex items-center gap-2">
+          <Zap className="text-primary animate-pulse" size={18} /> Financial Health Score
+        </h2>
+        <p className="text-xs text-muted-foreground mt-0.5">Real-time analysis of your spending, saving, and assets.</p>
+      </div>
+
+      <div className="flex items-center gap-6 py-3 my-auto">
+        <div className="relative flex items-center justify-center shrink-0 w-24 h-24">
+          <svg className="w-full h-full transform -rotate-90">
+            <circle
+              cx="48"
+              cy="48"
+              r={radius}
+              className="stroke-muted"
+              strokeWidth="8"
+              fill="transparent"
+            />
+            <circle
+              cx="48"
+              cy="48"
+              r={radius}
+              className={`transition-all duration-1000 ease-out ${strokeColor}`}
+              strokeWidth="8"
+              fill="transparent"
+              strokeDasharray={circumference}
+              strokeDashoffset={strokeDashoffset}
+              strokeLinecap="round"
+            />
+          </svg>
+          <div className="absolute flex flex-col items-center">
+            <span className="text-xl font-black">{totalScore}</span>
+            <span className="text-[9px] font-semibold uppercase tracking-wider text-muted-foreground">Score</span>
+          </div>
+        </div>
+
+        <div className="space-y-1">
+          <span className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">Status Rating</span>
+          <p className={`text-base font-bold ${statusColor}`}>{statusText}</p>
+          <p className="text-xs text-muted-foreground leading-normal mt-0.5">{tip}</p>
+        </div>
+      </div>
+    </div>
+  );
+};
+
+
 // ─── Main Dashboard ─────────────────────────────────────────────────────────
 
 const Dashboard: React.FC = () => {
@@ -358,13 +469,26 @@ const Dashboard: React.FC = () => {
   // Heatmap
   const [dailySpend, setDailySpend] = useState<DailySpend[]>([]);
 
+  // Raw lists for custom dashboard legends
+  const [categoriesList, setCategoriesList] = useState<{ category: string; subcategory: string | null; total: number }[]>([]);
+  const [paymentList, setPaymentList] = useState<{ payment_method: string; total: number }[]>([]);
+  const [showAllCategories, setShowAllCategories] = useState(false);
+
+  // Recent activity / targets
+  const [recentTransactions, setRecentTransactions] = useState<Transaction[]>([]);
+  const [upcomingReminders, setUpcomingReminders] = useState<Reminder[]>([]);
+  const [activeGoals, setActiveGoals] = useState<Goal[]>([]);
+  const [accountsList, setAccountsList] = useState<any[]>([]);
+  const [totalBalance, setTotalBalance] = useState(0);
+
   // ── Loaders ────────────────────────────────────────────────────────────────
 
   const loadBaseData = useCallback(async () => {
     try {
-      const [nw, comp, burn, spikes, pValue] = await Promise.all([
+      const [nw, comp, burn, spikes, pValue, txs, rems, gls, accs] = await Promise.all([
         getNetWorth(), getMonthlyComparison(),
-        getBurnRate(), getCategorySpikes(), calculatePortfolioValue()
+        getBurnRate(), getCategorySpikes(), calculatePortfolioValue(),
+        getTransactions(4), getReminders(), getGoals(), getSummaryByAccount()
       ]);
 
       setSummary({
@@ -377,6 +501,14 @@ const Dashboard: React.FC = () => {
       setMonthlyComp(comp);
       setBurnRate(burn);
       setInsights(spikes);
+      setRecentTransactions(txs || []);
+      setUpcomingReminders(rems || []);
+      setActiveGoals(gls || []);
+      setAccountsList(accs || []);
+
+      const balance = (accs || []).reduce((acc: number, curr: any) =>
+        acc + (curr.initial_balance + curr.income - curr.expense + (curr.transfer_in || 0) - (curr.transfer_out || 0)), 0);
+      setTotalBalance(balance);
 
       setCashFlowChart({
         labels: ['Prev Month', 'This Month'],
@@ -395,9 +527,16 @@ const Dashboard: React.FC = () => {
   const loadCategoryChart = useCallback(async (period: ChartPeriod) => {
     try {
       const cats = await getExpensesByCategoryByPeriod(period);
+      setCategoriesList(cats || []);
+      const colors = ['#3b82f6', '#ef4444', '#10b981', '#f59e0b', '#8b5cf6', '#ec4899', '#6b7280', '#06b6d4', '#14b8a6', '#f43f5e'];
       setCategoryChart(cats?.length ? {
         labels: cats.map((d: any) => d.subcategory ? `${d.category} > ${d.subcategory}` : d.category),
-        datasets: [{ data: cats.map((d: any) => d.total), backgroundColor: ['#3b82f6', '#ef4444', '#10b981', '#f59e0b', '#8b5cf6', '#ec4899', '#6b7280'], borderWidth: 0, hoverOffset: 4 }]
+        datasets: [{
+          data: cats.map((d: any) => d.total),
+          backgroundColor: cats.map((_, i) => colors[i % colors.length]),
+          borderWidth: 0,
+          hoverOffset: 4
+        }]
       } : null);
     } catch { /* ignore */ }
   }, []);
@@ -405,9 +544,15 @@ const Dashboard: React.FC = () => {
   const loadPaymentChart = useCallback(async (period: ChartPeriod) => {
     try {
       const payments = await getPaymentMethodStatsByPeriod(period);
+      setPaymentList(payments || []);
+      const colors = ['#6366f1', '#8b5cf6', '#d946ef', '#f43f5e', '#ec4899', '#3b82f6'];
       setPaymentChart(payments?.length ? {
         labels: payments.map((d: any) => d.payment_method),
-        datasets: [{ data: payments.map((d: any) => d.total), backgroundColor: ['#6366f1', '#8b5cf6', '#d946ef', '#f43f5e'], borderWidth: 0 }]
+        datasets: [{
+          data: payments.map((d: any) => d.total),
+          backgroundColor: payments.map((_, i) => colors[i % colors.length]),
+          borderWidth: 0
+        }]
       } : null);
     } catch { /* ignore */ }
   }, []);
@@ -458,7 +603,7 @@ const Dashboard: React.FC = () => {
   // ── Derived ────────────────────────────────────────────────────────────────
 
   const savingsRate = summary.income > 0 ? ((summary.income - summary.expense) / summary.income) * 100 : 0;
-  const currentBalance = netWorth + portfolioValue;
+  const currentBalance = netWorth;
   const daysRemaining = burnRate > 0 && currentBalance > 0 ? Math.floor(currentBalance / burnRate) : null;
 
   if (loading) {
@@ -489,7 +634,7 @@ const Dashboard: React.FC = () => {
             <span className="text-xs md:text-sm font-medium">Total Net Worth</span>
             <Wallet size={16} />
           </div>
-          <p className="text-2xl md:text-3xl font-black">{formatAmount(netWorth + portfolioValue)}</p>
+          <p className="text-2xl md:text-3xl font-black">{formatAmount(netWorth)}</p>
         </div>
 
         <div className="bg-card p-3 md:p-6 rounded-2xl shadow-sm border border-border">
@@ -554,6 +699,15 @@ const Dashboard: React.FC = () => {
           </div>
         );
       })()}
+
+      {/* ── Financial Health Score ── */}
+      <FinancialHealthScore
+        savingsRate={savingsRate}
+        budgetRows={budgetRows}
+        netWorth={netWorth}
+        portfolioValue={portfolioValue}
+        formatAmount={formatAmount}
+      />
 
       {/* ── Intelligence Brief + Cash Flow ── */}
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-4 md:gap-6">
@@ -667,32 +821,337 @@ const Dashboard: React.FC = () => {
       </div>
 
       {/* ── Category & Payment Charts ── */}
-      <div className="grid grid-cols-1 md:grid-cols-2 gap-4 md:gap-6">
-        <div className="bg-card p-4 md:p-6 rounded-2xl shadow-sm border border-border">
-          <div className="flex flex-wrap items-center justify-between gap-2 mb-4">
-            <h2 className="text-base md:text-lg font-semibold">Expenses by Category</h2>
+      <div className="grid grid-cols-1 lg:grid-cols-2 gap-4 md:gap-6">
+        {/* Expenses by Category */}
+        <div className="bg-card p-4 md:p-6 rounded-2xl shadow-sm border border-border flex flex-col justify-between">
+          <div className="flex flex-wrap items-center justify-between gap-2 mb-6">
+            <div>
+              <h2 className="text-base md:text-lg font-semibold">Expenses by Category</h2>
+              <p className="text-xs text-muted-foreground mt-0.5">Visual breakdown of categorized outlays.</p>
+            </div>
             <PeriodToggle value={categoryPeriod} onChange={setCategoryPeriod} />
           </div>
-          <div className="h-56 md:h-64 flex justify-center items-center">
-            {categoryChart ? (
-              <Doughnut data={categoryChart} options={{ maintainAspectRatio: false, cutout: '68%', plugins: { legend: { position: 'bottom', labels: { usePointStyle: true, padding: 14, boxWidth: 8, font: { size: 11 } } } } }} />
-            ) : (
+
+          {categoryChart ? (
+            <div className="flex flex-col sm:flex-row items-center gap-6 sm:gap-8">
+              {/* Chart Container */}
+              <div className="relative w-40 h-40 md:w-44 md:h-44 shrink-0 mx-auto">
+                <Doughnut
+                  data={categoryChart}
+                  options={{
+                    maintainAspectRatio: false,
+                    cutout: '76%',
+                    plugins: {
+                      legend: { display: false }
+                    }
+                  }}
+                />
+                <div className="absolute inset-0 flex flex-col items-center justify-center pointer-events-none">
+                  <span className="text-[9px] uppercase font-bold tracking-widest text-muted-foreground">Total Spent</span>
+                  <span className="text-sm font-black text-foreground mt-0.5">
+                    {formatAmount(categoriesList.reduce((acc, curr) => acc + curr.total, 0))}
+                  </span>
+                </div>
+              </div>
+
+              {/* Custom Legend */}
+              <div className="flex-1 w-full space-y-2.5">
+                {(showAllCategories ? categoriesList : categoriesList.slice(0, 5)).map((item, idx) => {
+                  const colors = ['#3b82f6', '#ef4444', '#10b981', '#f59e0b', '#8b5cf6', '#ec4899', '#6b7280', '#06b6d4', '#14b8a6', '#f43f5e'];
+                  const color = colors[idx % colors.length];
+                  const totalExpense = categoriesList.reduce((acc, curr) => acc + curr.total, 0);
+                  const pct = totalExpense > 0 ? (item.total / totalExpense) * 100 : 0;
+                  const label = item.subcategory ? `${item.category} › ${item.subcategory}` : item.category;
+
+                  return (
+                    <div key={idx} className="group/item flex flex-col space-y-0.5">
+                      <div className="flex items-center justify-between text-[11px] font-semibold">
+                        <div className="flex items-center gap-1.5 min-w-0">
+                          <span className="w-2.5 h-2.5 rounded-full shrink-0" style={{ backgroundColor: color }} />
+                          <span className="truncate text-foreground/90 group-hover/item:text-primary transition-colors">{label}</span>
+                        </div>
+                        <div className="flex items-center gap-2 shrink-0">
+                          <span className="text-muted-foreground">{pct.toFixed(0)}%</span>
+                          <span className="text-foreground">{formatAmount(item.total)}</span>
+                        </div>
+                      </div>
+                      <div className="w-full h-1 bg-muted rounded-full overflow-hidden">
+                        <div
+                          className="h-full rounded-full transition-all duration-500"
+                          style={{ width: `${pct}%`, backgroundColor: color }}
+                        />
+                      </div>
+                    </div>
+                  );
+                })}
+                {categoriesList.length > 5 && (
+                  <button
+                    onClick={() => setShowAllCategories(prev => !prev)}
+                    className="flex items-center gap-1 text-[10px] text-primary hover:text-primary/80 font-semibold mt-1 ml-auto transition-colors"
+                  >
+                    {showAllCategories ? (
+                      <>
+                        <span>▲ Show less</span>
+                      </>
+                    ) : (
+                      <>
+                        <span>+ {categoriesList.length - 5} more categories</span>
+                      </>
+                    )}
+                  </button>
+                )}
+              </div>
+            </div>
+          ) : (
+            <div className="h-40 flex items-center justify-center">
               <p className="text-muted-foreground text-sm">No data {periodLabel[categoryPeriod]}.</p>
-            )}
+            </div>
+          )}
+        </div>
+
+        {/* Payment Methods */}
+        <div className="bg-card p-4 md:p-6 rounded-2xl shadow-sm border border-border flex flex-col justify-between">
+          <div className="flex flex-wrap items-center justify-between gap-2 mb-6">
+            <div>
+              <h2 className="text-base md:text-lg font-semibold">Payment Methods</h2>
+              <p className="text-xs text-muted-foreground mt-0.5">Expenses segmented by payment method.</p>
+            </div>
+            <PeriodToggle value={paymentPeriod} onChange={setPaymentPeriod} />
+          </div>
+
+          {paymentChart ? (
+            <div className="flex flex-col sm:flex-row items-center gap-6 sm:gap-8">
+              {/* Chart Container */}
+              <div className="relative w-40 h-40 md:w-44 md:h-44 shrink-0 mx-auto">
+                <Doughnut
+                  data={paymentChart}
+                  options={{
+                    maintainAspectRatio: false,
+                    cutout: '76%',
+                    plugins: {
+                      legend: { display: false }
+                    }
+                  }}
+                />
+                <div className="absolute inset-0 flex flex-col items-center justify-center pointer-events-none">
+                  <span className="text-[9px] uppercase font-bold tracking-widest text-muted-foreground">Total</span>
+                  <span className="text-sm font-black text-foreground mt-0.5">
+                    {formatAmount(paymentList.reduce((acc, curr) => acc + curr.total, 0))}
+                  </span>
+                </div>
+              </div>
+
+              {/* Custom Legend */}
+              <div className="flex-1 w-full space-y-2.5">
+                {paymentList.slice(0, 5).map((item, idx) => {
+                  const colors = ['#6366f1', '#8b5cf6', '#d946ef', '#f43f5e', '#ec4899', '#3b82f6'];
+                  const color = colors[idx % colors.length];
+                  const totalPayment = paymentList.reduce((acc, curr) => acc + curr.total, 0);
+                  const pct = totalPayment > 0 ? (item.total / totalPayment) * 100 : 0;
+
+                  return (
+                    <div key={idx} className="group/item flex flex-col space-y-0.5">
+                      <div className="flex items-center justify-between text-[11px] font-semibold">
+                        <div className="flex items-center gap-1.5 min-w-0">
+                          <span className="w-2.5 h-2.5 rounded-full shrink-0" style={{ backgroundColor: color }} />
+                          <span className="truncate text-foreground/90 group-hover/item:text-primary transition-colors">{item.payment_method}</span>
+                        </div>
+                        <div className="flex items-center gap-2 shrink-0">
+                          <span className="text-muted-foreground">{pct.toFixed(0)}%</span>
+                          <span className="text-foreground">{formatAmount(item.total)}</span>
+                        </div>
+                      </div>
+                      <div className="w-full h-1 bg-muted rounded-full overflow-hidden">
+                        <div
+                          className="h-full rounded-full transition-all duration-500"
+                          style={{ width: `${pct}%`, backgroundColor: color }}
+                        />
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+            </div>
+          ) : (
+            <div className="h-40 flex items-center justify-center">
+              <p className="text-muted-foreground text-sm">No data {periodLabel[paymentPeriod]}.</p>
+            </div>
+          )}
+        </div>
+      </div>
+
+      {/* ── Recent Activity, Upcoming Bills & Savings Goals ── */}
+      <div className="grid grid-cols-1 lg:grid-cols-3 gap-4 md:gap-6">
+        {/* Recent Transactions */}
+        <div className="bg-card p-4 md:p-6 rounded-2xl shadow-sm border border-border flex flex-col justify-between">
+          <div>
+            <div className="flex items-center justify-between mb-4">
+              <h2 className="text-base md:text-lg font-semibold flex items-center gap-2">
+                <Activity size={18} className="text-primary" /> Recent Activity
+              </h2>
+              <Link to="/transactions" className="text-xs font-semibold text-primary hover:underline flex items-center gap-0.5">
+                See All <ArrowRight size={12} />
+              </Link>
+            </div>
+            
+            <div className="space-y-3">
+              {recentTransactions.length === 0 ? (
+                <p className="text-sm text-muted-foreground italic text-center py-6">No recent transactions.</p>
+              ) : (
+                recentTransactions.map((trx) => {
+                  const isIncome = trx.type === 'income';
+                  const isTransfer = trx.type === 'transfer';
+                  return (
+                    <div key={trx.id} className="flex items-center justify-between p-2 rounded-xl hover:bg-muted/40 transition-colors">
+                      <div className="flex items-center gap-3 min-w-0">
+                        <div className={`p-2 rounded-full shrink-0 ${
+                          isIncome ? 'bg-emerald-500/10 text-emerald-500' :
+                          isTransfer ? 'bg-blue-500/10 text-blue-500' :
+                          'bg-destructive/10 text-destructive'
+                        }`}>
+                          {isIncome ? <ArrowUpIcon size={14} /> : isTransfer ? <RefreshCw size={14} /> : <ArrowDownIcon size={14} />}
+                        </div>
+                        <div className="min-w-0">
+                          <p className="text-xs font-bold text-foreground truncate">{trx.description || trx.category}</p>
+                          <p className="text-[10px] text-muted-foreground mt-0.5 capitalize truncate">
+                            {isTransfer ? 'Transfer' : trx.subcategory ? `${trx.category} › ${trx.subcategory}` : trx.category} · {new Date(trx.date).toLocaleDateString('en-US', { month: 'short', day: 'numeric' })}
+                          </p>
+                        </div>
+                      </div>
+                      <span className={`text-xs font-bold shrink-0 ${isIncome ? 'text-emerald-500' : isTransfer ? 'text-blue-500' : 'text-foreground'}`}>
+                        {isIncome ? '+' : isTransfer ? '⇄' : '-'}{formatAmount(trx.amount)}
+                      </span>
+                    </div>
+                  );
+                })
+              )}
+            </div>
           </div>
         </div>
 
-        <div className="bg-card p-4 md:p-6 rounded-2xl shadow-sm border border-border">
-          <div className="flex flex-wrap items-center justify-between gap-2 mb-4">
-            <h2 className="text-base md:text-lg font-semibold">Payment Methods</h2>
-            <PeriodToggle value={paymentPeriod} onChange={setPaymentPeriod} />
+        {/* Upcoming Bills */}
+        <div className="bg-card p-4 md:p-6 rounded-2xl shadow-sm border border-border flex flex-col justify-between">
+          <div>
+            <div className="flex items-center justify-between mb-4">
+              <h2 className="text-base md:text-lg font-semibold flex items-center gap-2">
+                <Calendar size={18} className="text-primary" /> Upcoming Bills
+              </h2>
+              <Link to="/reminders" className="text-xs font-semibold text-primary hover:underline flex items-center gap-0.5">
+                Manage <ArrowRight size={12} />
+              </Link>
+            </div>
+
+            <div className="space-y-3">
+              {upcomingReminders.filter(r => r.status === 'pending').length === 0 ? (
+                <div className="text-center py-6 flex flex-col items-center justify-center">
+                  <ShieldCheck size={28} className="mb-2 text-emerald-500 opacity-60" />
+                  <p className="text-xs text-muted-foreground font-medium">All bills paid! No pending reminders.</p>
+                </div>
+              ) : (
+                upcomingReminders
+                  .filter(r => r.status === 'pending')
+                  .slice(0, 3)
+                  .map((rem) => {
+                    const dueDate = new Date(rem.due_date);
+                    const today = new Date();
+                    today.setHours(0, 0, 0, 0);
+                    dueDate.setHours(0, 0, 0, 0);
+                    const diffTime = dueDate.getTime() - today.getTime();
+                    const diffDays = Math.ceil(diffTime / (1000 * 60 * 60 * 24));
+                    
+                    let dateText = '';
+                    let badgeStyle = 'bg-muted text-muted-foreground border-border';
+                    if (diffDays < 0) {
+                      dateText = `Overdue by ${Math.abs(diffDays)} day${Math.abs(diffDays) === 1 ? '' : 's'}`;
+                      badgeStyle = 'bg-destructive/10 text-destructive border-destructive/20 font-semibold';
+                    } else if (diffDays === 0) {
+                      dateText = 'Due Today';
+                      badgeStyle = 'bg-amber-500/10 text-amber-500 border-amber-500/20 font-semibold animate-pulse';
+                    } else if (diffDays === 1) {
+                      dateText = 'Due Tomorrow';
+                      badgeStyle = 'bg-amber-500/5 text-amber-500 border-amber-500/15';
+                    } else {
+                      dateText = `Due in ${diffDays} days`;
+                      badgeStyle = 'bg-muted text-muted-foreground border-border';
+                    }
+
+                    return (
+                      <div key={rem.id} className="flex items-center justify-between p-2.5 rounded-xl border border-border/50 hover:bg-muted/40 transition-colors">
+                        <div className="min-w-0">
+                          <p className="text-xs font-bold text-foreground truncate">{rem.title}</p>
+                          <span className={`inline-block text-[9px] px-1.5 py-0.5 rounded border mt-1 ${badgeStyle}`}>
+                            {dateText}
+                          </span>
+                        </div>
+                        <div className="text-right shrink-0">
+                          <p className="text-xs font-black">{formatAmount(rem.amount)}</p>
+                          <p className="text-[9px] text-muted-foreground mt-0.5 uppercase tracking-wider">{rem.frequency}</p>
+                        </div>
+                      </div>
+                    );
+                  })
+              )}
+            </div>
           </div>
-          <div className="h-56 md:h-64 flex justify-center items-center">
-            {paymentChart ? (
-              <Pie data={paymentChart} options={{ maintainAspectRatio: false, plugins: { legend: { position: 'bottom', labels: { usePointStyle: true, padding: 14, boxWidth: 8, font: { size: 11 } } } } }} />
-            ) : (
-              <p className="text-muted-foreground text-sm">No data {periodLabel[paymentPeriod]}.</p>
-            )}
+        </div>
+
+        {/* Savings Goals */}
+        <div className="bg-card p-4 md:p-6 rounded-2xl shadow-sm border border-border flex flex-col justify-between">
+          <div>
+            <div className="flex items-center justify-between mb-4">
+              <h2 className="text-base md:text-lg font-semibold flex items-center gap-2">
+                <Target size={18} className="text-primary" /> Savings Goals
+              </h2>
+              <Link to="/goals" className="text-xs font-semibold text-primary hover:underline flex items-center gap-0.5">
+                View All <ArrowRight size={12} />
+              </Link>
+            </div>
+
+            <div className="space-y-3.5">
+              {activeGoals.length === 0 ? (
+                <p className="text-xs text-muted-foreground italic text-center py-6">No savings goals defined.</p>
+              ) : (
+                activeGoals.slice(0, 3).map((goal) => {
+                  let currentBalance = 0;
+                  if (goal.linked_accounts) {
+                    try {
+                      const linkedIds = JSON.parse(goal.linked_accounts);
+                      if (Array.isArray(linkedIds) && linkedIds.length > 0) {
+                        currentBalance = accountsList
+                          .filter(a => linkedIds.includes(a.id))
+                          .reduce((acc, curr) => acc + (curr.initial_balance + curr.income - curr.expense + (curr.transfer_in || 0) - (curr.transfer_out || 0)), 0);
+                      }
+                    } catch (e) {
+                      currentBalance = totalBalance;
+                    }
+                  } else {
+                    currentBalance = totalBalance;
+                  }
+
+                  const progress = Math.min((currentBalance / goal.target_amount) * 100, 100);
+                  const isCompleted = progress >= 100;
+
+                  return (
+                    <div key={goal.id} className="space-y-1.5">
+                      <div className="flex items-center justify-between text-xs font-bold">
+                        <span className="text-foreground/90 truncate max-w-[140px]">{goal.name}</span>
+                        <span className="text-muted-foreground text-[10px]">{progress.toFixed(0)}%</span>
+                      </div>
+                      <div className="w-full h-2 bg-muted rounded-full overflow-hidden">
+                        <div
+                          className={`h-full rounded-full transition-all duration-500 ${isCompleted ? 'bg-emerald-500' : 'bg-primary'}`}
+                          style={{ width: `${progress}%` }}
+                        />
+                      </div>
+                      <div className="flex justify-between text-[9px] text-muted-foreground font-semibold">
+                        <span>{formatAmount(currentBalance)}</span>
+                        <span>Target: {formatAmount(goal.target_amount)}</span>
+                      </div>
+                    </div>
+                  );
+                })
+              )}
+            </div>
           </div>
         </div>
       </div>

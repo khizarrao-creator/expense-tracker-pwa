@@ -47,6 +47,7 @@ const Investments: React.FC = () => {
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
   const [editingInvestment, setEditingInvestment] = useState<Investment | null>(null);
+  const [selectedAsset, setSelectedAsset] = useState<Investment | null>(null);
 
   const [mexcApiKey, setMexcApiKey] = useState('');
   const [mexcBalances, setMexcBalances] = useState<any[]>([]);
@@ -648,7 +649,11 @@ const Investments: React.FC = () => {
                   const plPct = costVal > 0 ? (pl / costVal) * 100 : 0;
 
                   return (
-                    <div key={inv.id} className="bg-card p-5 rounded-2xl border border-border group hover:border-primary/50 transition-all shadow-sm hover:shadow-md relative overflow-hidden">
+                    <div
+                      key={inv.id}
+                      onClick={() => setSelectedAsset(inv)}
+                      className="bg-card p-5 rounded-2xl border border-border group hover:border-primary/50 transition-all shadow-sm hover:shadow-md relative overflow-hidden cursor-pointer hover:scale-[1.01] active:scale-[0.99]"
+                    >
                       <div className={`absolute top-0 left-0 w-1 h-full ${pl >= 0 ? 'bg-emerald-500' : 'bg-destructive'}`} />
                       <div className="flex justify-between items-start mb-4">
                         <div>
@@ -677,14 +682,20 @@ const Investments: React.FC = () => {
                         <div className="flex gap-1">
                           {inv.type !== 'Crypto' && (
                             <button
-                              onClick={() => handleEdit(inv)}
+                              onClick={(e) => {
+                                e.stopPropagation();
+                                handleEdit(inv);
+                              }}
                               className="text-muted-foreground opacity-0 group-hover:opacity-100 hover:text-primary transition-all p-1"
                             >
                               <Edit3 size={18} />
                             </button>
                           )}
                           <button
-                            onClick={() => handleDelete(inv.id)}
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              handleDelete(inv.id);
+                            }}
                             className="text-muted-foreground opacity-0 group-hover:opacity-100 hover:text-destructive transition-all p-1"
                           >
                             <Trash2 size={18} />
@@ -1177,6 +1188,212 @@ const Investments: React.FC = () => {
           </div>
         </div>
       )}
+
+      {/* Asset Detail Modal */}
+      {selectedAsset && (() => {
+        const inv = selectedAsset;
+        const currentExRate = inv.current_exchange_rate || 1;
+        const currentVal = inv.units * inv.current_price * currentExRate;
+        const costVal = inv.units * inv.average_buy_price * inv.buy_exchange_rate;
+        const pl = currentVal - costVal;
+        const plPct = costVal > 0 ? (pl / costVal) * 100 : 0;
+        const fundingAccount = accounts.find(a => a.id === inv.funding_account_id);
+
+        // Pure Exchange market trade PnL calculations for crypto assets
+        const tradeAvgUSD = inv.trade_avg_buy_price || inv.average_buy_price;
+        const tradePlUSD = (inv.current_price - tradeAvgUSD) * inv.units;
+        const tradePlPct = tradeAvgUSD > 0 ? ((inv.current_price - tradeAvgUSD) / tradeAvgUSD) * 100 : 0;
+
+        return (
+          <div className="fixed inset-0 z-[60] flex items-center justify-center p-4 bg-background/80 backdrop-blur-md animate-in fade-in duration-200">
+            <div className="bg-card border border-border w-full max-w-xl rounded-[2.5rem] shadow-[0_32px_64px_-12px_rgba(0,0,0,0.3)] overflow-hidden animate-in fade-in zoom-in-95 duration-300">
+              {/* Modal Header */}
+              <div className="p-8 border-b border-border flex items-center justify-between bg-muted/30">
+                <div>
+                  <div className="flex items-center gap-2 mb-1">
+                    <span className="text-[10px] font-black uppercase tracking-widest text-muted-foreground bg-muted px-2 py-0.5 rounded-md">
+                      {inv.type}
+                    </span>
+                    <span className="text-[10px] font-black uppercase tracking-widest text-primary bg-primary/10 px-2 py-0.5 rounded-md">
+                      {inv.currency}
+                    </span>
+                  </div>
+                  <h2 className="text-2xl font-black tracking-tight">{inv.name} Details</h2>
+                </div>
+                <button onClick={() => setSelectedAsset(null)} className="bg-background text-muted-foreground hover:text-foreground p-2 rounded-full transition-colors shadow-sm">
+                  <X size={24} />
+                </button>
+              </div>
+
+              {/* Modal Body */}
+              <div className="p-8 space-y-6">
+                {/* Highlight Stats */}
+                <div className="grid grid-cols-2 gap-4">
+                  <div className="bg-muted/30 p-5 rounded-2xl border border-border">
+                    <p className="text-xs text-muted-foreground font-bold uppercase tracking-wider mb-1">Current Value</p>
+                    <p className="text-2xl font-black">{formatAmount(currentVal)}</p>
+                  </div>
+                  <div className="bg-muted/30 p-5 rounded-2xl border border-border">
+                    <p className="text-xs text-muted-foreground font-bold uppercase tracking-wider mb-1">Profit / Loss (Actual)</p>
+                    <div className={`flex items-center gap-1.5 text-lg font-black ${pl >= 0 ? 'text-emerald-500' : 'text-destructive'}`}>
+                      {pl >= 0 ? <TrendingUp size={18} /> : <TrendingDown size={18} />}
+                      {pl >= 0 ? '+' : ''}{plPct.toFixed(2)}%
+                    </div>
+                    <p className={`text-sm font-bold ${pl >= 0 ? 'text-emerald-500/80' : 'text-destructive/80'}`}>
+                      {pl >= 0 ? '+' : ''}{formatAmount(pl)}
+                    </p>
+                  </div>
+                </div>
+
+                {/* Detailed Parameters List */}
+                <div className="space-y-4">
+                  <h3 className="text-xs font-black uppercase tracking-widest text-muted-foreground border-b border-border pb-2">Position Details</h3>
+                  
+                  <div className="space-y-3">
+                    <div className="flex justify-between items-center text-sm py-1">
+                      <span className="text-muted-foreground font-semibold">Total Quantity</span>
+                      <span className="font-mono font-bold text-foreground">
+                        {inv.units.toLocaleString(undefined, { maximumFractionDigits: 6 })} units
+                      </span>
+                    </div>
+
+                    <div className="flex justify-between items-center text-sm py-1 border-t border-border/40">
+                      <span className="text-muted-foreground font-semibold">Current Unit Price</span>
+                      <div className="text-right">
+                        <span className="font-mono font-bold text-foreground">
+                          {inv.currency} {inv.current_price.toLocaleString(undefined, { maximumFractionDigits: 6 })}
+                        </span>
+                        {inv.currency !== baseCurrency.code && (
+                          <p className="text-[10px] text-muted-foreground font-bold">
+                            ≈ {formatAmount(inv.current_price * currentExRate)}
+                          </p>
+                        )}
+                      </div>
+                    </div>
+
+                    <div className="flex justify-between items-center text-sm py-1 border-t border-border/40">
+                      <span className="text-muted-foreground font-semibold">Avg. Purchase Price (WAC)</span>
+                      <div className="text-right">
+                        <span className="font-mono font-bold text-foreground">
+                          {inv.currency} {inv.average_buy_price.toLocaleString(undefined, { maximumFractionDigits: 6 })}
+                        </span>
+                        {inv.currency !== baseCurrency.code && (
+                          <p className="text-[10px] text-emerald-500 font-bold text-right">
+                            (Actual Cost) ≈ {formatAmount(inv.average_buy_price * inv.buy_exchange_rate)}
+                          </p>
+                        )}
+                      </div>
+                    </div>
+
+                    {inv.type === 'Crypto' && inv.trade_avg_buy_price && inv.trade_avg_buy_price > 0 ? (
+                      <div className="flex justify-between items-center text-sm py-1 border-t border-border/40">
+                        <span className="text-muted-foreground font-semibold">Avg. Trade Price (Exchange)</span>
+                        <div className="text-right">
+                          <span className="font-mono font-bold text-foreground">
+                            {inv.currency} {inv.trade_avg_buy_price.toLocaleString(undefined, { maximumFractionDigits: 6 })}
+                          </span>
+                          <p className="text-[10px] text-muted-foreground font-bold">
+                            (Isolated Market Price)
+                          </p>
+                        </div>
+                      </div>
+                    ) : null}
+
+                    {inv.type === 'Crypto' && inv.trade_avg_buy_price && inv.trade_avg_buy_price > 0 ? (
+                      <div className="flex justify-between items-center text-sm py-1 border-t border-border/40">
+                        <span className="text-muted-foreground font-semibold">Exchange PnL (Isolated)</span>
+                        <div className={`text-right font-bold ${tradePlUSD >= 0 ? 'text-emerald-500' : 'text-destructive'}`}>
+                          <span>
+                            {tradePlUSD >= 0 ? '+' : ''}{tradePlUSD.toLocaleString(undefined, { maximumFractionDigits: 2 })} USD
+                          </span>
+                          <span className="text-xs ml-1 opacity-80">
+                            ({tradePlUSD >= 0 ? '+' : ''}{tradePlPct.toFixed(2)}%)
+                          </span>
+                        </div>
+                      </div>
+                    ) : null}
+
+                    <div className="flex justify-between items-center text-sm py-1 border-t border-border/40">
+                      <span className="text-muted-foreground font-semibold">Total Cost Basis</span>
+                      <div className="text-right">
+                        <span className="font-mono font-bold text-foreground">
+                          {inv.currency} {(inv.units * inv.average_buy_price).toLocaleString(undefined, { maximumFractionDigits: 2 })}
+                        </span>
+                        {inv.currency !== baseCurrency.code && (
+                          <p className="text-[10px] text-muted-foreground font-bold">
+                            ≈ {formatAmount(costVal)}
+                          </p>
+                        )}
+                      </div>
+                    </div>
+
+                    {inv.currency !== baseCurrency.code && (
+                      <>
+                        <div className="flex justify-between items-center text-sm py-1 border-t border-border/40">
+                          <span className="text-muted-foreground font-semibold">Buy Exchange Rate</span>
+                          <span className="font-mono font-bold text-foreground">
+                            1 {inv.currency} = {inv.buy_exchange_rate.toLocaleString(undefined, { maximumFractionDigits: 4 })} {baseCurrency.code}
+                          </span>
+                        </div>
+
+                        <div className="flex justify-between items-center text-sm py-1 border-t border-border/40">
+                          <span className="text-muted-foreground font-semibold">Current Exchange Rate</span>
+                          <span className="font-mono font-bold text-foreground">
+                            1 {inv.currency} = {inv.current_exchange_rate.toLocaleString(undefined, { maximumFractionDigits: 4 })} {baseCurrency.code}
+                          </span>
+                        </div>
+                      </>
+                    )}
+
+                    {fundingAccount && (
+                      <div className="flex justify-between items-center text-sm py-1 border-t border-border/40">
+                        <span className="text-muted-foreground font-semibold">Funding Account</span>
+                        <span className="font-bold text-primary flex items-center gap-1">
+                          <Wallet size={14} />
+                          {fundingAccount.name}
+                        </span>
+                      </div>
+                    )}
+
+                    <div className="flex justify-between items-center text-sm py-1 border-t border-border/40">
+                      <span className="text-muted-foreground font-semibold">Last Transacted</span>
+                      <span className="font-semibold text-muted-foreground">
+                        {new Date(inv.updated_at).toLocaleString(undefined, { dateStyle: 'medium', timeStyle: 'short' })}
+                      </span>
+                    </div>
+                  </div>
+                </div>
+
+                {/* Actions inside Modal */}
+                <div className="flex gap-3 mt-6">
+                  {inv.type !== 'Crypto' && (
+                    <button
+                      onClick={() => {
+                        setSelectedAsset(null);
+                        handleEdit(inv);
+                      }}
+                      className="flex-1 bg-muted hover:bg-muted/80 text-foreground py-3.5 rounded-2xl font-black text-sm transition-all flex items-center justify-center gap-2 active:scale-95"
+                    >
+                      <Edit3 size={16} />
+                      Edit Details
+                    </button>
+                  )}
+                  <button
+                    onClick={() => {
+                      setSelectedAsset(null);
+                      handleDelete(inv.id);
+                    }}
+                    className="flex-1 bg-destructive/10 hover:bg-destructive/20 text-destructive py-3.5 rounded-2xl font-black text-sm transition-all flex items-center justify-center gap-2 active:scale-95"
+                  >
+                    <Trash2 size={16} />
+                    Delete Asset
+                  </button>
+                </div>
+              </div>
+            </div>
+          </div>
+        );
+      })()}
     </div>
   );
 };

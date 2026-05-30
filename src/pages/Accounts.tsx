@@ -14,6 +14,9 @@ const Accounts: React.FC = () => {
   const [loading, setLoading] = useState(true);
   const [showAddForm, setShowAddForm] = useState(false);
   const [editingId, setEditingId] = useState<string | null>(null);
+  const [editName, setEditName] = useState('');
+  const [editType, setEditType] = useState('bank');
+  const [editCurrency, setEditCurrency] = useState('');
   const [editBalance, setEditBalance] = useState('');
   
   // MEXC Integration
@@ -110,18 +113,27 @@ const Accounts: React.FC = () => {
     }
   };
 
-  const handleUpdateBalance = async (id: string) => {
+  const handleUpdateAccount = async (id: string) => {
+    if (!editName) {
+      toast.error('Account name is required');
+      return;
+    }
     if (isNaN(Number(editBalance))) {
       toast.error('Please enter a valid balance');
       return;
     }
     try {
-      await updateAccount(id, { initial_balance: Number(editBalance) });
+      await updateAccount(id, {
+        name: editName,
+        type: editType,
+        currency: editCurrency,
+        initial_balance: Number(editBalance),
+      });
       setEditingId(null);
       loadAccounts();
-      toast.success('Initial balance updated');
+      toast.success('Account updated successfully');
     } catch (error) {
-      toast.error('Failed to update balance');
+      toast.error('Failed to update account');
     }
   };
 
@@ -246,6 +258,9 @@ const Accounts: React.FC = () => {
                     <button
                       onClick={() => {
                         setEditingId(acc.id);
+                        setEditName(acc.name);
+                        setEditType(acc.type || 'bank');
+                        setEditCurrency(acc.currency || globalCurrency.code);
                         setEditBalance(acc.initial_balance.toString());
                       }}
                       className="opacity-0 group-hover:opacity-100 p-2 text-muted-foreground hover:text-primary hover:bg-primary/10 rounded-lg transition-all"
@@ -289,18 +304,72 @@ const Accounts: React.FC = () => {
                 </div>
 
                 {isEditing && (
-                  <div className="mt-4 p-4 bg-muted/50 rounded-2xl animate-in slide-in-from-bottom-2">
-                    <label className="block text-[10px] font-black uppercase tracking-widest text-muted-foreground mb-2">Set Initial Balance</label>
-                    <div className="flex gap-2">
-                      <input
-                        type="number"
-                        value={editBalance}
-                        onChange={(e) => setEditBalance(e.target.value)}
-                        className="flex-1 px-4 py-2 bg-background border-2 border-transparent rounded-xl text-sm outline-none focus:border-primary font-bold"
-                        autoFocus
-                      />
-                      <button onClick={() => handleUpdateBalance(acc.id)} className="p-2 text-emerald-500 hover:bg-emerald-500/10 rounded-xl transition-colors"><Check size={20} /></button>
-                      <button onClick={() => setEditingId(null)} className="p-2 text-muted-foreground hover:bg-muted-foreground/10 rounded-xl transition-colors"><X size={20} /></button>
+                  <div className="mt-4 p-4 bg-muted/50 rounded-2xl animate-in slide-in-from-bottom-2 space-y-3">
+                    <h4 className="text-xs font-bold uppercase tracking-wider text-primary mb-1">Edit Account</h4>
+                    
+                    <div className="space-y-2">
+                      <div>
+                        <label className="block text-[9px] font-black uppercase tracking-widest text-muted-foreground mb-1">Account Name</label>
+                        <input
+                          type="text"
+                          value={editName}
+                          onChange={(e) => setEditName(e.target.value)}
+                          className="w-full px-3 py-1.5 bg-background border border-border rounded-lg text-xs font-bold outline-none focus:border-primary"
+                        />
+                      </div>
+                      
+                      <div className="grid grid-cols-2 gap-2">
+                        <div>
+                          <label className="block text-[9px] font-black uppercase tracking-widest text-muted-foreground mb-1">Account Type</label>
+                          <select
+                            value={editType}
+                            onChange={(e) => setEditType(e.target.value)}
+                            className="w-full px-2 py-1.5 bg-background border border-border rounded-lg text-xs font-bold outline-none appearance-none"
+                          >
+                            <option value="bank">Bank Account</option>
+                            <option value="wallet">Mobile Wallet</option>
+                            <option value="crypto">Crypto Wallet</option>
+                            <option value="cash">Cash / Physical</option>
+                          </select>
+                        </div>
+                        <div>
+                          <label className="block text-[9px] font-black uppercase tracking-widest text-muted-foreground mb-1">Currency</label>
+                          <select
+                            value={editCurrency}
+                            onChange={(e) => setEditCurrency(e.target.value)}
+                            className="w-full px-2 py-1.5 bg-background border border-border rounded-lg text-xs font-bold outline-none appearance-none"
+                          >
+                            {currencies.map(c => (
+                              <option key={c.code} value={c.code}>{c.code} ({c.symbol})</option>
+                            ))}
+                          </select>
+                        </div>
+                      </div>
+
+                      <div>
+                        <label className="block text-[9px] font-black uppercase tracking-widest text-muted-foreground mb-1">Initial Balance</label>
+                        <input
+                          type="number"
+                          value={editBalance}
+                          onChange={(e) => setEditBalance(e.target.value)}
+                          className="w-full px-3 py-1.5 bg-background border border-border rounded-lg text-xs font-bold outline-none focus:border-primary"
+                        />
+                      </div>
+                    </div>
+
+                    <div className="flex justify-end gap-2 pt-1">
+                      <button
+                        onClick={() => handleUpdateAccount(acc.id)}
+                        className="flex items-center gap-1 px-3 py-1.5 bg-primary text-primary-foreground rounded-lg text-xs font-bold hover:opacity-90 transition-opacity"
+                      >
+                        <Check size={14} /> Save
+                      </button>
+                      <button
+                        onClick={() => setEditingId(null)}
+                        className="flex items-center gap-1 px-3 py-1.5 bg-muted text-muted-foreground rounded-lg text-xs font-bold hover:bg-muted/80 transition-colors"
+                      >
+                        <X size={14} /> Cancel
+                      </button>
                     </div>
                   </div>
                 )}

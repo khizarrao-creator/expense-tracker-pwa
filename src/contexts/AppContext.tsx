@@ -15,12 +15,14 @@ interface GlobalConfig {
   supportedCurrencies: { code: string; symbol: string; name: string; }[];
   version: string;
   exchanges?: { id: string; name: string; logoUrl?: string; enabled: boolean; }[];
+  disabledFeatures?: string[];
 }
 
 interface AppContextType {
   config: GlobalConfig;
   isLoading: boolean;
   isPro: boolean;
+  disabledFeatures: string[];
 }
 
 const AppContext = createContext<AppContextType | undefined>(undefined);
@@ -53,6 +55,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
   const [isLoading, setIsLoading] = useState(true);
   const [isPro, setIsPro] = useState(false);
   const [isBanned, setIsBanned] = useState(false);
+  const [disabledFeatures, setDisabledFeatures] = useState<string[]>([]);
   const [showAnnouncement, setShowAnnouncement] = useState(true);
   const [showEmergency, setShowEmergency] = useState(true);
   const { user } = useAuth();
@@ -62,6 +65,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     if (!user) {
       setIsPro(false);
       setIsBanned(false);
+      setDisabledFeatures([]);
       return;
     }
 
@@ -70,6 +74,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         const data = doc.data();
         setIsPro(!!data.isPro);
         setIsBanned(!!data.isBanned);
+        setDisabledFeatures(data.disabledFeatures || []);
       }
     });
 
@@ -148,7 +153,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
   }
 
   return (
-    <AppContext.Provider value={{ config, isLoading, isPro }}>
+    <AppContext.Provider value={{ config, isLoading, isPro, disabledFeatures }}>
       {/* Emergency Modal */}
       {config.emergencyMessage && showEmergency && (
         <div className="fixed inset-0 z-[200] flex items-center justify-center p-4 bg-black/80 backdrop-blur-sm animate-in fade-in duration-300">

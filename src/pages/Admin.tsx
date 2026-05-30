@@ -17,7 +17,8 @@ import {
   Zap,
   RefreshCw,
   X,
-  Send
+  Send,
+  Sliders
 } from 'lucide-react';
 import { syncManager } from '../db/SyncManager';
 import { Bar, Pie, Line } from 'react-chartjs-2';
@@ -55,6 +56,20 @@ import ConfirmModal from '../components/ConfirmModal';
 const ADMIN_USER = 'khizar';
 const ADMIN_PASS = '159068';
 
+const FEATURES = [
+  { id: 'goals', name: 'Savings Goals', desc: 'Set and track financial objectives' },
+  { id: 'reminders', name: 'Bill Reminders', desc: 'Never miss an upcoming payment' },
+  { id: 'investments', name: 'Investments', desc: 'Track your portfolio growth' },
+  { id: 'calculator', name: 'Calculator', desc: 'Quick math and percentages' },
+  { id: 'converter', name: 'Currency Converter', desc: 'Real-time exchange rates' },
+  { id: 'tasks', name: 'Task Manager', desc: 'Organize your daily activities and to-dos' },
+  { id: 'loans', name: 'Loan Management', desc: 'Track borrowing and lending' },
+  { id: 'events', name: 'Event Tracking', desc: 'Group related expenses and loans' },
+  { id: 'fuel', name: 'Fuel Tracking', desc: 'Track fuel consumption and costs' },
+  { id: 'reports', name: 'Analytics & Reports', desc: 'Comprehensive financial insights' },
+  { id: 'ai-chat', name: 'AI Copilot', desc: 'Chat with your personal financial AI' }
+];
+
 interface UserProfile {
   id: string;
   email: string;
@@ -69,6 +84,7 @@ interface UserProfile {
     loans: number;
     events: number;
   };
+  disabledFeatures?: string[];
 }
 
 interface AdminLog {
@@ -88,6 +104,7 @@ interface GlobalConfig {
   supportedCurrencies: { code: string; symbol: string; name: string; }[];
   version: string;
   exchanges?: { id: string; name: string; logoUrl?: string; enabled: boolean; }[];
+  disabledFeatures?: string[];
 }
 
 interface SystemStats {
@@ -129,6 +146,9 @@ const Admin: React.FC = () => {
 
   const [hasBackup, setHasBackup] = useState(false);
   const [initialSettings, setInitialSettings] = useState<GlobalConfig | null>(null);
+
+  const [selectedUserForFeatures, setSelectedUserForFeatures] = useState<UserProfile | null>(null);
+  const [userDisabledFeatures, setUserDisabledFeatures] = useState<string[]>([]);
 
   const [newExchangeId, setNewExchangeId] = useState('');
   const [newExchangeName, setNewExchangeName] = useState('');
@@ -441,6 +461,35 @@ const Admin: React.FC = () => {
     }
   };
 
+  useEffect(() => {
+    if (selectedUserForFeatures) {
+      setUserDisabledFeatures(selectedUserForFeatures.disabledFeatures || []);
+    } else {
+      setUserDisabledFeatures([]);
+    }
+  }, [selectedUserForFeatures]);
+
+  const saveUserFeatures = async () => {
+    if (!selectedUserForFeatures) return;
+    try {
+      await updateDoc(doc(db, 'registered_users', selectedUserForFeatures.id), {
+        disabledFeatures: userDisabledFeatures
+      });
+
+      await addDoc(collection(db, 'admin_logs'), {
+        action: `Updated feature access for ${selectedUserForFeatures.email}`,
+        timestamp: serverTimestamp(),
+        admin: ADMIN_USER
+      });
+
+      setUsers(users.map(u => u.id === selectedUserForFeatures.id ? { ...u, disabledFeatures: userDisabledFeatures } : u));
+      setSelectedUserForFeatures(null);
+      toast.success('User features updated successfully');
+    } catch (e) {
+      toast.error('Failed to update user features');
+    }
+  };
+
   const toggleProStatus = async (user: UserProfile) => {
     try {
       await updateDoc(doc(db, 'registered_users', user.id), {
@@ -696,6 +745,13 @@ const Admin: React.FC = () => {
                         </div>
                         <div className="flex items-center gap-2 border-l border-border pl-4">
                           <button
+                            onClick={() => setSelectedUserForFeatures(u)}
+                            className="p-2 rounded-lg text-muted-foreground hover:text-primary hover:bg-primary/10 transition-colors"
+                            title="Manage User Features"
+                          >
+                            <Sliders size={18} />
+                          </button>
+                          <button
                             onClick={() => toggleProStatus(u)}
                             className={`p-2 rounded-lg transition-colors ${u.isPro ? 'text-amber-500 hover:bg-amber-500/10' : 'text-muted-foreground hover:bg-muted'}`}
                             title={u.isPro ? 'Remove Pro' : 'Make Pro'}
@@ -774,30 +830,47 @@ const Admin: React.FC = () => {
                   </button>
                 </div>
 
-                <div className="flex items-center justify-between p-4 bg-muted/50 rounded-2xl border border-border">
-                  <div>
-                    <p className="font-bold text-sm">Fuel Tracking Module</p>
-                    <p className="text-xs text-muted-foreground">Global Fuel/Mileage feature</p>
-                  </div>
-                  <button
-                    onClick={() => setGlobalSettings({ ...globalSettings, fuelTrackingEnabled: !globalSettings.fuelTrackingEnabled })}
-                    className={`w-12 h-6 rounded-full transition-all relative ${globalSettings.fuelTrackingEnabled ? 'bg-emerald-500' : 'bg-muted'}`}
-                  >
-                    <div className={`absolute top-1 w-4 h-4 rounded-full bg-white transition-all ${globalSettings.fuelTrackingEnabled ? 'right-1' : 'left-1'}`} />
-                  </button>
-                </div>
+              </div>
 
-                <div className="flex items-center justify-between p-4 bg-muted/50 rounded-2xl border border-border">
-                  <div>
-                    <p className="font-bold text-sm">Loans Module</p>
-                    <p className="text-xs text-muted-foreground">Global Loan/Debt feature</p>
-                  </div>
-                  <button
-                    onClick={() => setGlobalSettings({ ...globalSettings, loansEnabled: !globalSettings.loansEnabled })}
-                    className={`w-12 h-6 rounded-full transition-all relative ${globalSettings.loansEnabled ? 'bg-emerald-500' : 'bg-muted'}`}
-                  >
-                    <div className={`absolute top-1 w-4 h-4 rounded-full bg-white transition-all ${globalSettings.loansEnabled ? 'right-1' : 'left-1'}`} />
-                  </button>
+              {/* Global Feature Controls */}
+              <div className="border-t border-border pt-6 space-y-4">
+                <div className="flex items-center gap-2">
+                  <Sliders className="text-primary" size={18} />
+                  <h3 className="font-bold text-base">Global Feature Controls</h3>
+                </div>
+                <p className="text-xs text-muted-foreground">Toggle features globally for all users. Disabling a feature here will hide it for everyone.</p>
+                
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                  {FEATURES.map((feature) => {
+                    const isEnabled = !(globalSettings.disabledFeatures || []).includes(feature.id);
+                    return (
+                      <div key={feature.id} className="flex items-center justify-between p-4 bg-muted/50 rounded-2xl border border-border">
+                        <div>
+                          <p className="font-bold text-sm">{feature.name}</p>
+                          <p className="text-xs text-muted-foreground">{feature.desc}</p>
+                        </div>
+                        <button
+                          onClick={() => {
+                            const currentDisabled = globalSettings.disabledFeatures || [];
+                            const updatedDisabled = currentDisabled.includes(feature.id)
+                              ? currentDisabled.filter(id => id !== feature.id)
+                              : [...currentDisabled, feature.id];
+                            
+                            const updates: Partial<GlobalConfig> = {
+                              ...globalSettings,
+                              disabledFeatures: updatedDisabled,
+                              fuelTrackingEnabled: !updatedDisabled.includes('fuel'),
+                              loansEnabled: !updatedDisabled.includes('loans')
+                            };
+                            setGlobalSettings(updates as GlobalConfig);
+                          }}
+                          className={`w-12 h-6 rounded-full transition-all relative shrink-0 ${isEnabled ? 'bg-emerald-500' : 'bg-muted'}`}
+                        >
+                          <div className={`absolute top-1 w-4 h-4 rounded-full bg-white transition-all ${isEnabled ? 'right-1' : 'left-1'}`} />
+                        </button>
+                      </div>
+                    );
+                  })}
                 </div>
               </div>
 
@@ -1144,6 +1217,95 @@ const Admin: React.FC = () => {
               >
                 {isForceSyncing ? <RefreshCw className="animate-spin" size={18} /> : <Send size={18} />}
                 {isForceSyncing ? 'Syncing...' : 'Force Sync Now'}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Manage User Features Modal */}
+      {selectedUserForFeatures && (
+        <div className="fixed inset-0 z-[150] flex items-center justify-center p-4 bg-black/80 backdrop-blur-sm animate-in fade-in duration-300">
+          <div className="bg-card w-full max-w-lg rounded-3xl border border-border shadow-2xl overflow-hidden flex flex-col max-h-[85vh] animate-in zoom-in duration-300">
+            <div className="p-6 border-b border-border flex items-center justify-between">
+              <div>
+                <h2 className="text-xl font-bold">User Feature Access</h2>
+                <p className="text-xs text-muted-foreground mt-1">
+                  {selectedUserForFeatures.displayName || 'Unnamed User'} ({selectedUserForFeatures.email})
+                </p>
+              </div>
+              <button 
+                onClick={() => setSelectedUserForFeatures(null)} 
+                className="p-1 hover:bg-muted rounded-full transition-colors"
+              >
+                <X size={20} />
+              </button>
+            </div>
+
+            <div className="p-6 overflow-y-auto space-y-4 flex-1">
+              <p className="text-xs text-muted-foreground mb-4">
+                Toggle which features are accessible for this user. Note that if a feature is disabled globally in Settings, it will be unavailable regardless of individual user settings.
+              </p>
+              
+              <div className="space-y-3">
+                {FEATURES.map((feature) => {
+                  const isGloballyDisabled = (globalSettings.disabledFeatures || []).includes(feature.id);
+                  const isEnabled = !userDisabledFeatures.includes(feature.id);
+                  
+                  return (
+                    <div 
+                      key={feature.id} 
+                      className={`flex items-center justify-between p-4 rounded-2xl border transition-all ${
+                        isGloballyDisabled 
+                          ? 'bg-muted/30 border-dashed border-border opacity-70' 
+                          : 'bg-muted/50 border-border'
+                      }`}
+                    >
+                      <div className="pr-4">
+                        <div className="flex items-center gap-2">
+                          <p className="font-bold text-sm">{feature.name}</p>
+                          {isGloballyDisabled && (
+                            <span className="text-[9px] bg-rose-500/10 text-rose-500 px-1.5 py-0.5 rounded-full font-bold uppercase">
+                              Disabled Globally
+                            </span>
+                          )}
+                        </div>
+                        <p className="text-xs text-muted-foreground mt-0.5">{feature.desc}</p>
+                      </div>
+                      
+                      <button
+                        onClick={() => {
+                          const updated = userDisabledFeatures.includes(feature.id)
+                            ? userDisabledFeatures.filter(id => id !== feature.id)
+                            : [...userDisabledFeatures, feature.id];
+                          setUserDisabledFeatures(updated);
+                        }}
+                        className={`w-12 h-6 rounded-full transition-all relative shrink-0 ${
+                          isEnabled ? 'bg-emerald-500' : 'bg-muted'
+                        }`}
+                      >
+                        <div className={`absolute top-1 w-4 h-4 rounded-full bg-white transition-all ${
+                          isEnabled ? 'right-1' : 'left-1'
+                        }`} />
+                      </button>
+                    </div>
+                  );
+                })}
+              </div>
+            </div>
+
+            <div className="p-6 bg-muted/30 border-t border-border flex gap-3">
+              <button
+                onClick={() => setSelectedUserForFeatures(null)}
+                className="flex-1 px-4 py-3 bg-muted text-foreground rounded-2xl font-bold hover:bg-muted/80 transition-all text-sm"
+              >
+                Cancel
+              </button>
+              <button
+                onClick={saveUserFeatures}
+                className="flex-[2] px-4 py-3 bg-primary text-primary-foreground rounded-2xl font-bold hover:shadow-lg hover:shadow-primary/20 transition-all text-sm"
+              >
+                Save Permissions
               </button>
             </div>
           </div>

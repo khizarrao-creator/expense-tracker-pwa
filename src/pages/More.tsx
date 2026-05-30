@@ -12,7 +12,8 @@ import {
   Info,
   Layers,
   Fuel,
-  PieChart
+  PieChart,
+  Sparkles
 } from 'lucide-react';
 import { useApp } from '../contexts/AppContext';
 import {
@@ -133,6 +134,15 @@ const DEFAULT_OPTIONS: MoreOption[] = [
     icon: PieChart,
     color: 'text-fuchsia-500',
     bgColor: 'bg-fuchsia-500/10'
+  },
+  {
+    id: 'ai-chat',
+    name: 'AI Copilot',
+    description: 'Chat with your personal financial AI',
+    path: '/ai-chat',
+    icon: Sparkles,
+    color: 'text-violet-400',
+    bgColor: 'bg-violet-500/10'
   }
 ];
 
@@ -192,13 +202,15 @@ const SortableItem = ({ option }: { option: MoreOption }) => {
 };
 
 const More: React.FC = () => {
-  const { config } = useApp();
+  const { config, disabledFeatures } = useApp();
   
   const [options, setOptions] = useState<MoreOption[]>(() => {
     // Filter available options based on global config
     const availableDefaults = DEFAULT_OPTIONS.filter(o => {
       if (o.id === 'fuel' && !config.fuelTrackingEnabled) return false;
       if (o.id === 'loans' && !config.loansEnabled) return false;
+      if (config.disabledFeatures?.includes(o.id)) return false;
+      if (disabledFeatures?.includes(o.id)) return false;
       return true;
     });
 
@@ -220,26 +232,29 @@ const More: React.FC = () => {
     return availableDefaults;
   });
 
-  // Re-filter if global config changes
+  // Re-filter if global config or user disabledFeatures changes
   useEffect(() => {
+    const availableDefaults = DEFAULT_OPTIONS.filter(o => {
+      if (o.id === 'fuel' && !config.fuelTrackingEnabled) return false;
+      if (o.id === 'loans' && !config.loansEnabled) return false;
+      if (config.disabledFeatures?.includes(o.id)) return false;
+      if (disabledFeatures?.includes(o.id)) return false;
+      return true;
+    });
+
     setOptions(prev => {
       const filtered = prev.filter(o => {
         if (o.id === 'fuel' && !config.fuelTrackingEnabled) return false;
         if (o.id === 'loans' && !config.loansEnabled) return false;
-        return true;
-      });
-      
-      // If some options were disabled, we might need to add back options that were re-enabled
-      const availableDefaults = DEFAULT_OPTIONS.filter(o => {
-        if (o.id === 'fuel' && !config.fuelTrackingEnabled) return false;
-        if (o.id === 'loans' && !config.loansEnabled) return false;
+        if (config.disabledFeatures?.includes(o.id)) return false;
+        if (disabledFeatures?.includes(o.id)) return false;
         return true;
       });
       
       const missing = availableDefaults.filter(d => !filtered.find(s => s.id === d.id));
       return [...filtered, ...missing];
     });
-  }, [config.fuelTrackingEnabled, config.loansEnabled]);
+  }, [config.fuelTrackingEnabled, config.loansEnabled, config.disabledFeatures, disabledFeatures]);
 
   useEffect(() => {
     localStorage.setItem('more_options_order', JSON.stringify(options.map(o => o.id)));

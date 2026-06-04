@@ -12,7 +12,9 @@ import {
   Edit3,
   PlusCircle,
   History,
-  BookOpen
+  BookOpen,
+  HelpCircle,
+  Info
 } from 'lucide-react';
 import {
   getInvestments,
@@ -27,6 +29,7 @@ import {
   updateInvestment,
   updateInvestmentInMemory,
   addAssetTransaction,
+  updateAssetTransaction,
   deleteAssetTransaction,
   getAssetTransactions,
   getInventoryLedger,
@@ -47,7 +50,9 @@ const Investments: React.FC = () => {
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
   const [editingInvestment, setEditingInvestment] = useState<Investment | null>(null);
+  const [editingAssetTransaction, setEditingAssetTransaction] = useState<AssetTransaction | null>(null);
   const [selectedAsset, setSelectedAsset] = useState<Investment | null>(null);
+  const [isHelpModalOpen, setIsHelpModalOpen] = useState(false);
 
   const [mexcApiKey, setMexcApiKey] = useState('');
   const [mexcBalances, setMexcBalances] = useState<any[]>([]);
@@ -74,6 +79,7 @@ const Investments: React.FC = () => {
   const [buyExchangeRate, setBuyExchangeRate] = useState('1');
   const [currentExchangeRate, setCurrentExchangeRate] = useState('1');
   const [fundingAccountId, setFundingAccountId] = useState('');
+  const [txnDate, setTxnDate] = useState(() => new Date().toISOString().split('T')[0]);
 
   const loadData = async () => {
     setLoading(true);
@@ -191,6 +197,16 @@ const Investments: React.FC = () => {
       fetchExchangeRate(selectedCurrency);
     }
   }, [selectedCurrency, isModalOpen]);
+
+  useEffect(() => {
+    if (type === 'Crypto') {
+      if (quoteAsset === 'PKR') {
+        setBuyExchangeRate('1');
+      } else if (quoteAsset === 'USD' || quoteAsset === 'USDT') {
+        fetchExchangeRate('USD');
+      }
+    }
+  }, [type, quoteAsset]);
 
   const fetchExchangeRate = async (currencyCode: string) => {
     if (currencyCode === baseCurrency.code) {
@@ -440,6 +456,26 @@ const Investments: React.FC = () => {
     setIsModalOpen(true);
   };
 
+  const handleEditTxn = (tx: AssetTransaction) => {
+    setEditingAssetTransaction(tx);
+    setName(tx.asset_symbol);
+    setType('Crypto');
+    setTxnType(tx.txn_type);
+    setUnits(tx.qty.toString());
+    setBuyPrice(tx.unit_price.toString());
+    setQuoteAsset(tx.quote_asset);
+    setFeeAsset(tx.fee_asset || '');
+    setFeeQty(tx.fee_qty.toString());
+    setFundingAccountId(tx.funding_account_id || '');
+    setTxnDate(tx.timestamp.split('T')[0]);
+    if (tx.quote_asset === 'PKR') {
+      setBuyExchangeRate('1');
+    } else {
+      fetchExchangeRate('USD');
+    }
+    setIsModalOpen(true);
+  };
+
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!name || !units || !buyPrice) {
@@ -452,6 +488,23 @@ const Investments: React.FC = () => {
         if (editingInvestment) {
           toast.info('To manage Crypto, please modify transactions in the Ledger Records tab.');
           return;
+        } else if (editingAssetTransaction) {
+          await updateAssetTransaction(
+            editingAssetTransaction.id,
+            {
+              asset_symbol: name.toUpperCase().trim(),
+              txn_type: txnType,
+              qty: parseFloat(units),
+              unit_price: parseFloat(buyPrice),
+              quote_asset: quoteAsset.toUpperCase().trim(),
+              fee_asset: feeAsset ? feeAsset.toUpperCase().trim() : null,
+              fee_qty: parseFloat(feeQty || '0'),
+              funding_account_id: fundingAccountId || null,
+              timestamp: new Date(txnDate + 'T12:00:00').toISOString()
+            },
+            parseFloat(buyExchangeRate)
+          );
+          toast.success('Ledger transaction updated & WAC recalculated!');
         } else {
           await addAssetTransaction(
             name.toUpperCase().trim(),
@@ -461,7 +514,10 @@ const Investments: React.FC = () => {
             quoteAsset.toUpperCase().trim(),
             feeAsset ? feeAsset.toUpperCase().trim() : null,
             parseFloat(feeQty || '0'),
-            'Manual'
+            'Manual',
+            new Date(txnDate + 'T12:00:00').toISOString(),
+            fundingAccountId || null,
+            parseFloat(buyExchangeRate)
           );
           toast.success('Double-Entry Ledger transaction recorded & WAC recalculated!');
         }
@@ -525,6 +581,7 @@ const Investments: React.FC = () => {
 
   const resetForm = () => {
     setEditingInvestment(null);
+    setEditingAssetTransaction(null);
     setName('');
     setType('Stock');
     setUnits('');
@@ -534,6 +591,9 @@ const Investments: React.FC = () => {
     setBuyExchangeRate('1');
     setCurrentExchangeRate('1');
     setFundingAccountId('');
+    setFeeAsset('');
+    setFeeQty('0');
+    setTxnDate(new Date().toISOString().split('T')[0]);
   };
 
   const assetTypes = ['Gold', 'Stock', 'Crypto', 'Cash', 'Real Estate'];
@@ -543,6 +603,13 @@ const Investments: React.FC = () => {
       <div className="flex items-center justify-between">
         <h1 className="text-2xl font-bold">Investments</h1>
         <div className="flex gap-2">
+          <button
+            onClick={() => setIsHelpModalOpen(true)}
+            className="bg-muted text-muted-foreground p-2 rounded-full hover:bg-muted/80 transition-colors"
+            title="Help & Steps"
+          >
+            <HelpCircle size={24} />
+          </button>
           {activeSubTab === 'portfolio' && (
             <button
               onClick={handleRefreshPrices}
@@ -858,12 +925,20 @@ const Investments: React.FC = () => {
                           {tx.source}
                         </td>
                         <td className="p-4 text-center">
-                          <button
-                            onClick={() => handleDeleteTxn(tx.id)}
-                            className="text-muted-foreground hover:text-destructive p-1 rounded-full hover:bg-destructive/5 transition-colors"
-                          >
-                            <Trash2 size={16} />
-                          </button>
+                          <div className="flex items-center justify-center gap-2">
+                            <button
+                              onClick={() => handleEditTxn(tx)}
+                              className="text-muted-foreground hover:text-primary p-1 rounded-full hover:bg-primary/5 transition-colors"
+                            >
+                              <Edit3 size={16} />
+                            </button>
+                            <button
+                              onClick={() => handleDeleteTxn(tx.id)}
+                              className="text-muted-foreground hover:text-destructive p-1 rounded-full hover:bg-destructive/5 transition-colors"
+                            >
+                              <Trash2 size={16} />
+                            </button>
+                          </div>
                         </td>
                       </tr>
                     );
@@ -952,7 +1027,7 @@ const Investments: React.FC = () => {
           <div className="bg-card border border-border w-full max-w-xl rounded-[2.5rem] shadow-[0_32px_64px_-12px_rgba(0,0,0,0.3)] overflow-hidden animate-in fade-in zoom-in duration-300">
             <div className="p-8 border-b border-border flex items-center justify-between bg-muted/30">
               <h2 className="text-2xl font-black tracking-tight">
-                {editingInvestment ? 'Edit Asset' : (type === 'Crypto' ? 'Add Crypto Transaction' : 'Add New Asset')}
+                {editingInvestment ? 'Edit Asset' : (editingAssetTransaction ? 'Edit Crypto Transaction' : (type === 'Crypto' ? 'Add Crypto Transaction' : 'Add New Asset'))}
               </h2>
               <button onClick={() => setIsModalOpen(false)} className="bg-background text-muted-foreground hover:text-foreground p-2 rounded-full transition-colors shadow-sm">
                 <X size={24} />
@@ -1033,7 +1108,10 @@ const Investments: React.FC = () => {
 
                       <div className="grid grid-cols-2 gap-4">
                         <div>
-                          <label className="block text-xs font-black uppercase tracking-widest text-muted-foreground mb-2">Quote Currency</label>
+                          <label className="block text-xs font-black uppercase tracking-widest text-muted-foreground mb-2 flex items-center gap-1">
+                            Quote Currency
+                            <span title="The asset used to value/settle the trade (e.g. USDT, USD, PKR)" className="cursor-help text-primary"><Info size={12} /></span>
+                          </label>
                           <select
                             value={quoteAsset}
                             onChange={(e) => setQuoteAsset(e.target.value)}
@@ -1046,17 +1124,53 @@ const Investments: React.FC = () => {
                           </select>
                         </div>
                         <div>
-                          <label className="block text-xs font-black uppercase tracking-widest text-muted-foreground mb-2">Ex. Rate (vs PKR)</label>
+                          <label className="block text-xs font-black uppercase tracking-widest text-muted-foreground mb-2 flex items-center gap-1">
+                            Ex. Rate (vs PKR)
+                            <span title="How many PKR equal 1 unit of Quote Currency. Used to deduct/credit funding account in base currency." className="cursor-help text-primary"><Info size={12} /></span>
+                          </label>
                           <input
                             type="number"
                             step="any"
                             value={buyExchangeRate}
                             onChange={(e) => setBuyExchangeRate(e.target.value)}
                             placeholder="Dynamic"
-                            className="w-full bg-muted/50 border-2 border-transparent rounded-2xl p-4 focus:border-primary focus:bg-background outline-none transition-all font-bold text-muted-foreground"
-                            readOnly
+                            className="w-full bg-muted/50 border-2 border-transparent rounded-2xl p-4 focus:border-primary focus:bg-background outline-none transition-all font-bold"
                           />
                         </div>
+                      </div>
+
+                      <div>
+                        <label className="block text-xs font-black uppercase tracking-widest text-muted-foreground mb-2 flex items-center gap-1">
+                          {txnType === 'BUY' || txnType === 'WITHDRAWAL' ? 'Funding Account (Optional)' : 'Destination Account (Optional)'}
+                          <span title="Select the cash or bank account to automatically post matching double-entry cash flow transactions and update its balance." className="cursor-help text-primary"><Info size={12} /></span>
+                        </label>
+                        <div className="relative">
+                          <select
+                            value={fundingAccountId}
+                            onChange={(e) => setFundingAccountId(e.target.value)}
+                            className="w-full bg-muted/50 border-2 border-transparent rounded-2xl p-4 pl-12 focus:border-primary focus:bg-background outline-none transition-all font-bold appearance-none"
+                          >
+                            <option value="">No Account (Tracking only)</option>
+                            {accounts.map(acc => (
+                              <option key={acc.id} value={acc.id}>{acc.name}</option>
+                            ))}
+                          </select>
+                          <Wallet className="absolute left-4 top-4 text-muted-foreground" size={20} />
+                        </div>
+                      </div>
+
+                      <div>
+                        <label className="block text-xs font-black uppercase tracking-widest text-muted-foreground mb-2 flex items-center gap-1">
+                          Transaction Date
+                          <span title="The date this transaction occurred. Crucial for chronological ledger and cost calculations." className="cursor-help text-primary"><Info size={12} /></span>
+                        </label>
+                        <input
+                          type="date"
+                          value={txnDate}
+                          onChange={(e) => setTxnDate(e.target.value)}
+                          className="w-full bg-muted/50 border-2 border-transparent rounded-2xl p-4 focus:border-primary focus:bg-background outline-none transition-all font-bold"
+                          required
+                        />
                       </div>
                     </>
                   ) : (
@@ -1075,7 +1189,10 @@ const Investments: React.FC = () => {
                           </select>
                         </div>
                         <div>
-                          <label className="block text-xs font-black uppercase tracking-widest text-muted-foreground mb-2">Ex. Rate (vs {baseCurrency.code})</label>
+                          <label className="block text-xs font-black uppercase tracking-widest text-muted-foreground mb-2 flex items-center gap-1">
+                            Ex. Rate (vs {baseCurrency.code})
+                            <span title="The exchange rate of this asset's quote currency relative to your default currency (e.g. 278.5 PKR per 1 USD)." className="cursor-help text-primary"><Info size={12} /></span>
+                          </label>
                           <input
                             type="number"
                             step="any"
@@ -1089,7 +1206,10 @@ const Investments: React.FC = () => {
 
                       {!editingInvestment && (
                         <div>
-                          <label className="block text-xs font-black uppercase tracking-widest text-muted-foreground mb-2">Funding Account (Optional)</label>
+                          <label className="block text-xs font-black uppercase tracking-widest text-muted-foreground mb-2 flex items-center gap-1">
+                            Funding Account (Optional)
+                            <span title="Select the cash or bank account used to fund this investment to automatically post a matching expense transaction and reduce its balance." className="cursor-help text-primary"><Info size={12} /></span>
+                          </label>
                           <div className="relative">
                             <select
                               value={fundingAccountId}
@@ -1182,9 +1302,61 @@ const Investments: React.FC = () => {
                 className="w-full bg-primary text-primary-foreground py-5 rounded-[2rem] font-black text-lg mt-4 hover:opacity-90 transition-all flex items-center justify-center gap-3 shadow-xl shadow-primary/20 active:scale-[0.98]"
               >
                 {type === 'Crypto' ? <PlusCircle size={24} /> : (editingInvestment ? <Edit3 size={24} /> : <PlusCircle size={24} />)}
-                {type === 'Crypto' ? 'Record Ledger Transaction' : (editingInvestment ? 'Update Investment' : 'Track Investment Asset')}
+                {type === 'Crypto' ? (editingAssetTransaction ? 'Update Transaction' : 'Record Ledger Transaction') : (editingInvestment ? 'Update Investment' : 'Track Investment Asset')}
               </button>
             </form>
+          </div>
+        </div>
+      )}
+
+      {isHelpModalOpen && (
+        <div className="fixed inset-0 z-[60] flex items-center justify-center p-4 bg-background/80 backdrop-blur-md">
+          <div className="bg-card border border-border w-full max-w-xl rounded-[2.5rem] shadow-[0_32px_64px_-12px_rgba(0,0,0,0.3)] overflow-hidden animate-in fade-in zoom-in duration-300">
+            <div className="p-8 border-b border-border flex items-center justify-between bg-muted/30">
+              <div className="flex items-center gap-3">
+                <HelpCircle size={28} className="text-primary" />
+                <h2 className="text-2xl font-black tracking-tight">Ledger & Accounts Help</h2>
+              </div>
+              <button onClick={() => setIsHelpModalOpen(false)} className="bg-background text-muted-foreground hover:text-foreground p-2 rounded-full transition-colors shadow-sm">
+                <X size={24} />
+              </button>
+            </div>
+
+            <div className="p-8 space-y-6 overflow-y-auto max-h-[70vh]">
+              <div className="space-y-4">
+                <h3 className="font-bold text-lg flex items-center gap-2">
+                  <Info size={18} className="text-primary" />
+                  How to link assets to your bank account:
+                </h3>
+                <ol className="list-decimal pl-5 space-y-3 text-sm text-muted-foreground font-medium">
+                  <li>
+                    Go to the <span className="font-bold text-foreground">Ledger Records</span> tab.
+                  </li>
+                  <li>
+                    Click the <span className="font-bold text-foreground">Edit</span> (pencil icon) next to any transaction, or click <span className="font-bold text-foreground">Add Transaction</span>.
+                  </li>
+                  <li>
+                    Select your bank or cash account from the <span className="font-bold text-foreground">Funding Account</span> dropdown.
+                  </li>
+                  <li>
+                    If the purchase quote asset was USD/USDT and your bank account is PKR, adjust the <span className="font-bold text-foreground">Exchange Rate</span> to match what your bank charged.
+                  </li>
+                  <li>
+                    Save the transaction. The cost will be automatically deducted/credited in your bank account balance!
+                  </li>
+                </ol>
+              </div>
+
+              <div className="bg-primary/5 border border-primary/20 p-5 rounded-2xl space-y-3">
+                <h4 className="font-black text-sm text-primary flex items-center gap-2">
+                  <BookOpen size={16} />
+                  Double-Entry Cost Tracking
+                </h4>
+                <p className="text-xs text-muted-foreground leading-relaxed">
+                  Every asset purchase or sale linked to an account automatically posts a corresponding transaction under the account's history. Deleting or modifying ledger records will update or remove these entries instantly, maintaining a clean cash flow record.
+                </p>
+              </div>
+            </div>
           </div>
         </div>
       )}

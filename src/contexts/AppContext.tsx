@@ -182,7 +182,32 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         <div className="bg-primary text-primary-foreground px-4 py-2.5 relative z-[100] animate-in slide-in-from-top duration-300">
           <div className="max-w-4xl mx-auto flex items-center gap-3 pr-8">
             <Info size={18} className="shrink-0" />
-            <p className="text-xs font-medium leading-tight">{config.announcement}</p>
+            <p className="text-xs font-medium leading-tight">
+              {(() => {
+                const text = config.announcement;
+                const parts = text.split(/(\*\*.*?\*\*|\[.*?\]\(.*?\))/g);
+                return parts.map((part, index) => {
+                  if (part.startsWith('**') && part.endsWith('**')) {
+                    return <strong key={index} className="font-extrabold text-white">{part.slice(2, -2)}</strong>;
+                  }
+                  const linkMatch = part.match(/^\[(.*?)\]\((.*?)\)$/);
+                  if (linkMatch) {
+                    return (
+                      <a
+                        key={index}
+                        href={linkMatch[2]}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        className="underline hover:text-white/80 font-bold transition-colors ml-1 mr-1"
+                      >
+                        {linkMatch[1]}
+                      </a>
+                    );
+                  }
+                  return part;
+                });
+              })()}
+            </p>
           </div>
           <button
             onClick={() => setShowAnnouncement(false)}

@@ -1,5 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
+import { executeQuery } from '../db/sqlite';
 import {
   Target,
   Bell,
@@ -13,7 +14,8 @@ import {
   Layers,
   Fuel,
   PieChart,
-  Sparkles
+  Sparkles,
+  CreditCard
 } from 'lucide-react';
 import { useApp } from '../contexts/AppContext';
 import {
@@ -42,6 +44,7 @@ interface MoreOption {
   icon: any;
   color: string;
   bgColor: string;
+  badge?: string | number;
 }
 
 const DEFAULT_OPTIONS: MoreOption[] = [
@@ -96,8 +99,8 @@ const DEFAULT_OPTIONS: MoreOption[] = [
     description: 'Organize your daily activities and to-dos',
     path: '/tasks',
     icon: CheckSquare,
-    color: 'text-violet-500',
-    bgColor: 'bg-violet-500/10'
+    color: 'text-blue-500',
+    bgColor: 'bg-blue-500/10'
   },
   {
     id: 'loans',
@@ -141,8 +144,17 @@ const DEFAULT_OPTIONS: MoreOption[] = [
     description: 'Chat with your personal financial AI',
     path: '/ai-chat',
     icon: Sparkles,
-    color: 'text-violet-400',
-    bgColor: 'bg-violet-500/10'
+    color: 'text-indigo-400',
+    bgColor: 'bg-indigo-500/10'
+  },
+  {
+    id: 'subscriptions',
+    name: 'Subscription Manager',
+    description: 'Track and analyze recurring subscriptions',
+    path: '/subscriptions',
+    icon: CreditCard,
+    color: 'text-cyan-400',
+    bgColor: 'bg-cyan-500/10'
   }
 ];
 
@@ -181,21 +193,46 @@ const SortableItem = ({ option }: { option: MoreOption }) => {
       {...attributes}
       {...listeners}
       onClick={handleClick}
-      className={`relative group ${isDragging ? 'opacity-50 scale-105 z-50' : 'opacity-100'} cursor-pointer select-none`}
+      className={`relative group h-full ${isDragging ? 'opacity-50 scale-105 z-50' : 'opacity-100'} cursor-pointer select-none`}
     >
       <div
-        className={`bg-card p-6 rounded-2xl border border-border flex items-center justify-between hover:shadow-md hover:border-primary/50 transition-all ${isDragging ? 'shadow-xl border-primary' : ''}`}
+        className={`bg-card p-6 rounded-3xl border border-border flex flex-col justify-between h-full hover:shadow-md hover:border-primary/50 transition-all duration-200 ${
+          isDragging ? 'shadow-xl border-primary bg-background' : ''
+        }`}
       >
-        <div className="flex items-center gap-4">
-          <div className={`p-3 rounded-xl ${option.bgColor} ${option.color} group-hover:scale-110 transition-transform`}>
-            <Icon size={24} />
+        <div>
+          {/* Top row: Icon & Badge */}
+          <div className="flex items-start justify-between mb-4">
+            <div className={`p-3 rounded-2xl ${option.bgColor} ${option.color} group-hover:scale-[1.03] transition-transform flex-shrink-0`}>
+              <Icon size={22} />
+            </div>
+            {option.badge && (
+              <span className={`text-[9px] font-bold px-2 py-0.5 rounded-lg flex-shrink-0 border uppercase tracking-wider ${
+                option.id === 'tasks' ? 'bg-blue-500/10 text-blue-500 border-blue-500/20' :
+                option.id === 'reminders' ? 'bg-amber-500/10 text-amber-500 border-amber-500/20 animate-pulse' :
+                'bg-indigo-500/10 text-indigo-500 border-indigo-500/20'
+              }`}>
+                {option.badge}
+              </span>
+            )}
           </div>
-          <div>
-            <h3 className="font-semibold text-foreground">{option.name}</h3>
-            <p className="text-sm text-muted-foreground mt-0.5">{option.description}</p>
+
+          {/* Text Content */}
+          <div className="space-y-1">
+            <h3 className="font-bold text-sm text-foreground group-hover:text-primary transition-colors leading-snug">
+              {option.name}
+            </h3>
+            <p className="text-xs text-muted-foreground leading-relaxed">
+              {option.description}
+            </p>
           </div>
         </div>
-        <ChevronRight size={20} className="text-muted-foreground group-hover:text-primary group-hover:translate-x-1 transition-all" />
+
+        {/* Footer actions */}
+        <div className="mt-5 pt-3.5 border-t border-border/40 flex items-center justify-between text-[10px] font-bold text-muted-foreground group-hover:text-primary transition-colors uppercase tracking-wider">
+          <span>Open Tool</span>
+          <ChevronRight size={12} className="group-hover:translate-x-0.5 transition-transform" />
+        </div>
       </div>
     </div>
   );
@@ -204,6 +241,31 @@ const SortableItem = ({ option }: { option: MoreOption }) => {
 const More: React.FC = () => {
   const { config, disabledFeatures } = useApp();
   
+  const [taskCount, setTaskCount] = useState<number | null>(null);
+  const [reminderCount, setReminderCount] = useState<number | null>(null);
+  const [goalCount, setGoalCount] = useState<number | null>(null);
+
+  const loadStats = async () => {
+    try {
+      const tasks = await executeQuery(`SELECT COUNT(*) as count FROM tasks WHERE status != 'completed'`);
+      setTaskCount(tasks[0]?.count ?? 0);
+
+      const reminders = await executeQuery(`SELECT COUNT(*) as count FROM reminders WHERE status = 'pending'`);
+      setReminderCount(reminders[0]?.count ?? 0);
+
+      const goals = await executeQuery(`SELECT COUNT(*) as count FROM goals`);
+      setGoalCount(goals[0]?.count ?? 0);
+    } catch (e) {
+      console.error('Failed to load stats for More page', e);
+    }
+  };
+
+  useEffect(() => {
+    loadStats();
+    window.addEventListener('app-sync-complete', loadStats);
+    return () => window.removeEventListener('app-sync-complete', loadStats);
+  }, []);
+
   const [options, setOptions] = useState<MoreOption[]>(() => {
     // Filter available options based on global config
     const availableDefaults = DEFAULT_OPTIONS.filter(o => {
@@ -286,6 +348,19 @@ const More: React.FC = () => {
 
   const [showTooltip, setShowTooltip] = useState(false);
 
+  const optionsWithBadges = options.map(opt => {
+    if (opt.id === 'tasks' && taskCount !== null && taskCount > 0) {
+      return { ...opt, badge: `${taskCount} pending` };
+    }
+    if (opt.id === 'reminders' && reminderCount !== null && reminderCount > 0) {
+      return { ...opt, badge: `${reminderCount} unpaid` };
+    }
+    if (opt.id === 'goals' && goalCount !== null && goalCount > 0) {
+      return { ...opt, badge: `${goalCount} active` };
+    }
+    return opt;
+  });
+
   return (
     <div className="space-y-6">
       <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
@@ -322,11 +397,11 @@ const More: React.FC = () => {
         onDragEnd={handleDragEnd}
       >
         <SortableContext
-          items={options.map(o => o.id)}
+          items={optionsWithBadges.map(o => o.id)}
           strategy={rectSortingStrategy}
         >
           <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-            {options.map((option) => (
+            {optionsWithBadges.map((option) => (
               <SortableItem key={option.id} option={option} />
             ))}
           </div>

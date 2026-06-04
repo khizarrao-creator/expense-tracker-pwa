@@ -72,7 +72,7 @@ class SyncManager {
 
   private async repairMissingSyncItems() {
     console.log('[SyncManager] Scanning for orphaned unsynced items...');
-    const collections = ['transactions', 'accounts', 'categories', 'goals', 'investments', 'reminders', 'tasks', 'loan_parties', 'loans', 'loan_repayments', 'events', 'fuel_logs', 'config'];
+    const collections = ['transactions', 'accounts', 'categories', 'goals', 'investments', 'reminders', 'tasks', 'task_logs', 'loan_parties', 'loans', 'loan_repayments', 'events', 'fuel_logs', 'config'];
 
     for (const col of collections) {
       try {
@@ -90,7 +90,8 @@ class SyncManager {
                 col === 'reminders' ? 'reminder_add' :
                   col === 'categories' ? 'category_add' :
                     col === 'tasks' ? 'task_add' :
-                      col === 'loan_parties' ? 'loan_party_add' :
+                      col === 'task_logs' ? 'task_log_add' :
+                        col === 'loan_parties' ? 'loan_party_add' :
                         col === 'loan_repayments' ? 'loan_repayment_add' :
                           col === 'loans' ? 'loan_add' :
                             col === 'events' ? 'event_add' :
@@ -119,7 +120,7 @@ class SyncManager {
     if (!this.userId) return;
     this.stopSync();
 
-    const collections = ['transactions', 'accounts', 'categories', 'goals', 'investments', 'reminders', 'tasks', 'loan_parties', 'loans', 'loan_repayments', 'events', 'fuel_logs', 'config'];
+    const collections = ['transactions', 'accounts', 'categories', 'goals', 'investments', 'reminders', 'tasks', 'task_logs', 'loan_parties', 'loans', 'loan_repayments', 'events', 'fuel_logs', 'config'];
 
     collections.forEach(colName => {
       const colRef = collection(firestore, `users/${this.userId}/${colName}`);
@@ -165,7 +166,7 @@ class SyncManager {
     if (!this.userId) return;
     console.log('[SyncManager] Starting server reconciliation...');
 
-    const collections = ['transactions', 'accounts', 'categories', 'goals', 'investments', 'reminders', 'tasks', 'loan_parties', 'loans', 'loan_repayments', 'events', 'fuel_logs', 'config'];
+    const collections = ['transactions', 'accounts', 'categories', 'goals', 'investments', 'reminders', 'tasks', 'task_logs', 'loan_parties', 'loans', 'loan_repayments', 'events', 'fuel_logs', 'config'];
 
     for (const colName of collections) {
       try {
@@ -303,8 +304,8 @@ class SyncManager {
       ]);
     } else if (collection === 'tasks') {
       await runWithBindings(`
-        INSERT OR REPLACE INTO tasks (id, title, description, status, due_date, due_time, reminder_enabled, reminder_offset, reminder_sent, created_at, updated_at, deviceId, synced)
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 1)
+        INSERT OR REPLACE INTO tasks (id, title, description, status, due_date, due_time, reminder_enabled, reminder_offset, reminder_sent, priority, category, created_at, updated_at, deviceId, synced, time_spent, last_started_at)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 1, ?, ?)
       `, [
         data.id,
         data.title,
@@ -315,8 +316,25 @@ class SyncManager {
         data.reminder_enabled ?? 0,
         data.reminder_offset ?? 5,
         data.reminder_sent ?? 0,
+        data.priority ?? 'medium',
+        data.category ?? null,
         data.created_at,
         data.updated_at,
+        data.deviceId ?? null,
+        data.time_spent ?? 0,
+        data.last_started_at ?? null
+      ]);
+    } else if (collection === 'task_logs') {
+      await runWithBindings(`
+        INSERT OR REPLACE INTO task_logs (id, task_id, type, timestamp, notes, duration, deviceId, synced)
+        VALUES (?, ?, ?, ?, ?, ?, ?, 1)
+      `, [
+        data.id,
+        data.task_id,
+        data.type,
+        data.timestamp,
+        data.notes ?? null,
+        data.duration ?? 0,
         data.deviceId ?? null
       ]);
     } else if (collection === 'loan_parties') {
@@ -471,7 +489,8 @@ class SyncManager {
 
           const tablePrefix = op.type.split('_')[0];
           let table = '';
-          if (tablePrefix === 'goal') table = 'goals';
+          if (op.type.startsWith('task_log')) table = 'task_logs';
+          else if (tablePrefix === 'goal') table = 'goals';
           else if (tablePrefix === 'config') table = 'config';
           else if (tablePrefix === 'investment') table = 'investments';
           else if (tablePrefix === 'reminder') table = 'reminders';
@@ -482,7 +501,7 @@ class SyncManager {
           else if (tablePrefix === 'fuel') table = 'fuel_logs';
           else table = tablePrefix + 's';
 
-          if (['transactions', 'accounts', 'categories', 'goals', 'investments', 'reminders', 'tasks', 'loan_parties', 'loans', 'loan_repayments', 'events', 'fuel_logs', 'config'].includes(table)) {
+          if (['transactions', 'accounts', 'categories', 'goals', 'investments', 'reminders', 'tasks', 'task_logs', 'loan_parties', 'loans', 'loan_repayments', 'events', 'fuel_logs', 'config'].includes(table)) {
             const idCol = table === 'config' ? 'key' : 'id';
             const recordId = table === 'config' ? payload.key : payload.id;
             console.log(`[SyncManager] Updating ${table} local record ${recordId} to synced=1`);
@@ -528,6 +547,8 @@ class SyncManager {
         docRef = doc(firestore, `users/${this.userId}/investments/${payload.id}`);
       } else if (type.startsWith('reminder')) {
         docRef = doc(firestore, `users/${this.userId}/reminders/${payload.id}`);
+      } else if (type.startsWith('task_log')) {
+        docRef = doc(firestore, `users/${this.userId}/task_logs/${payload.id}`);
       } else if (type.startsWith('task')) {
         docRef = doc(firestore, `users/${this.userId}/tasks/${payload.id}`);
       } else if (type.startsWith('loan_party')) {
@@ -576,7 +597,8 @@ class SyncManager {
 
         const tablePrefix = type.split('_')[0];
         let table = '';
-        if (tablePrefix === 'goal') table = 'goals';
+        if (type.startsWith('task_log')) table = 'task_logs';
+        else if (tablePrefix === 'goal') table = 'goals';
         else if (tablePrefix === 'investment') table = 'investments';
         else if (tablePrefix === 'reminder') table = 'reminders';
         else if (tablePrefix === 'category' || tablePrefix === 'categorie') table = 'categories';
@@ -586,7 +608,7 @@ class SyncManager {
         else if (tablePrefix === 'fuel') table = 'fuel_logs';
         else table = tablePrefix + 's';
 
-        if (['transactions', 'accounts', 'categories', 'goals', 'investments', 'reminders', 'tasks', 'loan_parties', 'loans', 'loan_repayments', 'events', 'fuel_logs', 'config'].includes(table)) {
+        if (['transactions', 'accounts', 'categories', 'goals', 'investments', 'reminders', 'tasks', 'task_logs', 'loan_parties', 'loans', 'loan_repayments', 'events', 'fuel_logs', 'config'].includes(table)) {
           console.log(`[SyncManager] Direct push success. Updating ${table} local record ${payload.id} to synced=1`);
           await runWithBindings(`UPDATE ${table} SET synced = 1 WHERE id = ?`, [payload.id]);
         }
@@ -609,7 +631,7 @@ class SyncManager {
   public async wipeRemoteData() {
     if (!this.userId) return;
 
-    const collections = ['transactions', 'accounts', 'categories', 'goals', 'investments', 'reminders', 'tasks', 'loan_parties', 'loans', 'loan_repayments', 'events', 'fuel_logs', 'config'];
+    const collections = ['transactions', 'accounts', 'categories', 'goals', 'investments', 'reminders', 'tasks', 'task_logs', 'loan_parties', 'loans', 'loan_repayments', 'events', 'fuel_logs', 'config'];
 
     for (const colName of collections) {
       try {

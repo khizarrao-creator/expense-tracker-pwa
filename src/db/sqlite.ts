@@ -252,10 +252,26 @@ const initializeSchema = async () => {
       reminder_enabled INTEGER DEFAULT 0,
       reminder_offset INTEGER DEFAULT 5,
       reminder_sent INTEGER DEFAULT 0,
+      priority TEXT DEFAULT 'medium',
+      category TEXT,
       created_at TEXT NOT NULL,
       updated_at TEXT NOT NULL,
       deviceId TEXT,
-      synced INTEGER DEFAULT 0
+      synced INTEGER DEFAULT 0,
+      time_spent INTEGER DEFAULT 0,
+      last_started_at TEXT
+    );
+
+    CREATE TABLE IF NOT EXISTS task_logs (
+      id TEXT PRIMARY KEY,
+      task_id TEXT NOT NULL,
+      type TEXT NOT NULL, -- start, pause, resume, update, complete, reopen
+      timestamp TEXT NOT NULL,
+      notes TEXT,
+      duration INTEGER DEFAULT 0, -- session duration in seconds
+      deviceId TEXT,
+      synced INTEGER DEFAULT 0,
+      FOREIGN KEY (task_id) REFERENCES tasks(id) ON DELETE CASCADE
     );
 
     CREATE TABLE IF NOT EXISTS loan_parties (
@@ -362,7 +378,9 @@ const initializeSchema = async () => {
       created_at TEXT NOT NULL,
       updated_at TEXT NOT NULL,
       deviceId TEXT,
-      synced INTEGER DEFAULT 0
+      synced INTEGER DEFAULT 0,
+      funding_account_id TEXT,
+      FOREIGN KEY (funding_account_id) REFERENCES accounts(id)
     );
 
     CREATE TABLE IF NOT EXISTS inventory_ledger (
@@ -431,7 +449,9 @@ const initializeSchema = async () => {
     "ALTER TABLE accounts ADD COLUMN currency TEXT DEFAULT 'PKR';",
     "ALTER TABLE transactions ADD COLUMN to_amount REAL;",
     "ALTER TABLE transactions ADD COLUMN exchange_rate REAL;",
-    "ALTER TABLE investments ADD COLUMN trade_avg_buy_price REAL DEFAULT 0;"
+    "ALTER TABLE investments ADD COLUMN trade_avg_buy_price REAL DEFAULT 0;",
+    "ALTER TABLE asset_transactions ADD COLUMN funding_account_id TEXT;",
+    "CREATE TABLE IF NOT EXISTS task_logs (id TEXT PRIMARY KEY, task_id TEXT NOT NULL, type TEXT NOT NULL, timestamp TEXT NOT NULL, notes TEXT, duration INTEGER DEFAULT 0, deviceId TEXT, synced INTEGER DEFAULT 0, FOREIGN KEY (task_id) REFERENCES tasks(id) ON DELETE CASCADE);"
   ];
 
   const addColumn = (table: string, column: string, type: string) => {
@@ -444,6 +464,11 @@ const initializeSchema = async () => {
   addColumn('loans', 'event_id', 'TEXT');
   addColumn('events', 'total_cost', 'REAL DEFAULT 0');
   addColumn('config', 'deviceId', 'TEXT');
+  addColumn('tasks', 'priority', "TEXT DEFAULT 'medium'");
+  addColumn('tasks', 'category', 'TEXT');
+  addColumn('tasks', 'time_spent', 'INTEGER DEFAULT 0');
+  addColumn('tasks', 'last_started_at', 'TEXT');
+  addColumn('asset_transactions', 'funding_account_id', 'TEXT');
 
   for (const m of migrations) {
     try {
@@ -467,7 +492,8 @@ const initializeSchema = async () => {
     "CREATE INDEX IF NOT EXISTS idx_loans_party ON loans(party_id);",
     "CREATE INDEX IF NOT EXISTS idx_loans_status ON loans(status);",
     "CREATE INDEX IF NOT EXISTS idx_loans_direction ON loans(direction);",
-    "CREATE INDEX IF NOT EXISTS idx_loan_repayments_loan ON loan_repayments(loan_id);"
+    "CREATE INDEX IF NOT EXISTS idx_loan_repayments_loan ON loan_repayments(loan_id);",
+    "CREATE INDEX IF NOT EXISTS idx_task_logs_task ON task_logs(task_id);"
   ];
 
   for (const idx of indexQueries) {

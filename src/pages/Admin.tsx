@@ -18,7 +18,12 @@ import {
   RefreshCw,
   X,
   Send,
-  Sliders
+  Sliders,
+  Eye,
+  EyeOff,
+  Plus,
+  Coins,
+  ArrowUpDown
 } from 'lucide-react';
 import { syncManager } from '../db/SyncManager';
 import { Bar, Pie, Line } from 'react-chartjs-2';
@@ -67,7 +72,8 @@ const FEATURES = [
   { id: 'events', name: 'Event Tracking', desc: 'Group related expenses and loans' },
   { id: 'fuel', name: 'Fuel Tracking', desc: 'Track fuel consumption and costs' },
   { id: 'reports', name: 'Analytics & Reports', desc: 'Comprehensive financial insights' },
-  { id: 'ai-chat', name: 'AI Copilot', desc: 'Chat with your personal financial AI' }
+  { id: 'ai-chat', name: 'AI Copilot', desc: 'Chat with your personal financial AI' },
+  { id: 'subscriptions', name: 'Subscription Manager', desc: 'Track and analyze recurring subscriptions' }
 ];
 
 interface UserProfile {
@@ -121,6 +127,14 @@ const Admin: React.FC = () => {
   const [isAuthorized, setIsAuthorized] = useState(false);
   const [username, setUsername] = useState('');
   const [password, setPassword] = useState('');
+  const [showPassword, setShowPassword] = useState(false);
+  const [isShake, setIsShake] = useState(false);
+
+  useEffect(() => {
+    if (localStorage.getItem('admin_authorized') === 'true') {
+      setIsAuthorized(true);
+    }
+  }, []);
 
   const [users, setUsers] = useState<UserProfile[]>([]);
   const [globalSettings, setGlobalSettings] = useState<GlobalConfig>({
@@ -208,9 +222,53 @@ const Admin: React.FC = () => {
     toast.success('Exchange removed. Click "Save Global Config" to persist.');
   };
 
+  const handleAddCurrency = () => {
+    if (!newCurrencyCode.trim() || !newCurrencySymbol.trim() || !newCurrencyName.trim()) {
+      toast.error('All currency fields are required');
+      return;
+    }
+    const code = newCurrencyCode.trim().toUpperCase();
+    const symbol = newCurrencySymbol.trim();
+    const name = newCurrencyName.trim();
+
+    const currentCurrencies = globalSettings.supportedCurrencies || [];
+    if (currentCurrencies.some(c => c.code === code)) {
+      toast.error(`Currency code "${code}" already exists`);
+      return;
+    }
+
+    const updated = [...currentCurrencies, { code, symbol, name }];
+    setGlobalSettings({ ...globalSettings, supportedCurrencies: updated });
+
+    setNewCurrencyCode('');
+    setNewCurrencySymbol('');
+    setNewCurrencyName('');
+    toast.success(`Currency "${code}" added. Click "Save Global Config" to persist.`);
+  };
+
+  const handleDeleteCurrency = (code: string) => {
+    const currentCurrencies = globalSettings.supportedCurrencies || [];
+    if (currentCurrencies.length <= 1) {
+      toast.error('Cannot delete the last remaining currency');
+      return;
+    }
+    const updated = currentCurrencies.filter(c => c.code !== code);
+    setGlobalSettings({ ...globalSettings, supportedCurrencies: updated });
+    toast.success(`Currency "${code}" removed. Click "Save Global Config" to persist.`);
+  };
+
   const [isLoading, setIsLoading] = useState(false);
   const [searchQuery, setSearchQuery] = useState('');
+  const [statusFilter, setStatusFilter] = useState<'all' | 'pro' | 'standard' | 'banned' | 'active_today'>('all');
+  const [sortBy, setSortBy] = useState<'lastActive' | 'name' | 'email' | 'tx_volume'>('lastActive');
+  const [sortOrder, setSortOrder] = useState<'asc' | 'desc'>('desc');
   const [activeTab, setActiveTab] = useState<'users' | 'settings' | 'logs' | 'analytics'>('users');
+  const [announcementTab, setAnnouncementTab] = useState<'edit' | 'preview'>('edit');
+  const [newCurrencyCode, setNewCurrencyCode] = useState('');
+  const [newCurrencySymbol, setNewCurrencySymbol] = useState('');
+  const [newCurrencyName, setNewCurrencyName] = useState('');
+  const [logSearchQuery, setLogSearchQuery] = useState('');
+  const [logTypeFilter, setLogTypeFilter] = useState<'all' | 'config' | 'user' | 'scan'>('all');
   const [adminLogs, setAdminLogs] = useState<AdminLog[]>([]);
   const [systemStats, setSystemStats] = useState<SystemStats>({
     totalUsers: 0,
@@ -236,7 +294,9 @@ const Admin: React.FC = () => {
       localStorage.setItem('admin_authorized', 'true');
       toast.success('Admin access granted');
     } else {
+      setIsShake(true);
       toast.error('Invalid credentials');
+      setTimeout(() => setIsShake(false), 500);
     }
   };
 
@@ -551,51 +611,75 @@ const Admin: React.FC = () => {
 
   if (!isAuthorized) {
     return (
-      <div className="min-h-screen flex items-center justify-center bg-background p-4">
-        <div className="w-full max-w-md bg-card border border-border rounded-3xl p-8 shadow-2xl space-y-8 animate-in fade-in zoom-in duration-300">
+      <div className="min-h-screen flex items-center justify-center bg-background p-4 relative overflow-hidden">
+        {/* Modern glowing background blobs */}
+        <div className="absolute top-1/4 left-1/4 w-72 h-72 bg-primary/10 rounded-full blur-3xl -z-10 animate-pulse duration-[6000ms]" />
+        <div className="absolute bottom-1/4 right-1/4 w-72 h-72 bg-amber-500/10 rounded-full blur-3xl -z-10 animate-pulse duration-[8000ms]" />
+
+        <style>{`
+          @keyframes shake {
+            0%, 100% { transform: translateX(0); }
+            20%, 60% { transform: translateX(-6px); }
+            40%, 80% { transform: translateX(6px); }
+          }
+          .animate-shake {
+            animation: shake 0.4s ease-in-out;
+          }
+        `}</style>
+
+        <div className={`w-full max-w-md bg-card/60 backdrop-blur-lg border border-border/60 rounded-3xl p-8 shadow-2xl space-y-8 animate-in fade-in zoom-in duration-300 ${isShake ? 'animate-shake' : ''}`}>
           <div className="text-center space-y-2">
-            <div className="inline-flex items-center justify-center w-16 h-16 bg-primary/10 rounded-2xl text-primary mb-2">
+            <div className="inline-flex items-center justify-center w-16 h-16 bg-primary/10 rounded-2xl text-primary mb-2 ring-4 ring-primary/5">
               <ShieldCheck size={32} />
             </div>
-            <h1 className="text-2xl font-bold">Admin Portal</h1>
-            <p className="text-sm text-muted-foreground">Authorized access only</p>
+            <h1 className="text-2xl font-bold tracking-tight">System Admin</h1>
+            <p className="text-xs text-muted-foreground uppercase font-bold tracking-widest opacity-60">Authorized Access Only</p>
           </div>
 
           <form onSubmit={handleLogin} className="space-y-4">
             <div className="space-y-1">
-              <label className="text-xs font-bold uppercase text-muted-foreground ml-1">Username</label>
+              <label className="text-[10px] font-extrabold uppercase text-muted-foreground ml-1 tracking-wider">Username</label>
               <div className="relative">
-                <Users className="absolute left-3 top-1/2 -translate-y-1/2 text-muted-foreground" size={18} />
+                <Users className="absolute left-3 top-1/2 -translate-y-1/2 text-muted-foreground/60" size={18} />
                 <input
                   type="text"
                   value={username}
                   onChange={(e) => setUsername(e.target.value)}
-                  className="w-full bg-muted border-none rounded-xl py-3 pl-10 pr-4 outline-none focus:ring-2 focus:ring-primary transition-all"
-                  placeholder="Enter username"
+                  className="w-full bg-muted/60 border border-transparent rounded-xl py-3 pl-10 pr-4 outline-none focus:bg-card focus:border-primary/20 focus:ring-2 focus:ring-primary/10 transition-all font-medium text-sm text-foreground"
+                  placeholder="Enter admin username"
+                  required
                 />
               </div>
             </div>
 
             <div className="space-y-1">
-              <label className="text-xs font-bold uppercase text-muted-foreground ml-1">Password</label>
+              <label className="text-[10px] font-extrabold uppercase text-muted-foreground ml-1 tracking-wider">Password</label>
               <div className="relative">
-                <Lock className="absolute left-3 top-1/2 -translate-y-1/2 text-muted-foreground" size={18} />
+                <Lock className="absolute left-3 top-1/2 -translate-y-1/2 text-muted-foreground/60" size={18} />
                 <input
-                  type="password"
+                  type={showPassword ? 'text' : 'password'}
                   value={password}
                   onChange={(e) => setPassword(e.target.value)}
-                  className="w-full bg-muted border-none rounded-xl py-3 pl-10 pr-4 outline-none focus:ring-2 focus:ring-primary transition-all"
-                  placeholder="Enter password"
+                  className="w-full bg-muted/60 border border-transparent rounded-xl py-3 pl-10 pr-12 outline-none focus:bg-card focus:border-primary/20 focus:ring-2 focus:ring-primary/10 transition-all font-medium text-sm text-foreground"
+                  placeholder="Enter admin password"
+                  required
                 />
+                <button
+                  type="button"
+                  onClick={() => setShowPassword(!showPassword)}
+                  className="absolute right-3 top-1/2 -translate-y-1/2 text-muted-foreground/60 hover:text-foreground transition-colors p-1"
+                >
+                  {showPassword ? <EyeOff size={18} /> : <Eye size={18} />}
+                </button>
               </div>
             </div>
 
             <button
               type="submit"
-              className="w-full bg-primary text-primary-foreground py-4 rounded-2xl font-bold hover:opacity-90 transition-all flex items-center justify-center gap-2"
+              className="w-full bg-primary text-primary-foreground py-4 rounded-2xl font-bold hover:opacity-90 active:scale-[0.98] transition-all flex items-center justify-center gap-2 shadow-lg shadow-primary/10 mt-6"
             >
               <ShieldCheck size={18} />
-              Login as Admin
+              Verify & Enter
             </button>
           </form>
         </div>
@@ -603,10 +687,59 @@ const Admin: React.FC = () => {
     );
   }
 
-  const filteredUsers = users.filter(u =>
-    u.email?.toLowerCase().includes(searchQuery.toLowerCase()) ||
-    u.displayName?.toLowerCase().includes(searchQuery.toLowerCase())
-  );
+  const highlightText = (text: string, query: string) => {
+    if (!text) return <span>N/A</span>;
+    if (!query) return <span>{text}</span>;
+    const parts = text.split(new RegExp(`(${query.replace(/[-[\]{}()*+?.,\\^$|#\s]/g, '\\$&')})`, 'gi'));
+    return (
+      <span>
+        {parts.map((part, i) => 
+          part.toLowerCase() === query.toLowerCase() 
+            ? <mark key={i} className="bg-amber-500/20 text-amber-600 dark:text-amber-400 font-semibold rounded-sm px-0.5">{part}</mark>
+            : part
+        )}
+      </span>
+    );
+  };
+
+  const filteredUsers = users
+    .filter(u => {
+      const matchesSearch = 
+        u.email?.toLowerCase().includes(searchQuery.toLowerCase()) ||
+        u.displayName?.toLowerCase().includes(searchQuery.toLowerCase());
+      
+      if (!matchesSearch) return false;
+
+      const todayStr = new Date().toISOString().split('T')[0];
+      switch (statusFilter) {
+        case 'pro':
+          return !!u.isPro;
+        case 'standard':
+          return !u.isPro && !u.isBanned;
+        case 'banned':
+          return !!u.isBanned;
+        case 'active_today':
+          return !!u.lastLogin?.includes(todayStr);
+        case 'all':
+        default:
+          return true;
+      }
+    })
+    .sort((a, b) => {
+      let comparison = 0;
+      if (sortBy === 'name') {
+        comparison = (a.displayName || '').localeCompare(b.displayName || '');
+      } else if (sortBy === 'email') {
+        comparison = (a.email || '').localeCompare(b.email || '');
+      } else if (sortBy === 'tx_volume') {
+        comparison = (a.stats?.transactions || 0) - (b.stats?.transactions || 0);
+      } else {
+        const timeA = a.lastLogin ? new Date(a.lastLogin).getTime() : 0;
+        const timeB = b.lastLogin ? new Date(b.lastLogin).getTime() : 0;
+        comparison = timeA - timeB;
+      }
+      return sortOrder === 'desc' ? -comparison : comparison;
+    });
 
   return (
     <div className="min-h-screen bg-background text-foreground pb-20">
@@ -677,98 +810,206 @@ const Admin: React.FC = () => {
 
         {activeTab === 'users' && (
           <div className="space-y-4">
-            <div className="flex gap-4">
-              <div className="relative flex-1">
-                <Search className="absolute left-3 top-1/2 -translate-y-1/2 text-muted-foreground" size={18} />
-                <input
-                  type="text"
-                  placeholder="Search users by name or email..."
-                  value={searchQuery}
-                  onChange={(e) => setSearchQuery(e.target.value)}
-                  className="w-full bg-card border border-border rounded-2xl py-3 pl-10 pr-4 outline-none focus:ring-2 focus:ring-primary"
-                />
+            {/* Search, Filter & Sort Controls Panel */}
+            <div className="bg-card border border-border rounded-3xl p-5 space-y-4 shadow-sm">
+              <div className="flex flex-col sm:flex-row gap-3">
+                {/* Search */}
+                <div className="relative flex-1">
+                  <Search className="absolute left-3 top-1/2 -translate-y-1/2 text-muted-foreground/60" size={16} />
+                  <input
+                    type="text"
+                    placeholder="Search users by name or email..."
+                    value={searchQuery}
+                    onChange={(e) => setSearchQuery(e.target.value)}
+                    className="w-full bg-muted/50 border border-transparent rounded-2xl py-2.5 pl-10 pr-10 outline-none focus:bg-card focus:border-primary/20 focus:ring-2 focus:ring-primary/10 transition-all text-xs font-semibold text-foreground placeholder:text-muted-foreground/75"
+                  />
+                  {searchQuery && (
+                    <button
+                      onClick={() => setSearchQuery('')}
+                      className="absolute right-3 top-1/2 -translate-y-1/2 p-1 text-muted-foreground hover:text-foreground rounded-full hover:bg-muted transition-all"
+                    >
+                      <X size={12} />
+                    </button>
+                  )}
+                </div>
+
+                {/* Export Button */}
+                <button
+                  onClick={exportToExcel}
+                  className="bg-primary/5 hover:bg-primary text-primary hover:text-primary-foreground border border-primary/10 hover:border-transparent px-5 py-2.5 rounded-2xl flex items-center justify-center gap-2 transition-all font-bold text-xs uppercase tracking-wider shrink-0"
+                >
+                  <TrendingUp size={14} />
+                  Export Excel
+                </button>
               </div>
-              <button
-                onClick={exportToExcel}
-                className="bg-card border border-border px-4 py-2 rounded-2xl flex items-center gap-2 hover:bg-muted transition-colors font-medium text-sm"
-              >
-                <TrendingUp size={18} className="text-primary" />
-                Export CSV
-              </button>
+
+              {/* Advanced Filter and Sorting Bar */}
+              <div className="flex flex-col md:flex-row items-start md:items-center justify-between gap-4 pt-3 border-t border-border/40">
+                {/* Filter Pills */}
+                <div className="flex flex-wrap items-center gap-1.5">
+                  <span className="text-[10px] font-extrabold uppercase tracking-wider text-muted-foreground mr-1.5">Filters:</span>
+                  {(
+                    [
+                      { id: 'all', label: 'All Users' },
+                      { id: 'pro', label: 'PRO Members' },
+                      { id: 'standard', label: 'Standard' },
+                      { id: 'banned', label: 'Banned' },
+                      { id: 'active_today', label: 'Active Today' },
+                    ] as const
+                  ).map((pill) => (
+                    <button
+                      key={pill.id}
+                      onClick={() => setStatusFilter(pill.id)}
+                      className={`px-3.5 py-1.5 rounded-xl text-xs font-bold transition-all ${
+                        statusFilter === pill.id
+                          ? 'bg-primary text-primary-foreground shadow-sm shadow-primary/10 scale-105'
+                          : 'bg-muted/40 hover:bg-muted text-muted-foreground hover:text-foreground'
+                      }`}
+                    >
+                      {pill.label}
+                    </button>
+                  ))}
+                </div>
+
+                {/* Sorting Controls */}
+                <div className="flex items-center gap-3 self-end md:self-auto">
+                  <div className="flex items-center gap-1.5">
+                    <span className="text-[10px] font-extrabold uppercase tracking-wider text-muted-foreground">Sort By:</span>
+                    <select
+                      value={sortBy}
+                      onChange={(e) => setSortBy(e.target.value as any)}
+                      className="bg-muted/50 hover:bg-muted text-foreground text-xs font-bold py-1.5 pl-3 pr-8 rounded-xl border border-border/20 outline-none focus:ring-2 focus:ring-primary/10 transition-all cursor-pointer appearance-none relative"
+                      style={{ backgroundImage: `url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='24' height='24' viewBox='0 0 24 24' fill='none' stroke='currentColor' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'><polyline points='6 9 12 15 18 9'></polyline></svg>")`, backgroundRepeat: 'no-repeat', backgroundPosition: 'right 8px center', backgroundSize: '12px' }}
+                    >
+                      <option value="lastActive">Last Active</option>
+                      <option value="name">Name</option>
+                      <option value="email">Email</option>
+                      <option value="tx_volume">Transaction Count</option>
+                    </select>
+                  </div>
+
+                  <button
+                    onClick={() => setSortOrder(sortOrder === 'asc' ? 'desc' : 'asc')}
+                    className="p-2 bg-muted/50 hover:bg-muted text-muted-foreground hover:text-foreground rounded-xl transition-all border border-border/20"
+                    title={`Order: ${sortOrder === 'asc' ? 'Ascending' : 'Descending'}`}
+                  >
+                    <ArrowUpDown size={14} className={`transition-transform duration-300 ${sortOrder === 'desc' ? 'rotate-180' : ''}`} />
+                  </button>
+                </div>
+              </div>
             </div>
 
-            <div className="bg-card border border-border rounded-3xl overflow-hidden">
+            {/* Users List Card Container */}
+            <div className="bg-card border border-border rounded-3xl overflow-hidden shadow-sm">
               <div className="divide-y divide-border">
                 {isLoading ? (
-                  <div className="p-12 flex justify-center">
+                  <div className="p-16 flex flex-col items-center justify-center gap-3">
                     <Activity className="animate-spin text-primary" size={32} />
+                    <p className="text-xs text-muted-foreground font-bold uppercase tracking-wider animate-pulse">Loading system directory...</p>
                   </div>
                 ) : filteredUsers.length === 0 ? (
-                  <div className="p-12 text-center text-muted-foreground">
-                    <Users className="mx-auto mb-2 opacity-20" size={48} />
-                    <p>No users found</p>
+                  <div className="p-16 text-center text-muted-foreground">
+                    <Users className="mx-auto mb-3 opacity-20" size={48} />
+                    <p className="text-sm font-bold text-foreground">No matches found</p>
+                    <p className="text-xs text-muted-foreground mt-1">Try resetting your search query or status filters</p>
                   </div>
                 ) : (
-                  filteredUsers.map(u => (
-                    <div key={u.id} className={`p-4 flex items-center justify-between hover:bg-muted/30 transition-colors ${u.isBanned ? 'opacity-50 grayscale' : ''}`}>
-                      <div className="flex items-center gap-3">
-                        <div className="relative">
-                          <div className="w-10 h-10 bg-primary/10 rounded-full flex items-center justify-center text-primary font-bold overflow-hidden">
-                            {u.photoURL ? <img src={u.photoURL} alt="" /> : u.email?.[0].toUpperCase()}
-                          </div>
-                          {u.isPro && (
-                            <div className="absolute -top-1 -right-1 bg-amber-500 text-white rounded-full p-0.5 border-2 border-card">
-                              <ShieldCheck size={10} />
+                  filteredUsers.map(u => {
+                    const isTodayActive = u.lastLogin?.includes(new Date().toISOString().split('T')[0]);
+                    return (
+                      <div key={u.id} className={`p-5 flex flex-col sm:flex-row sm:items-center justify-between gap-4 hover:bg-muted/20 transition-all duration-200 ${u.isBanned ? 'bg-destructive/5 opacity-70' : ''}`}>
+                        <div className="flex items-start sm:items-center gap-4">
+                          <div className="relative shrink-0">
+                            <div className="w-12 h-12 bg-primary/5 rounded-2xl flex items-center justify-center text-primary font-black text-base overflow-hidden border border-border/50 shadow-inner">
+                              {u.photoURL ? (
+                                <img src={u.photoURL} alt="" className="object-cover w-full h-full" />
+                              ) : (
+                                u.email?.[0].toUpperCase()
+                              )}
                             </div>
-                          )}
+                            
+                            {/* Animated Pulse Badges */}
+                            {isTodayActive && (
+                              <div className="absolute -top-1 -left-1 w-3 h-3 bg-emerald-500 rounded-full border-2 border-card" title="Active today">
+                                <span className="absolute inset-0 bg-emerald-500 rounded-full animate-ping opacity-70" />
+                              </div>
+                            )}
+                            {u.isPro && (
+                              <div className="absolute -top-1 -right-1 w-4.5 h-4.5 bg-amber-500 text-white rounded-full flex items-center justify-center border-2 border-card scale-90" title="PRO Member">
+                                <ShieldCheck size={10} />
+                              </div>
+                            )}
+                          </div>
+                          
+                          <div className="space-y-1">
+                            <div className="flex flex-wrap items-center gap-2">
+                              <p className="font-extrabold text-sm text-foreground">
+                                {highlightText(u.displayName || 'Unnamed User', searchQuery)}
+                              </p>
+                              {u.isPro && (
+                                <span className="text-[9px] bg-amber-500/10 text-amber-600 dark:text-amber-400 px-2 py-0.5 rounded-full font-black uppercase tracking-wider flex items-center gap-1">
+                                  <span className="w-1 h-1 rounded-full bg-amber-500 animate-pulse" />
+                                  Pro
+                                </span>
+                              )}
+                              {u.isBanned && (
+                                <span className="text-[9px] bg-rose-500/10 text-rose-600 dark:text-rose-400 px-2 py-0.5 rounded-full font-black uppercase tracking-wider">
+                                  Banned
+                                </span>
+                              )}
+                            </div>
+                            
+                            <p className="text-xs text-muted-foreground flex flex-wrap items-center gap-1.5 font-medium">
+                              <span>{highlightText(u.email || '', searchQuery)}</span>
+                              <span className="opacity-40">•</span>
+                              <span className="font-mono text-[10px] bg-muted px-1.5 py-0.5 rounded text-muted-foreground/80">{u.lastIP || '0.0.0.0'}</span>
+                            </p>
+                            
+                            {u.stats && (
+                              <div className="flex items-center gap-2.5 pt-1">
+                                <span className="text-[9px] bg-primary/5 border border-primary/10 text-primary px-2 py-0.5 rounded-lg font-bold">TX: {u.stats.transactions}</span>
+                                <span className="text-[9px] bg-emerald-500/5 border border-emerald-500/10 text-emerald-600 px-2 py-0.5 rounded-lg font-bold">LN: {u.stats.loans}</span>
+                                <span className="text-[9px] bg-orange-500/5 border border-orange-500/10 text-orange-600 px-2 py-0.5 rounded-lg font-bold">EV: {u.stats.events}</span>
+                              </div>
+                            )}
+                          </div>
                         </div>
-                        <div>
-                          <div className="flex items-center gap-2">
-                            <p className="font-bold text-sm">{u.displayName || 'Unnamed User'}</p>
-                            {u.isPro && <span className="text-[10px] bg-amber-500/10 text-amber-500 px-1.5 py-0.5 rounded-full font-bold uppercase">Pro</span>}
-                            {u.isBanned && <span className="text-[10px] bg-rose-500/10 text-rose-500 px-1.5 py-0.5 rounded-full font-bold uppercase">Banned</span>}
+
+                        <div className="flex items-center justify-between sm:justify-end gap-5 border-t sm:border-t-0 border-border/40 pt-3 sm:pt-0">
+                          <div className="text-left sm:text-right">
+                            <p className="text-[9px] uppercase font-bold text-muted-foreground tracking-widest">Last Active</p>
+                            <p className="text-xs font-semibold text-foreground">
+                              {u.lastLogin ? format(new Date(u.lastLogin), 'MMM dd, HH:mm') : 'Never'}
+                            </p>
                           </div>
-                          <p className="text-xs text-muted-foreground">{u.email} • <span className="font-mono text-[10px] opacity-60">{u.lastIP || '0.0.0.0'}</span></p>
-                          {u.stats && (
-                            <div className="flex gap-2 mt-1">
-                              <span className="text-[9px] bg-primary/5 text-primary px-1.5 py-0.5 rounded-md font-medium">TX: {u.stats.transactions}</span>
-                              <span className="text-[9px] bg-emerald-500/5 text-emerald-500 px-1.5 py-0.5 rounded-md font-medium">LN: {u.stats.loans}</span>
-                              <span className="text-[9px] bg-orange-500/5 text-orange-500 px-1.5 py-0.5 rounded-md font-medium">EV: {u.stats.events}</span>
-                            </div>
-                          )}
+                          
+                          <div className="flex items-center gap-1 bg-muted/40 p-1 rounded-2xl border border-border/40 shadow-inner">
+                            <button
+                              onClick={() => setSelectedUserForFeatures(u)}
+                              className="p-2 rounded-xl text-muted-foreground hover:text-primary hover:bg-card transition-all duration-200"
+                              title="Manage User Features"
+                            >
+                              <Sliders size={16} />
+                            </button>
+                            <button
+                              onClick={() => toggleProStatus(u)}
+                              className={`p-2 rounded-xl transition-all duration-200 ${u.isPro ? 'text-amber-500 bg-card shadow-sm hover:text-amber-600' : 'text-muted-foreground hover:text-amber-500 hover:bg-card'}`}
+                              title={u.isPro ? 'Demote Pro' : 'Promote to Pro'}
+                            >
+                              <ShieldCheck size={16} />
+                            </button>
+                            <button
+                              onClick={() => toggleBanStatus(u)}
+                              className={`p-2 rounded-xl transition-all duration-200 ${u.isBanned ? 'text-rose-500 bg-card shadow-sm hover:text-rose-600' : 'text-muted-foreground hover:text-rose-500 hover:bg-card'}`}
+                              title={u.isBanned ? 'Unban User' : 'Ban User'}
+                            >
+                              <AlertCircle size={16} />
+                            </button>
+                          </div>
                         </div>
                       </div>
-                      <div className="flex items-center gap-4">
-                        <div className="text-right hidden sm:block">
-                          <p className="text-[10px] uppercase font-bold text-muted-foreground">Last Active</p>
-                          <p className="text-xs">{u.lastLogin ? format(new Date(u.lastLogin), 'MMM dd, HH:mm') : 'Never'}</p>
-                        </div>
-                        <div className="flex items-center gap-2 border-l border-border pl-4">
-                          <button
-                            onClick={() => setSelectedUserForFeatures(u)}
-                            className="p-2 rounded-lg text-muted-foreground hover:text-primary hover:bg-primary/10 transition-colors"
-                            title="Manage User Features"
-                          >
-                            <Sliders size={18} />
-                          </button>
-                          <button
-                            onClick={() => toggleProStatus(u)}
-                            className={`p-2 rounded-lg transition-colors ${u.isPro ? 'text-amber-500 hover:bg-amber-500/10' : 'text-muted-foreground hover:bg-muted'}`}
-                            title={u.isPro ? 'Remove Pro' : 'Make Pro'}
-                          >
-                            <ShieldCheck size={18} />
-                          </button>
-                          <button
-                            onClick={() => toggleBanStatus(u)}
-                            className={`p-2 rounded-lg transition-colors ${u.isBanned ? 'text-rose-500 hover:bg-rose-500/10' : 'text-muted-foreground hover:bg-muted'}`}
-                            title={u.isBanned ? 'Unban User' : 'Ban User'}
-                          >
-                            <AlertCircle size={18} />
-                          </button>
-                        </div>
-                      </div>
-                    </div>
-                  ))
+                    );
+                  })
                 )}
               </div>
             </div>
@@ -793,14 +1034,74 @@ const Admin: React.FC = () => {
                 />
               </div>
 
-              <div className="space-y-1">
-                <label className="text-xs font-bold uppercase text-muted-foreground">Global Announcement</label>
-                <textarea
-                  value={globalSettings.announcement}
-                  onChange={(e) => setGlobalSettings({ ...globalSettings, announcement: e.target.value })}
-                  className="w-full bg-muted border-none rounded-xl p-4 min-h-[100px] outline-none focus:ring-2 focus:ring-primary"
-                  placeholder="Message to show to all users..."
-                />
+              {/* Global Announcement with Markdown Preview */}
+              <div className="space-y-2">
+                <div className="flex items-center justify-between">
+                  <label className="text-xs font-bold uppercase text-muted-foreground ml-1">Global Announcement</label>
+                  <div className="flex bg-muted p-0.5 rounded-lg text-[10px]">
+                    <button
+                      type="button"
+                      onClick={() => setAnnouncementTab('edit')}
+                      className={`px-3 py-1 rounded-md font-extrabold transition-all ${announcementTab === 'edit' ? 'bg-card text-foreground shadow-sm' : 'text-muted-foreground hover:text-foreground'}`}
+                    >
+                      Edit Text
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => setAnnouncementTab('preview')}
+                      className={`px-3 py-1 rounded-md font-extrabold transition-all ${announcementTab === 'preview' ? 'bg-card text-foreground shadow-sm' : 'text-muted-foreground hover:text-foreground'}`}
+                    >
+                      Preview
+                    </button>
+                  </div>
+                </div>
+
+                {announcementTab === 'edit' ? (
+                  <div className="space-y-1">
+                    <textarea
+                      value={globalSettings.announcement}
+                      onChange={(e) => setGlobalSettings({ ...globalSettings, announcement: e.target.value })}
+                      className="w-full bg-muted border-none rounded-xl p-4 min-h-[100px] outline-none focus:ring-2 focus:ring-primary text-sm font-medium text-foreground"
+                      placeholder="Message to show to all users... (Supports **bold text** and [Link Name](http://url))"
+                    />
+                    <p className="text-[10px] text-muted-foreground ml-1 leading-relaxed">
+                      Formatting tips: Wrap text in <code className="bg-muted px-1 py-0.5 rounded text-primary font-bold">**bold**</code> or write links as <code className="bg-muted px-1 py-0.5 rounded text-primary font-bold">[Text](https://url)</code>.
+                    </p>
+                  </div>
+                ) : (
+                  <div className="w-full min-h-[100px] bg-muted/20 border border-dashed border-border rounded-xl p-4 flex items-start">
+                    <p className="text-sm font-medium leading-relaxed text-foreground">
+                      {globalSettings.announcement ? (
+                        (() => {
+                          const text = globalSettings.announcement;
+                          const parts = text.split(/(\*\*.*?\*\*|\[.*?\]\(.*?\))/g);
+                          return parts.map((part, index) => {
+                            if (part.startsWith('**') && part.endsWith('**')) {
+                              return <strong key={index} className="font-extrabold text-foreground">{part.slice(2, -2)}</strong>;
+                            }
+                            const linkMatch = part.match(/^\[(.*?)\]\((.*?)\)$/);
+                            if (linkMatch) {
+                              return (
+                                <a
+                                  key={index}
+                                  href={linkMatch[2]}
+                                  target="_blank"
+                                  rel="noopener noreferrer"
+                                  className="underline hover:text-primary font-bold text-primary transition-colors ml-0.5 mr-0.5"
+                                >
+                                  {linkMatch[1]}
+                                </a>
+                              );
+                            }
+                            return part;
+                          });
+                        })()
+                      ) : (
+                        <span className="italic text-muted-foreground text-xs">No announcement content to preview. Write something in Edit tab first.</span>
+                      )}
+                    </p>
+                  </div>
+                )}
               </div>
 
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
@@ -871,6 +1172,90 @@ const Admin: React.FC = () => {
                       </div>
                     );
                   })}
+                </div>
+              </div>
+
+              {/* Currencies Administration Panel */}
+              <div className="mt-8 border-t border-border pt-6 space-y-6">
+                <div className="flex items-center gap-2">
+                  <Coins className="text-primary" size={20} />
+                  <h3 className="font-bold text-base">Global Currencies Configuration</h3>
+                </div>
+
+                {/* List of current supported currencies */}
+                <div className="space-y-3">
+                  <p className="text-xs font-bold uppercase tracking-wider text-muted-foreground">Active Currencies</p>
+                  {(globalSettings.supportedCurrencies || []).length === 0 ? (
+                    <p className="text-sm text-muted-foreground italic">No currencies configured globally</p>
+                  ) : (
+                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                      {(globalSettings.supportedCurrencies || []).map((cur) => (
+                        <div key={cur.code} className="flex items-center justify-between p-4 bg-muted/30 rounded-2xl border border-border/50">
+                          <div className="flex items-center gap-3">
+                            <div className="w-10 h-10 rounded-xl bg-primary/10 flex items-center justify-center font-bold text-base text-primary">
+                              {cur.symbol}
+                            </div>
+                            <div>
+                              <p className="font-bold text-sm">{cur.name}</p>
+                              <p className="text-[10px] font-mono text-muted-foreground uppercase">{cur.code}</p>
+                            </div>
+                          </div>
+                          <button
+                            onClick={() => handleDeleteCurrency(cur.code)}
+                            disabled={(globalSettings.supportedCurrencies || []).length <= 1}
+                            className="p-2 bg-destructive/10 text-destructive hover:bg-destructive/20 disabled:opacity-30 disabled:hover:bg-destructive/10 rounded-lg transition-colors"
+                            title="Delete Currency"
+                          >
+                            <X size={16} />
+                          </button>
+                        </div>
+                      ))}
+                    </div>
+                  )}
+                </div>
+
+                {/* Add new currency form */}
+                <div className="bg-muted/30 p-5 rounded-3xl border border-border space-y-4">
+                  <p className="text-xs font-bold uppercase tracking-wider text-muted-foreground">Add New Currency</p>
+                  <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+                    <div className="space-y-1">
+                      <label className="text-[10px] font-bold uppercase text-muted-foreground ml-1">Code</label>
+                      <input
+                        type="text"
+                        value={newCurrencyCode}
+                        onChange={(e) => setNewCurrencyCode(e.target.value)}
+                        placeholder="e.g. CAD, AUD"
+                        className="w-full bg-card border border-border rounded-xl px-4 py-2.5 text-xs outline-none focus:ring-2 focus:ring-primary font-bold text-foreground"
+                      />
+                    </div>
+                    <div className="space-y-1">
+                      <label className="text-[10px] font-bold uppercase text-muted-foreground ml-1">Symbol</label>
+                      <input
+                        type="text"
+                        value={newCurrencySymbol}
+                        onChange={(e) => setNewCurrencySymbol(e.target.value)}
+                        placeholder="e.g. $, C$"
+                        className="w-full bg-card border border-border rounded-xl px-4 py-2.5 text-xs outline-none focus:ring-2 focus:ring-primary font-bold text-foreground"
+                      />
+                    </div>
+                    <div className="space-y-1">
+                      <label className="text-[10px] font-bold uppercase text-muted-foreground ml-1">Name</label>
+                      <input
+                        type="text"
+                        value={newCurrencyName}
+                        onChange={(e) => setNewCurrencyName(e.target.value)}
+                        placeholder="e.g. Canadian Dollar"
+                        className="w-full bg-card border border-border rounded-xl px-4 py-2.5 text-xs outline-none focus:ring-2 focus:ring-primary font-bold text-foreground"
+                      />
+                    </div>
+                  </div>
+                  <button
+                    onClick={handleAddCurrency}
+                    className="w-full bg-primary/10 hover:bg-primary text-primary hover:text-primary-foreground py-3 rounded-xl font-bold text-xs uppercase tracking-wider transition-all flex items-center justify-center gap-1.5"
+                  >
+                    <Plus size={14} />
+                    Add Currency Entry
+                  </button>
                 </div>
               </div>
 
@@ -998,11 +1383,12 @@ const Admin: React.FC = () => {
             </div>
           </div>
         )}
+
         {activeTab === 'analytics' && (
           <div className="space-y-6">
             <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
               {/* User Distribution */}
-              <div className="bg-card border border-border rounded-3xl p-6">
+              <div className="bg-card border border-border rounded-3xl p-6 shadow-sm">
                 <div className="flex items-center justify-between mb-6">
                   <h3 className="font-bold flex items-center gap-2">
                     <PieIcon size={18} className="text-primary" />
@@ -1015,18 +1401,42 @@ const Admin: React.FC = () => {
                       labels: ['Pro Accounts', 'Standard Accounts'],
                       datasets: [{
                         data: [systemStats.proUsers, systemStats.totalUsers - systemStats.proUsers],
-                        backgroundColor: ['rgba(245, 158, 11, 0.8)', 'rgba(59, 130, 246, 0.8)'],
-                        borderColor: ['#f59e0b', '#3b82f6'],
-                        borderWidth: 2,
+                        backgroundColor: ['rgba(245, 158, 11, 0.75)', 'rgba(99, 102, 241, 0.75)'],
+                        hoverBackgroundColor: ['#f59e0b', '#6366f1'],
+                        borderWidth: 0,
                       }]
                     }}
-                    options={{ maintainAspectRatio: false, plugins: { legend: { position: 'bottom' } } }}
+                    options={{
+                      maintainAspectRatio: false,
+                      plugins: {
+                        legend: {
+                          position: 'bottom',
+                          labels: {
+                            color: '#888888',
+                            font: { family: 'Inter, sans-serif', weight: 'bold', size: 11 },
+                            padding: 16,
+                            usePointStyle: true,
+                            pointStyle: 'circle'
+                          }
+                        },
+                        tooltip: {
+                          backgroundColor: 'rgba(15, 23, 42, 0.95)',
+                          titleColor: '#ffffff',
+                          bodyColor: '#e2e8f0',
+                          padding: 12,
+                          cornerRadius: 12,
+                          borderWidth: 1,
+                          borderColor: 'rgba(255, 255, 255, 0.1)',
+                          bodyFont: { family: 'Inter, sans-serif', size: 12 },
+                        }
+                      }
+                    }}
                   />
                 </div>
               </div>
 
               {/* Module Health */}
-              <div className="bg-card border border-border rounded-3xl p-6">
+              <div className="bg-card border border-border rounded-3xl p-6 shadow-sm">
                 <div className="flex items-center justify-between mb-6">
                   <h3 className="font-bold flex items-center gap-2">
                     <BarChart3 size={18} className="text-primary" />
@@ -1045,20 +1455,52 @@ const Admin: React.FC = () => {
                           systemStats.totalEvents > 0 ? systemStats.totalUsers : 1, // Simulated
                           systemStats.proUsers
                         ],
-                        backgroundColor: 'rgba(99, 102, 241, 0.5)',
-                        borderColor: '#6366f1',
-                        borderWidth: 2,
-                        borderRadius: 8
+                        backgroundColor: 'rgba(99, 102, 241, 0.7)',
+                        hoverBackgroundColor: '#6366f1',
+                        borderWidth: 0,
+                        borderRadius: 10
                       }]
                     }}
-                    options={{ maintainAspectRatio: false, scales: { y: { beginAtZero: true } } }}
+                    options={{
+                      maintainAspectRatio: false,
+                      plugins: {
+                        legend: { display: false },
+                        tooltip: {
+                          backgroundColor: 'rgba(15, 23, 42, 0.95)',
+                          titleColor: '#ffffff',
+                          bodyColor: '#e2e8f0',
+                          padding: 12,
+                          cornerRadius: 12,
+                          borderWidth: 1,
+                          borderColor: 'rgba(255, 255, 255, 0.1)',
+                          bodyFont: { family: 'Inter, sans-serif', size: 12 },
+                        }
+                      },
+                      scales: {
+                        x: {
+                          grid: { display: false },
+                          ticks: {
+                            color: '#888888',
+                            font: { family: 'Inter, sans-serif', size: 10, weight: 'bold' }
+                          }
+                        },
+                        y: {
+                          beginAtZero: true,
+                          grid: { color: 'rgba(150, 150, 150, 0.08)' },
+                          ticks: {
+                            color: '#888888',
+                            font: { family: 'Inter, sans-serif', size: 10 }
+                          }
+                        }
+                      }
+                    }}
                   />
                 </div>
               </div>
             </div>
 
             {/* Deep Scan Utility */}
-            <div className="bg-card border border-border rounded-3xl p-8 relative overflow-hidden">
+            <div className="bg-card border border-border rounded-3xl p-8 relative overflow-hidden shadow-sm">
               <div className="absolute top-0 right-0 w-64 h-64 bg-primary/5 rounded-full -mr-32 -mt-32 blur-3xl" />
 
               <div className="flex flex-col md:flex-row items-center justify-between gap-6 relative">
@@ -1074,7 +1516,7 @@ const Admin: React.FC = () => {
                 <button
                   onClick={scanSystemData}
                   disabled={isScanning}
-                  className="px-8 py-4 bg-primary text-primary-foreground rounded-2xl font-bold hover:shadow-xl transition-all active:scale-95 flex items-center gap-2 disabled:opacity-50"
+                  className="px-8 py-4 bg-primary text-primary-foreground rounded-2xl font-bold hover:shadow-xl hover:shadow-primary/10 transition-all active:scale-95 flex items-center gap-2 disabled:opacity-50"
                 >
                   {isScanning ? <RefreshCw className="animate-spin" size={20} /> : <Zap size={20} />}
                   {isScanning ? 'Scanning...' : 'Run Deep Scan'}
@@ -1082,23 +1524,23 @@ const Admin: React.FC = () => {
               </div>
 
               <div className="grid grid-cols-1 sm:grid-cols-3 gap-6 mt-10">
-                <div className="p-6 bg-muted/50 rounded-2xl border border-border text-center">
-                  <p className="text-3xl font-black mb-1">{systemStats.totalTransactions.toLocaleString()}</p>
+                <div className="p-6 bg-muted/30 rounded-2xl border border-border/50 text-center">
+                  <p className="text-3xl font-black mb-1 text-foreground">{systemStats.totalTransactions.toLocaleString()}</p>
                   <p className="text-xs font-bold uppercase text-muted-foreground tracking-tighter">Total Transactions</p>
                 </div>
-                <div className="p-6 bg-muted/50 rounded-2xl border border-border text-center">
-                  <p className="text-3xl font-black mb-1">{systemStats.totalLoans.toLocaleString()}</p>
+                <div className="p-6 bg-muted/30 rounded-2xl border border-border/50 text-center">
+                  <p className="text-3xl font-black mb-1 text-foreground">{systemStats.totalLoans.toLocaleString()}</p>
                   <p className="text-xs font-bold uppercase text-muted-foreground tracking-tighter">Total Loans</p>
                 </div>
-                <div className="p-6 bg-muted/50 rounded-2xl border border-border text-center">
-                  <p className="text-3xl font-black mb-1">{systemStats.totalEvents.toLocaleString()}</p>
+                <div className="p-6 bg-muted/30 rounded-2xl border border-border/50 text-center">
+                  <p className="text-3xl font-black mb-1 text-foreground">{systemStats.totalEvents.toLocaleString()}</p>
                   <p className="text-xs font-bold uppercase text-muted-foreground tracking-tighter">Total Events</p>
                 </div>
               </div>
             </div>
 
             {/* Growth Trend (Simulated) */}
-            <div className="bg-card border border-border rounded-3xl p-6">
+            <div className="bg-card border border-border rounded-3xl p-6 shadow-sm">
               <h3 className="font-bold mb-6 flex items-center gap-2">
                 <Activity size={18} className="text-emerald-500" />
                 7-Day Activity Trend
@@ -1111,46 +1553,194 @@ const Admin: React.FC = () => {
                       label: 'Active Users',
                       data: [12, 19, 15, 22, 28, 24, 30], // Simulated trend
                       borderColor: '#10b981',
-                      backgroundColor: 'rgba(16, 185, 129, 0.1)',
+                      backgroundColor: 'rgba(16, 185, 129, 0.05)',
                       fill: true,
-                      tension: 0.4
+                      tension: 0.4,
+                      pointBackgroundColor: '#10b981',
+                      pointBorderColor: '#ffffff',
+                      pointBorderWidth: 2,
+                      pointRadius: 4,
+                      pointHoverRadius: 6
                     }]
                   }}
-                  options={{ maintainAspectRatio: false }}
+                  options={{
+                    maintainAspectRatio: false,
+                    plugins: {
+                      legend: { display: false },
+                      tooltip: {
+                        backgroundColor: 'rgba(15, 23, 42, 0.95)',
+                        titleColor: '#ffffff',
+                        bodyColor: '#e2e8f0',
+                        padding: 12,
+                        cornerRadius: 12,
+                        borderWidth: 1,
+                        borderColor: 'rgba(255, 255, 255, 0.1)',
+                        bodyFont: { family: 'Inter, sans-serif', size: 12 },
+                      }
+                    },
+                    scales: {
+                      x: {
+                        grid: { display: false },
+                        ticks: {
+                          color: '#888888',
+                          font: { family: 'Inter, sans-serif', size: 10, weight: 'bold' }
+                        }
+                      },
+                      y: {
+                        beginAtZero: true,
+                        grid: { color: 'rgba(150, 150, 150, 0.08)' },
+                        ticks: {
+                          color: '#888888',
+                          font: { family: 'Inter, sans-serif', size: 10 }
+                        }
+                      }
+                    }
+                  }}
                 />
               </div>
             </div>
           </div>
         )}
 
-        {activeTab === 'logs' && (
-          <div className="bg-card border border-border rounded-3xl overflow-hidden shadow-sm">
-            <div className="p-4 border-b border-border flex items-center gap-2">
-              <Activity className="text-primary" size={20} />
-              <h2 className="font-bold">System Audit Logs</h2>
-            </div>
-            <div className="divide-y divide-border max-h-[600px] overflow-y-auto">
-              {adminLogs.length === 0 ? (
-                <div className="p-12 text-center text-muted-foreground italic">No logs recorded yet</div>
-              ) : (
-                adminLogs.map(log => (
-                  <div key={log.id} className="p-4 flex items-center justify-between text-sm">
-                    <div className="space-y-1">
-                      <p className="font-medium">{log.action}</p>
-                      <p className="text-[10px] text-muted-foreground uppercase font-bold">BY: {log.admin}</p>
-                    </div>
-                    <div className="text-right text-xs text-muted-foreground">
-                      {log.timestamp?.toDate ? format(log.timestamp.toDate(), 'MMM dd, HH:mm:ss') : 'Just now'}
-                    </div>
+        {activeTab === 'logs' && (() => {
+          const filteredLogs = adminLogs.filter(log => {
+            const matchesSearch = 
+              log.action?.toLowerCase().includes(logSearchQuery.toLowerCase()) ||
+              log.admin?.toLowerCase().includes(logSearchQuery.toLowerCase());
+            
+            if (!matchesSearch) return false;
+
+            const actionLower = log.action?.toLowerCase() || '';
+            switch (logTypeFilter) {
+              case 'config':
+                return actionLower.includes('config') || actionLower.includes('settings') || actionLower.includes('currency') || actionLower.includes('exchange');
+              case 'user':
+                return actionLower.includes('user') || actionLower.includes('pro') || actionLower.includes('banned') || actionLower.includes('feature') || actionLower.includes('permission');
+              case 'scan':
+                return actionLower.includes('scan') || actionLower.includes('deep');
+              case 'all':
+              default:
+                return true;
+            }
+          });
+
+          return (
+            <div className="space-y-4">
+              {/* Logs controls */}
+              <div className="bg-card border border-border rounded-3xl p-5 space-y-4 shadow-sm">
+                <div className="flex flex-col sm:flex-row gap-3">
+                  {/* Search logs */}
+                  <div className="relative flex-1">
+                    <Search className="absolute left-3 top-1/2 -translate-y-1/2 text-muted-foreground/60" size={16} />
+                    <input
+                      type="text"
+                      placeholder="Search logs by action or admin..."
+                      value={logSearchQuery}
+                      onChange={(e) => setLogSearchQuery(e.target.value)}
+                      className="w-full bg-muted/50 border border-transparent rounded-2xl py-2.5 pl-10 pr-10 outline-none focus:bg-card focus:border-primary/20 focus:ring-2 focus:ring-primary/10 transition-all text-xs font-semibold text-foreground placeholder:text-muted-foreground/75"
+                    />
+                    {logSearchQuery && (
+                      <button
+                        onClick={() => setLogSearchQuery('')}
+                        className="absolute right-3 top-1/2 -translate-y-1/2 p-1 text-muted-foreground hover:text-foreground rounded-full hover:bg-muted transition-all"
+                      >
+                        <X size={12} />
+                      </button>
+                    )}
                   </div>
-                ))
-              )}
+                </div>
+
+                {/* Tag filters */}
+                <div className="flex flex-wrap items-center gap-1.5 pt-3 border-t border-border/40">
+                  <span className="text-[10px] font-extrabold uppercase tracking-wider text-muted-foreground mr-1.5">Log Category:</span>
+                  {(
+                    [
+                      { id: 'all', label: 'All Logs' },
+                      { id: 'config', label: 'Config Changes' },
+                      { id: 'user', label: 'User Perms' },
+                      { id: 'scan', label: 'System Scans' },
+                  ] as const
+                  ).map((pill) => (
+                    <button
+                      key={pill.id}
+                      onClick={() => setLogTypeFilter(pill.id)}
+                      className={`px-3.5 py-1.5 rounded-xl text-xs font-bold transition-all ${
+                        logTypeFilter === pill.id
+                          ? 'bg-primary text-primary-foreground shadow-sm shadow-primary/10 scale-105'
+                          : 'bg-muted/40 hover:bg-muted text-muted-foreground hover:text-foreground'
+                      }`}
+                    >
+                      {pill.label}
+                    </button>
+                  ))}
+                </div>
+              </div>
+
+              {/* Audit Logs list card */}
+              <div className="bg-card border border-border rounded-3xl overflow-hidden shadow-sm">
+                <div className="p-5 border-b border-border flex items-center justify-between">
+                  <div className="flex items-center gap-2">
+                    <Activity className="text-primary animate-pulse" size={18} />
+                    <h2 className="font-extrabold text-sm text-foreground">System Audit Trail</h2>
+                  </div>
+                  <span className="text-[10px] bg-primary/5 text-primary border border-primary/10 px-2 py-0.5 rounded-full font-black uppercase">
+                    {filteredLogs.length} Entries
+                  </span>
+                </div>
+                
+                <div className="divide-y divide-border max-h-[500px] overflow-y-auto">
+                  {filteredLogs.length === 0 ? (
+                    <div className="p-16 text-center text-muted-foreground">
+                      <Activity className="mx-auto mb-3 opacity-20" size={48} />
+                      <p className="text-sm font-bold text-foreground">No logs found</p>
+                      <p className="text-xs text-muted-foreground mt-1">Try clearing your search query or choosing another category</p>
+                    </div>
+                  ) : (
+                    filteredLogs.map(log => {
+                      const actionLower = log.action?.toLowerCase() || '';
+                      let logIcon = <Activity size={16} />;
+                      let iconBg = 'bg-primary/5 text-primary border-primary/10';
+
+                      if (actionLower.includes('config') || actionLower.includes('settings') || actionLower.includes('currency') || actionLower.includes('exchange')) {
+                        logIcon = <SettingsIcon size={16} />;
+                        iconBg = 'bg-blue-500/5 text-blue-500 border-blue-500/10';
+                      } else if (actionLower.includes('user') || actionLower.includes('pro') || actionLower.includes('banned') || actionLower.includes('feature') || actionLower.includes('permission')) {
+                        logIcon = <Users size={16} />;
+                        iconBg = 'bg-amber-500/5 text-amber-500 border-amber-500/10';
+                      } else if (actionLower.includes('scan') || actionLower.includes('deep')) {
+                        logIcon = <Zap size={16} />;
+                        iconBg = 'bg-emerald-500/5 text-emerald-500 border-emerald-500/10';
+                      }
+
+                      return (
+                        <div key={log.id} className="p-4 flex items-start justify-between gap-4 hover:bg-muted/10 transition-colors">
+                          <div className="flex items-start gap-3">
+                            <div className={`w-8 h-8 rounded-xl border flex items-center justify-center shrink-0 ${iconBg}`}>
+                              {logIcon}
+                            </div>
+                            <div className="space-y-0.5">
+                              <p className="font-semibold text-sm text-foreground leading-tight">
+                                {highlightText(log.action || '', logSearchQuery)}
+                              </p>
+                              <p className="text-[10px] text-muted-foreground font-black uppercase tracking-wider">
+                                Operator: {highlightText(log.admin || 'System', logSearchQuery)}
+                              </p>
+                            </div>
+                          </div>
+                          <div className="text-right text-[11px] text-muted-foreground font-semibold shrink-0 pt-0.5">
+                            {log.timestamp?.toDate ? format(log.timestamp.toDate(), 'MMM dd, HH:mm:ss') : 'Just now'}
+                          </div>
+                        </div>
+                      );
+                    })
+                  )}
+                </div>
+              </div>
             </div>
-          </div>
-        )}
+          );
+        })()}
       </div>
 
-      {/* Sync Queue Modal */}
       {showQueueModal && (
         <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/60 backdrop-blur-sm animate-in fade-in duration-200">
           <div className="bg-card border border-border w-full max-w-lg rounded-3xl shadow-2xl overflow-hidden animate-in zoom-in-95 duration-200">

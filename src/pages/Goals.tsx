@@ -6,12 +6,16 @@ import { Plus, Target, Trash2, Calendar, CheckCircle2, Pencil } from 'lucide-rea
 import { toast } from 'sonner';
 
 const Goals: React.FC = () => {
-  const { formatAmount } = useCurrency();
+  const { formatAmount, currency: globalCurrency } = useCurrency();
   const [goals, setGoals] = useState<Goal[]>([]);
   const [accountsList, setAccountsList] = useState<any[]>([]);
   const [showAddModal, setShowAddModal] = useState(false);
   const [loading, setLoading] = useState(true);
   const [totalBalance, setTotalBalance] = useState(0);
+
+  // MEXC Live API & FX Rates State
+  const [mexcTotalValue, setMexcTotalValue] = useState<number | null>(null);
+  const [rates, setRates] = useState<Record<string, number>>({});
 
   // Form State
   const [editingGoal, setEditingGoal] = useState<Goal | null>(null);
@@ -20,13 +24,7 @@ const Goals: React.FC = () => {
   const [newDeadline, setNewDeadline] = useState('');
   const [newLinkedAccounts, setNewLinkedAccounts] = useState<string[]>([]);
 
-  useEffect(() => {
-    loadData();
-    window.addEventListener('app-sync-complete', loadData);
-    return () => window.removeEventListener('app-sync-complete', loadData);
-  }, []);
-
-  const loadData = async () => {
+  const loadData = async (mexcVal = mexcTotalValue, currentRates = rates) => {
     try {
       const [goalsList, accounts] = await Promise.all([
         getGoals(),
@@ -35,8 +33,21 @@ const Goals: React.FC = () => {
       setGoals(goalsList);
       setAccountsList(accounts);
 
-      const balance = accounts.reduce((acc, curr) =>
-        acc + (curr.initial_balance + curr.income - curr.expense + (curr.transfer_in || 0) - (curr.transfer_out || 0)), 0);
+      const balance = accounts.reduce((acc, curr) => {
+        let rawBalance = curr.initial_balance + (curr.income || 0) - (curr.expense || 0) + (curr.transfer_in || 0) - (curr.transfer_out || 0);
+        let accountCurrency = curr.currency || 'PKR';
+        
+        if (curr.name.toLowerCase().includes('mexc') && mexcVal !== null) {
+          rawBalance = mexcVal;
+          accountCurrency = 'USD';
+        }
+
+        const rateFrom = currentRates[accountCurrency] || (accountCurrency === 'PKR' ? 280 : 1);
+        const rateTo = currentRates[globalCurrency.code] || (globalCurrency.code === 'PKR' ? 280 : 1);
+        const convertedBalance = (rawBalance / rateFrom) * rateTo;
+
+        return acc + convertedBalance;
+      }, 0);
       setTotalBalance(balance);
     } catch (error) {
       console.error('Failed to load goals', error);
@@ -44,6 +55,59 @@ const Goals: React.FC = () => {
       setLoading(false);
     }
   };
+
+  const initData = async () => {
+    let fetchedRates = {};
+    let fetchedMexc = null;
+
+    try {
+      const res = await fetch('https://api.exchangerate-api.com/v4/latest/USD');
+      if (res.ok) {
+        const data = await res.json();
+        fetchedRates = data.rates || {};
+        setRates(data.rates || {});
+      }
+    } catch (error) {
+      console.error('Error fetching rates in Goals', error);
+    }
+
+    try {
+      const { getConfig, getMEXCData, fetchCryptoPrice } = await import('../db/queries');
+      const key = await getConfig('mexc_api_key');
+      const secret = await getConfig('mexc_api_secret');
+
+      if (key && secret) {
+        const data = await getMEXCData(key, secret);
+        if (data && data.balances) {
+          const balances = data.balances.filter((b: any) => parseFloat(b.free) > 0 || parseFloat(b.locked) > 0);
+          let totalUSD = 0;
+          for (const b of balances) {
+            const amount = parseFloat(b.free) + parseFloat(b.locked);
+            if (b.asset === 'USDT' || b.asset === 'USD') {
+              totalUSD += amount;
+            } else {
+              const price = await fetchCryptoPrice(b.asset);
+              if (price) {
+                totalUSD += amount * price;
+              }
+            }
+          }
+          fetchedMexc = totalUSD;
+          setMexcTotalValue(totalUSD);
+        }
+      }
+    } catch (e) {
+      console.error('Failed to load MEXC data in Goals', e);
+    }
+
+    await loadData(fetchedMexc, fetchedRates);
+  };
+
+  useEffect(() => {
+    initData();
+    window.addEventListener('app-sync-complete', initData);
+    return () => window.removeEventListener('app-sync-complete', initData);
+  }, []);
 
   const handleAddGoal = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -131,7 +195,21 @@ const Goals: React.FC = () => {
               if (Array.isArray(linkedIds) && linkedIds.length > 0) {
                 currentBalance = accountsList
                   .filter(a => linkedIds.includes(a.id))
-                  .reduce((acc, curr) => acc + (curr.initial_balance + curr.income - curr.expense + (curr.transfer_in || 0) - (curr.transfer_out || 0)), 0);
+                  .reduce((acc, curr) => {
+                    let rawBalance = curr.initial_balance + (curr.income || 0) - (curr.expense || 0) + (curr.transfer_in || 0) - (curr.transfer_out || 0);
+                    let accountCurrency = curr.currency || 'PKR';
+                    
+                    if (curr.name.toLowerCase().includes('mexc') && mexcTotalValue !== null) {
+                      rawBalance = mexcTotalValue;
+                      accountCurrency = 'USD';
+                    }
+
+                    const rateFrom = rates[accountCurrency] || (accountCurrency === 'PKR' ? 280 : 1);
+                    const rateTo = rates[globalCurrency.code] || (globalCurrency.code === 'PKR' ? 280 : 1);
+                    const convertedBalance = (rawBalance / rateFrom) * rateTo;
+
+                    return acc + convertedBalance;
+                  }, 0);
               } else {
                 currentBalance = 0;
               }

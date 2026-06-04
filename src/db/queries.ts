@@ -726,7 +726,7 @@ export const deleteGoal = async (id: string) => {
 // --- Data Portability ---
 
 export const exportAllData = async () => {
-  const [transactions, accounts, categories, goals, investments, reminders, tasks, loan_parties, loans, loan_repayments, events, fuel_logs] = await Promise.all([
+  const [transactions, accounts, categories, goals, investments, reminders, tasks, task_logs, loan_parties, loans, loan_repayments, events, fuel_logs] = await Promise.all([
     executeQuery(`SELECT * FROM transactions`),
     executeQuery(`SELECT * FROM accounts`),
     executeQuery(`SELECT * FROM categories`),
@@ -734,6 +734,7 @@ export const exportAllData = async () => {
     executeQuery(`SELECT * FROM investments`),
     executeQuery(`SELECT * FROM reminders`),
     executeQuery(`SELECT * FROM tasks`),
+    executeQuery(`SELECT * FROM task_logs`),
     executeQuery(`SELECT * FROM loan_parties`),
     executeQuery(`SELECT * FROM loans`),
     executeQuery(`SELECT * FROM loan_repayments`),
@@ -751,6 +752,7 @@ export const exportAllData = async () => {
     investments,
     reminders,
     tasks,
+    task_logs,
     loan_parties,
     loans,
     loan_repayments,
@@ -767,6 +769,7 @@ export const clearAllData = async () => {
   await executeQuery(`DELETE FROM investments`);
   await executeQuery(`DELETE FROM reminders`);
   await executeQuery(`DELETE FROM tasks`);
+  await executeQuery(`DELETE FROM task_logs`);
   await executeQuery(`DELETE FROM loan_parties`);
   await executeQuery(`DELETE FROM loans`);
   await executeQuery(`DELETE FROM loan_repayments`);
@@ -860,10 +863,20 @@ export const importAllData = async (data: any) => {
   if (data.tasks) {
     for (const t of data.tasks) {
       await runWithBindings(
-        `INSERT OR REPLACE INTO tasks (id, title, description, status, due_date, due_time, reminder_enabled, reminder_offset, reminder_sent, created_at, updated_at, deviceId, synced) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 0)`,
-        [t.id, t.title, t.description, t.status, t.due_date, t.due_time ?? null, t.reminder_enabled ?? 0, t.reminder_offset ?? 5, t.reminder_sent ?? 0, t.created_at, t.updated_at, t.deviceId]
+        `INSERT OR REPLACE INTO tasks (id, title, description, status, due_date, due_time, reminder_enabled, reminder_offset, reminder_sent, priority, category, created_at, updated_at, deviceId, synced, time_spent, last_started_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 0, ?, ?)`,
+        [t.id, t.title, t.description, t.status, t.due_date, t.due_time ?? null, t.reminder_enabled ?? 0, t.reminder_offset ?? 5, t.reminder_sent ?? 0, t.priority ?? 'medium', t.category ?? null, t.created_at, t.updated_at, t.deviceId, t.time_spent ?? 0, t.last_started_at ?? null]
       );
       await addToSyncQueue('task_add', t);
+    }
+  }
+
+  if (data.task_logs) {
+    for (const l of data.task_logs) {
+      await runWithBindings(
+        `INSERT OR REPLACE INTO task_logs (id, task_id, type, timestamp, notes, duration, deviceId, synced) VALUES (?, ?, ?, ?, ?, ?, ?, 0)`,
+        [l.id, l.task_id, l.type, l.timestamp, l.notes ?? null, l.duration ?? 0, l.deviceId]
+      );
+      await addToSyncQueue('task_log_add', l);
     }
   }
 
@@ -945,6 +958,7 @@ export interface AssetTransaction {
   updated_at: string;
   deviceId?: string;
   synced?: number;
+  funding_account_id?: string | null;
 }
 
 export interface InventoryLedger {
@@ -1161,7 +1175,9 @@ export const addAssetTransaction = async (
   feeAsset: string | null = null,
   feeQty: number = 0,
   source: string = 'Manual',
-  timestamp?: string
+  timestamp?: string,
+  funding_account_id: string | null = null,
+  exchangeRate?: number
 ) => {
   const id = uuidv4();
   const now = new Date().toISOString();
@@ -1169,18 +1185,145 @@ export const addAssetTransaction = async (
   const deviceId = localStorage.getItem('deviceId') || 'unknown';
 
   await runWithBindings(
-    `INSERT INTO asset_transactions (id, asset_symbol, txn_type, qty, unit_price, quote_asset, fee_asset, fee_qty, source, timestamp, created_at, updated_at, deviceId, synced)
-     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 0)`,
-    [id, symbol.toUpperCase(), txnType, qty, unitPrice, quoteAsset.toUpperCase(), feeAsset ? feeAsset.toUpperCase() : null, feeQty, source, txTimestamp, now, now, deviceId]
+    `INSERT INTO asset_transactions (id, asset_symbol, txn_type, qty, unit_price, quote_asset, fee_asset, fee_qty, source, timestamp, created_at, updated_at, deviceId, synced, funding_account_id)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 0, ?)`,
+    [id, symbol.toUpperCase(), txnType, qty, unitPrice, quoteAsset.toUpperCase(), feeAsset ? feeAsset.toUpperCase() : null, feeQty, source, txTimestamp, now, now, deviceId, funding_account_id]
   );
 
   // Auto-replay ledger to recalculate inventory and costs
   await replayInventoryLedger();
+
+  // Create corresponding bank/cash transaction if a funding account is provided
+  if (funding_account_id) {
+    const accs = await runWithBindings(`SELECT currency FROM accounts WHERE id = ?`, [funding_account_id]);
+    const accountCurrency = accs[0]?.currency || 'PKR';
+
+    let amount = qty * unitPrice;
+    const quote = quoteAsset.toUpperCase().trim();
+    const accCurr = accountCurrency.toUpperCase().trim();
+
+    if (quote !== accCurr) {
+      let usdToPKR = 278.5;
+      const rate = exchangeRate || usdToPKR;
+      if (quote === 'USD' && accCurr === 'PKR') {
+        amount = amount * rate;
+      } else if (quote === 'USDT' && accCurr === 'PKR') {
+        amount = amount * rate;
+      } else if (quote === 'PKR' && accCurr === 'USD') {
+        amount = amount / rate;
+      }
+    }
+
+    const isOut = txnType === 'BUY' || txnType === 'WITHDRAWAL';
+    const type = isOut ? 'expense' : 'income';
+
+    await addTransaction(
+      type,
+      amount,
+      'Investment',
+      `${txnType} ${symbol.toUpperCase().trim()}: ${qty} units @ ${unitPrice} ${quoteAsset.toUpperCase().trim()}`,
+      txTimestamp.split('T')[0],
+      '',
+      funding_account_id,
+      null,
+      null,
+      `trx_asset_txn_${id}`
+    );
+  }
+
   return id;
+};
+
+export const updateAssetTransaction = async (
+  id: string,
+  data: Partial<Omit<AssetTransaction, 'id' | 'created_at' | 'synced'>>,
+  exchangeRate?: number
+) => {
+  const now = new Date().toISOString();
+  const deviceId = localStorage.getItem('deviceId') || 'unknown';
+
+  const sanitizedData: any = {};
+  const fieldsToUpdate = [
+    'asset_symbol', 'txn_type', 'qty', 'unit_price', 'quote_asset', 
+    'fee_asset', 'fee_qty', 'source', 'timestamp', 'funding_account_id'
+  ];
+  fieldsToUpdate.forEach(key => {
+    if (key in data) {
+      sanitizedData[key] = (data as any)[key] ?? null;
+    }
+  });
+
+  const fields = Object.keys(sanitizedData);
+  const values = Object.values(sanitizedData);
+  const setClause = fields.map(f => `${f} = ?`).join(', ');
+
+  await runWithBindings(
+    `UPDATE asset_transactions SET ${setClause}, updated_at = ?, deviceId = ?, synced = 0 WHERE id = ?`,
+    [...values, now, deviceId, id]
+  );
+
+  // Auto-replay ledger to recalculate inventory and costs
+  await replayInventoryLedger();
+
+  // Handle standard transaction update
+  const txs = await runWithBindings(`SELECT * FROM asset_transactions WHERE id = ?`, [id]);
+  const tx = txs[0];
+  if (tx) {
+    if (tx.funding_account_id) {
+      const accs = await runWithBindings(`SELECT currency FROM accounts WHERE id = ?`, [tx.funding_account_id]);
+      const accountCurrency = accs[0]?.currency || 'PKR';
+
+      let amount = tx.qty * tx.unit_price;
+      const quote = tx.quote_asset.toUpperCase().trim();
+      const accCurr = accountCurrency.toUpperCase().trim();
+
+      if (quote !== accCurr) {
+        let usdToPKR = 278.5;
+        const rate = exchangeRate || usdToPKR;
+        if (quote === 'USD' && accCurr === 'PKR') {
+          amount = amount * rate;
+        } else if (quote === 'USDT' && accCurr === 'PKR') {
+          amount = amount * rate;
+        } else if (quote === 'PKR' && accCurr === 'USD') {
+          amount = amount / rate;
+        }
+      }
+
+      const isOut = tx.txn_type === 'BUY' || tx.txn_type === 'WITHDRAWAL';
+      const type = isOut ? 'expense' : 'income';
+
+      // Check if linked transaction already exists
+      const existing = await runWithBindings(`SELECT id FROM transactions WHERE id = ?`, [`trx_asset_txn_${id}`]);
+      if (existing.length > 0) {
+        await runWithBindings(
+          `UPDATE transactions SET type = ?, amount = ?, account_id = ?, description = ?, date = ?, updated_at = ?, synced = 0 WHERE id = ?`,
+          [type, amount, tx.funding_account_id, `${tx.txn_type} ${tx.asset_symbol}: ${tx.qty} units @ ${tx.unit_price} ${tx.quote_asset}`, tx.timestamp.split('T')[0], now, `trx_asset_txn_${id}`]
+        );
+      } else {
+        await addTransaction(
+          type,
+          amount,
+          'Investment',
+          `${tx.txn_type} ${tx.asset_symbol}: ${tx.qty} units @ ${tx.unit_price} ${tx.quote_asset}`,
+          tx.timestamp.split('T')[0],
+          '',
+          tx.funding_account_id,
+          null,
+          null,
+          `trx_asset_txn_${id}`
+        );
+      }
+    } else {
+      // If funding_account_id was removed, delete the linked transaction
+      await runWithBindings(`DELETE FROM transactions WHERE id = ?`, [`trx_asset_txn_${id}`]);
+    }
+  }
 };
 
 export const deleteAssetTransaction = async (id: string) => {
   await runWithBindings(`DELETE FROM asset_transactions WHERE id = ?`, [id]);
+  // Also delete linked standard transaction
+  await runWithBindings(`DELETE FROM transactions WHERE id = ?`, [`trx_asset_txn_${id}`]);
   // Auto-replay ledger to recalculate inventory and costs
   await replayInventoryLedger();
 };
@@ -1901,13 +2044,63 @@ export interface Task {
   reminder_enabled: number;
   reminder_offset: number;
   reminder_sent: number;
+  priority?: 'low' | 'medium' | 'high';
+  category?: string | null;
   created_at: string;
   updated_at: string;
   synced: number;
+  time_spent?: number;
+  last_started_at?: string | null;
+}
+
+export interface TaskLog {
+  id: string;
+  task_id: string;
+  type: 'start' | 'pause' | 'resume' | 'update' | 'complete' | 'reopen';
+  timestamp: string;
+  notes: string | null;
+  duration: number;
+  deviceId: string | null;
+  synced?: number;
 }
 
 export const getTasks = async (): Promise<Task[]> => {
   return await executeQuery(`SELECT * FROM tasks ORDER BY created_at DESC`);
+};
+
+export const getTaskLogs = async (taskId: string): Promise<TaskLog[]> => {
+  return await executeQuery(`SELECT * FROM task_logs WHERE task_id = ? ORDER BY timestamp DESC`, [taskId]);
+};
+
+export const addTaskLog = async (
+  task_id: string,
+  type: 'start' | 'pause' | 'resume' | 'update' | 'complete' | 'reopen',
+  notes: string | null = null,
+  duration: number = 0,
+  providedId?: string
+) => {
+  const id = providedId || uuidv4();
+  const now = new Date().toISOString();
+  const deviceId = localStorage.getItem('deviceId') || 'unknown';
+
+  const logData = {
+    id,
+    task_id,
+    type,
+    timestamp: now,
+    notes,
+    duration,
+    deviceId
+  };
+
+  await syncManager.performOperation('task_log_add', logData, () =>
+    runWithBindings(
+      `INSERT INTO task_logs (id, task_id, type, timestamp, notes, duration, deviceId, synced)
+       VALUES (?, ?, ?, ?, ?, ?, ?, 0)`,
+      [id, task_id, type, now, notes, duration, deviceId]
+    )
+  );
+  return id;
 };
 
 export const addTask = async (
@@ -1918,6 +2111,8 @@ export const addTask = async (
   due_time: string | null = null,
   reminder_enabled: number = 0,
   reminder_offset: number = 5,
+  priority: 'low' | 'medium' | 'high' = 'medium',
+  category: string | null = null,
   providedId?: string
 ) => {
   if (!title || !title.trim()) throw new Error('Task title is required');
@@ -1925,25 +2120,49 @@ export const addTask = async (
   const now = new Date().toISOString();
   const deviceId = localStorage.getItem('deviceId') || 'unknown';
 
-  const taskData = { id, title: title.trim(), description: description ?? '', status, due_date, due_time, reminder_enabled, reminder_offset, reminder_sent: 0, created_at: now, updated_at: now, deviceId };
+  const taskData = { 
+    id, 
+    title: title.trim(), 
+    description: description ?? '', 
+    status, 
+    due_date, 
+    due_time, 
+    reminder_enabled, 
+    reminder_offset, 
+    reminder_sent: 0, 
+    priority, 
+    category, 
+    created_at: now, 
+    updated_at: now, 
+    deviceId,
+    time_spent: 0,
+    last_started_at: status === 'in_progress' ? now : null
+  };
 
-  await syncManager.performOperation('task_add', taskData, () =>
-    runWithBindings(
-      `INSERT INTO tasks (id, title, description, status, due_date, due_time, reminder_enabled, reminder_offset, reminder_sent, created_at, updated_at, deviceId, synced) 
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, 0, ?, ?, ?, 0)`,
-      [id, title.trim(), description ?? '', status, due_date, due_time, reminder_enabled, reminder_offset, now, now, deviceId]
-    )
-  );
+  await syncManager.performOperation('task_add', taskData, async () => {
+    await runWithBindings(
+      `INSERT INTO tasks (id, title, description, status, due_date, due_time, reminder_enabled, reminder_offset, reminder_sent, priority, category, created_at, updated_at, deviceId, synced, time_spent, last_started_at) 
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, 0, ?, ?, ?, ?, ?, 0, 0, ?)`,
+      [id, title.trim(), description ?? '', status, due_date, due_time, reminder_enabled, reminder_offset, priority, category, now, now, deviceId, status === 'in_progress' ? now : null]
+    );
+
+    // Write initial log
+    await addTaskLog(id, status === 'in_progress' ? 'start' : 'update', status === 'in_progress' ? 'Task started' : 'Task created', 0);
+  });
   return id;
 };
 
 const TASK_UPDATABLE_FIELDS = new Set([
-  'title', 'description', 'status', 'due_date', 'due_time', 'reminder_enabled', 'reminder_offset', 'reminder_sent', 'updated_at', 'deviceId'
+  'title', 'description', 'status', 'due_date', 'due_time', 'reminder_enabled', 'reminder_offset', 'reminder_sent', 'priority', 'category', 'updated_at', 'deviceId', 'time_spent', 'last_started_at'
 ]);
 
 export const updateTask = async (id: string, data: Partial<Omit<Task, 'id' | 'created_at' | 'synced'>>) => {
   const now = new Date().toISOString();
   const deviceId = localStorage.getItem('deviceId') || 'unknown';
+
+  // Get existing task to check transitions
+  const existingRows = await runWithBindings(`SELECT * FROM tasks WHERE id = ?`, [id]);
+  const existing = existingRows[0] as Task | undefined;
 
   const sanitizedData: any = {};
   Object.keys(data).forEach(key => {
@@ -1951,6 +2170,55 @@ export const updateTask = async (id: string, data: Partial<Omit<Task, 'id' | 'cr
       sanitizedData[key] = (data as any)[key] ?? null;
     }
   });
+
+  if (existing && data.status && data.status !== existing.status) {
+    const prevStatus = existing.status;
+    const nextStatus = data.status;
+    let logType: 'start' | 'pause' | 'resume' | 'update' | 'complete' | 'reopen' | null = null;
+    let logNote = '';
+    let duration = 0;
+
+    if (nextStatus === 'in_progress') {
+      sanitizedData.last_started_at = now;
+      const isInitialStart = !(existing.time_spent && existing.time_spent > 0) && !existing.last_started_at;
+      logType = isInitialStart ? 'start' : 'resume';
+      logNote = isInitialStart ? 'Task started' : 'Task resumed';
+    } else if (prevStatus === 'in_progress') {
+      const start = existing.last_started_at ? new Date(existing.last_started_at).getTime() : 0;
+      duration = start > 0 ? Math.floor((new Date(now).getTime() - start) / 1000) : 0;
+      
+      sanitizedData.last_started_at = null;
+      sanitizedData.time_spent = (existing.time_spent || 0) + duration;
+      
+      logType = nextStatus === 'completed' ? 'complete' : 'pause';
+      logNote = nextStatus === 'completed' ? 'Task completed' : 'Task paused';
+    } else if (nextStatus === 'completed') {
+      logType = 'complete';
+      logNote = 'Task completed';
+    } else if (prevStatus === 'completed' && nextStatus === 'pending') {
+      logType = 'reopen';
+      logNote = 'Task reopened';
+    }
+
+    // Execute updates
+    const fields = Object.keys(sanitizedData);
+    const values = Object.values(sanitizedData);
+    const setClause = fields.map(f => `${f} = ?`).join(', ');
+
+    const taskData = { id, ...sanitizedData, updated_at: now, deviceId };
+
+    await syncManager.performOperation('task_update', taskData, () =>
+      runWithBindings(
+        `UPDATE tasks SET ${setClause}, updated_at = ?, deviceId = ?, synced = 0 WHERE id = ?`,
+        [...values, now, deviceId, id]
+      )
+    );
+
+    if (logType) {
+      await addTaskLog(id, logType, logNote, duration);
+    }
+    return;
+  }
 
   const fields = Object.keys(sanitizedData);
   const values = Object.values(sanitizedData);

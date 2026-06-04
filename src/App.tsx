@@ -30,6 +30,7 @@ import Reports from './pages/Reports';
 import Admin from './pages/Admin';
 import MexcDetails from './pages/MexcDetails';
 import AIChat from './pages/AIChat';
+import Subscriptions from './pages/Subscriptions';
 
 const ProtectedRoute: React.FC<{ children: React.ReactNode }> = ({ children }) => {
   const { user, loading } = useAuth();
@@ -102,6 +103,7 @@ const App: React.FC = () => {
                       <Route path="settings" element={<Settings />} />
                       <Route path="mexc-details/:id" element={<MexcDetails />} />
                       <Route path="ai-chat" element={<FeatureRoute featureId="ai-chat"><AIChat /></FeatureRoute>} />
+                      <Route path="subscriptions" element={<FeatureRoute featureId="subscriptions"><Subscriptions /></FeatureRoute>} />
                     </Route>
                     <Route path="/admin" element={<Admin />} />
                   </Routes>

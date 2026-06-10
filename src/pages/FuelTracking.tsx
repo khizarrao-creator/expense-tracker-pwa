@@ -105,7 +105,7 @@ const FuelTracking: React.FC = () => {
           <div className="text-2xl font-bold">
             {logs.reduce((acc, log) => acc + log.total_cost, 0).toLocaleString()}
           </div>
-          <p className="text-xs text-muted-foreground mt-1">All time fuel expenses</p>
+          <p className="text-xs text-muted-foreground mt-1">All time fuel expenses Recorded</p>
         </div>
         <div className="bg-card p-6 rounded-2xl border border-border shadow-sm">
           <div className="flex items-center gap-3 text-blue-500 mb-2">
@@ -216,8 +216,8 @@ const FuelTracking: React.FC = () => {
                       type="button"
                       onClick={() => setFuelType(type)}
                       className={`px-3 py-2 rounded-xl text-sm font-medium border transition-all ${fuelType === type
-                          ? 'bg-primary border-primary text-primary-foreground shadow-md'
-                          : 'bg-card border-border hover:border-primary/50'
+                        ? 'bg-primary border-primary text-primary-foreground shadow-md'
+                        : 'bg-card border-border hover:border-primary/50'
                         }`}
                     >
                       {type}

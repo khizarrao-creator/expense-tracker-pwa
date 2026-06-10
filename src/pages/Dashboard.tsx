@@ -5,6 +5,7 @@ import {
   getNetWorth,
   getPaymentMethodStatsByPeriod,
   getMonthlyComparison,
+  getCashFlowHistory,
   getBurnRate,
   getCategorySpikes,
   calculatePortfolioValue,
@@ -462,6 +463,9 @@ const Dashboard: React.FC = () => {
   const [categoryChart, setCategoryChart] = useState<any>(null);
   const [paymentChart, setPaymentChart] = useState<any>(null);
 
+  // Cash flow range selection
+  const [cashFlowMonths, setCashFlowMonths] = useState<number>(6);
+
   // Budgets
   const [budgetRows, setBudgetRows] = useState<BudgetVsActualRow[]>([]);
   const [expenseCategories, setExpenseCategories] = useState<any[]>([]);
@@ -482,6 +486,27 @@ const Dashboard: React.FC = () => {
   const [totalBalance, setTotalBalance] = useState(0);
 
   // ── Loaders ────────────────────────────────────────────────────────────────
+
+  const loadCashFlowChart = useCallback(async (monthsCount: number) => {
+    try {
+      const data = await getCashFlowHistory(monthsCount);
+      const labels = data.map(d => {
+        const [year, month] = d.month.split('-');
+        const dateObj = new Date(parseInt(year), parseInt(month) - 1, 1);
+        return dateObj.toLocaleDateString(undefined, { month: 'short' });
+      });
+
+      setCashFlowChart({
+        labels,
+        datasets: [
+          { label: 'Income', data: data.map(d => d.income), backgroundColor: '#10b981', borderRadius: 8 },
+          { label: 'Expense', data: data.map(d => d.expense), backgroundColor: '#ef4444', borderRadius: 8 },
+        ]
+      });
+    } catch (err) {
+      console.error('Failed to load cash flow chart', err);
+    }
+  }, []);
 
   const loadBaseData = useCallback(async () => {
     try {
@@ -509,14 +534,6 @@ const Dashboard: React.FC = () => {
       const balance = (accs || []).reduce((acc: number, curr: any) =>
         acc + (curr.initial_balance + curr.income - curr.expense + (curr.transfer_in || 0) - (curr.transfer_out || 0)), 0);
       setTotalBalance(balance);
-
-      setCashFlowChart({
-        labels: ['Prev Month', 'This Month'],
-        datasets: [
-          { label: 'Income', data: [comp.prev_income, comp.current_income], backgroundColor: '#10b981', borderRadius: 8 },
-          { label: 'Expense', data: [comp.prev_expense, comp.current_expense], backgroundColor: '#ef4444', borderRadius: 8 },
-        ]
-      });
     } catch (err) {
       console.error('Failed to load dashboard base data', err);
     } finally {
@@ -577,14 +594,25 @@ const Dashboard: React.FC = () => {
 
   // ── Effects ────────────────────────────────────────────────────────────────
 
+  const cashFlowMonthsRef = useRef(cashFlowMonths);
+  useEffect(() => {
+    cashFlowMonthsRef.current = cashFlowMonths;
+  }, [cashFlowMonths]);
+
   useEffect(() => {
     loadBaseData();
     loadBudgets();
     loadHeatmap();
-    window.addEventListener('app-sync-complete', loadBaseData);
-    return () => window.removeEventListener('app-sync-complete', loadBaseData);
-  }, [loadBaseData, loadBudgets, loadHeatmap]);
+    loadCashFlowChart(cashFlowMonthsRef.current);
+    const handleSync = () => {
+      loadBaseData();
+      loadCashFlowChart(cashFlowMonthsRef.current);
+    };
+    window.addEventListener('app-sync-complete', handleSync);
+    return () => window.removeEventListener('app-sync-complete', handleSync);
+  }, [loadBaseData, loadBudgets, loadHeatmap, loadCashFlowChart]);
 
+  useEffect(() => { loadCashFlowChart(cashFlowMonths); }, [cashFlowMonths, loadCashFlowChart]);
   useEffect(() => { loadCategoryChart(categoryPeriod); }, [categoryPeriod, loadCategoryChart]);
   useEffect(() => { loadPaymentChart(paymentPeriod); }, [paymentPeriod, loadPaymentChart]);
 
@@ -752,7 +780,23 @@ const Dashboard: React.FC = () => {
         </div>
 
         <div className="lg:col-span-2 bg-card p-4 md:p-6 rounded-2xl shadow-sm border border-border">
-          <h2 className="text-base md:text-lg font-semibold mb-4">Cash Flow Analysis</h2>
+          <div className="flex flex-wrap items-center justify-between gap-2 mb-4">
+            <h2 className="text-base md:text-lg font-semibold">Cash Flow Analysis</h2>
+            <div className="flex gap-1 bg-muted rounded-lg p-1 shrink-0">
+              {([2, 3, 6, 12] as const).map((m) => (
+                <button
+                  key={m}
+                  onClick={() => setCashFlowMonths(m)}
+                  className={`px-2.5 py-1 text-xs font-semibold rounded-md transition-all duration-200 ${cashFlowMonths === m
+                    ? 'bg-primary text-primary-foreground shadow-sm'
+                    : 'text-muted-foreground hover:text-foreground'
+                  }`}
+                >
+                  {m}M
+                </button>
+              ))}
+            </div>
+          </div>
           <div className="h-52 md:h-64">
             {cashFlowChart ? (
               <Bar data={cashFlowChart} options={{

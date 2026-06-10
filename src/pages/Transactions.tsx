@@ -1,7 +1,7 @@
 import React, { useEffect, useState } from 'react';
 import { getTransactions, deleteTransaction, getSummaryByAccount, getCategories } from '../db/queries';
 import type { Transaction } from '../db/queries';
-import { Search, Filter, Trash2, Edit2, TrendingUp, TrendingDown, Landmark, Plus, Tag, Calendar } from 'lucide-react';
+import { Search, Filter, Trash2, Edit2, TrendingUp, TrendingDown, Landmark, Plus, Tag, Calendar, X, CreditCard, Clock, Cloud } from 'lucide-react';
 import { format } from 'date-fns';
 import { useNavigate, useSearchParams } from 'react-router-dom';
 import { useCurrency } from '../contexts/CurrencyContext';
@@ -15,6 +15,7 @@ const Transactions: React.FC = () => {
 
   const { formatAmount, currencies } = useCurrency();
   const [transactions, setTransactions] = useState<(Transaction & { account_name?: string, to_account_name?: string, account_currency?: string, to_account_currency?: string })[]>([]);
+  const [selectedTrx, setSelectedTrx] = useState<(Transaction & { account_name?: string, to_account_name?: string, account_currency?: string, to_account_currency?: string }) | null>(null);
   const [accounts, setAccounts] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
   const [searchTerm, setSearchTerm] = useState('');
@@ -67,6 +68,9 @@ const Transactions: React.FC = () => {
       await deleteTransaction(deleteId);
       setTransactions(transactions.filter(t => t.id !== deleteId));
       toast.success('Transaction deleted');
+      if (selectedTrx && selectedTrx.id === deleteId) {
+        setSelectedTrx(null);
+      }
     } catch (e) {
       toast.error('Failed to delete transaction');
     } finally {
@@ -236,7 +240,11 @@ const Transactions: React.FC = () => {
       ) : (
         <div className="space-y-3">
           {filteredTransactions.map((trx) => (
-            <div key={trx.id} className={`bg-card p-4 rounded-xl border border-border flex flex-col sm:flex-row sm:items-center justify-between gap-3 sm:gap-4 hover:shadow-md transition-shadow group ${trx.synced === 0 ? 'opacity-60' : ''}`}>
+            <div 
+              key={trx.id} 
+              onClick={() => setSelectedTrx(trx)}
+              className={`bg-card p-4 rounded-xl border border-border flex flex-col sm:flex-row sm:items-center justify-between gap-3 sm:gap-4 hover:shadow-md transition-shadow group cursor-pointer hover:border-primary/30 active:scale-[0.995] transition-all duration-200 ${trx.synced === 0 ? 'opacity-60' : ''}`}
+            >
               <div className="flex items-start sm:items-center gap-3 md:gap-4 w-full sm:w-auto min-w-0">
                 <div className={`shrink-0 p-3 rounded-full ${trx.type === 'income' ? 'bg-emerald-500/10 text-emerald-500' :
                   trx.type === 'transfer' ? 'bg-blue-500/10 text-blue-500' :
@@ -293,14 +301,14 @@ const Transactions: React.FC = () => {
                 </div>
                 <div className="flex sm:opacity-0 group-hover:opacity-100 transition-opacity gap-1">
                   <button
-                    onClick={() => navigate(`/edit/${trx.id}`)}
+                    onClick={(e) => { e.stopPropagation(); navigate(`/edit/${trx.id}`); }}
                     className="p-2 text-muted-foreground hover:text-primary hover:bg-primary/10 rounded-lg transition-colors bg-muted sm:bg-transparent"
                     title="Edit"
                   >
                     <Edit2 size={18} />
                   </button>
                   <button
-                    onClick={() => handleDelete(trx.id)}
+                    onClick={(e) => { e.stopPropagation(); handleDelete(trx.id); }}
                     className="p-2 text-muted-foreground hover:text-destructive hover:bg-destructive/10 rounded-lg transition-colors bg-muted sm:bg-transparent"
                     title="Delete"
                   >
@@ -310,6 +318,212 @@ const Transactions: React.FC = () => {
               </div>
             </div>
           ))}
+        </div>
+      )}
+
+      {selectedTrx && (
+        <div 
+          className="fixed inset-0 bg-background/80 backdrop-blur-sm z-50 flex items-center justify-center p-4 animate-in fade-in duration-200"
+          onClick={() => setSelectedTrx(null)}
+        >
+          <div 
+            className="bg-card w-full max-w-lg rounded-3xl border border-border shadow-2xl overflow-hidden animate-in zoom-in-95 duration-200 flex flex-col max-h-[90vh]"
+            onClick={(e) => e.stopPropagation()}
+          >
+            {/* Header Gradient Accent */}
+            <div className={`h-2.5 w-full ${
+              selectedTrx.type === 'income' ? 'bg-gradient-to-r from-emerald-400 to-emerald-600' :
+              selectedTrx.type === 'transfer' ? 'bg-gradient-to-r from-blue-400 to-blue-600' :
+              'bg-gradient-to-r from-destructive to-rose-600'
+            }`} />
+            
+            {/* Header Content */}
+            <div className="p-6 border-b border-border flex items-center justify-between">
+              <div className="flex items-center gap-3 min-w-0">
+                <div className={`p-3 rounded-2xl shrink-0 ${
+                  selectedTrx.type === 'income' ? 'bg-emerald-500/10 text-emerald-500' :
+                  selectedTrx.type === 'transfer' ? 'bg-blue-500/10 text-blue-500' :
+                  'bg-destructive/10 text-destructive'
+                }`}>
+                  {selectedTrx.type === 'income' ? <TrendingUp size={24} /> : 
+                   selectedTrx.type === 'transfer' ? <Landmark size={24} /> : 
+                   <TrendingDown size={24} />}
+                </div>
+                <div className="min-w-0">
+                  <h2 className="text-xl font-bold truncate text-foreground pr-4">
+                    {selectedTrx.description || selectedTrx.category} Details
+                  </h2>
+                  <p className="text-xs text-muted-foreground mt-0.5 uppercase tracking-wider font-semibold">
+                    {selectedTrx.type === 'transfer' ? 'Transfer Details' : `${selectedTrx.type} details`}
+                  </p>
+                </div>
+              </div>
+              <button
+                onClick={() => setSelectedTrx(null)}
+                className="p-2 hover:bg-muted rounded-full transition-all text-muted-foreground hover:text-foreground"
+              >
+                <X size={20} />
+              </button>
+            </div>
+
+            {/* Scrollable Details */}
+            <div className="p-6 space-y-6 overflow-y-auto">
+              {/* Big Amount */}
+              <div className="text-center py-4 bg-muted/30 rounded-2xl border border-border/50">
+                <span className="text-xs text-muted-foreground uppercase tracking-widest font-semibold block mb-1">
+                  Amount
+                </span>
+                <span className={`text-3xl font-black ${
+                  selectedTrx.type === 'income' ? 'text-emerald-500' :
+                  selectedTrx.type === 'transfer' ? 'text-blue-500' :
+                  'text-foreground'
+                }`}>
+                  {selectedTrx.type === 'income' ? '+' : selectedTrx.type === 'transfer' ? '⇄' : '-'}
+                  {formatAmount(selectedTrx.amount, currencies.find(c => c.code === selectedTrx.account_currency)?.symbol)}
+                </span>
+                
+                {selectedTrx.type === 'transfer' && selectedTrx.to_amount && selectedTrx.to_amount !== selectedTrx.amount && (
+                  <div className="text-sm font-semibold text-muted-foreground mt-1">
+                    = {formatAmount(selectedTrx.to_amount, currencies.find(c => c.code === selectedTrx.to_account_currency)?.symbol, 8)}
+                  </div>
+                )}
+                
+                {selectedTrx.type === 'transfer' && selectedTrx.exchange_rate && selectedTrx.exchange_rate !== 1 && (
+                  <div className="text-xs text-muted-foreground/80 mt-1">
+                    Exchange Rate: 1 {selectedTrx.account_currency} = {selectedTrx.exchange_rate} {selectedTrx.to_account_currency}
+                  </div>
+                )}
+              </div>
+
+              {/* Details Grid */}
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                {/* Date */}
+                <div className="flex items-center gap-3 p-3 bg-muted/10 border border-border/30 rounded-xl">
+                  <Calendar size={18} className="text-muted-foreground shrink-0" />
+                  <div>
+                    <span className="text-[10px] text-muted-foreground uppercase tracking-wider block font-semibold">Date</span>
+                    <span className="text-sm font-bold text-foreground">
+                      {format(new Date(selectedTrx.date), 'EEEE, MMM d, yyyy')}
+                    </span>
+                  </div>
+                </div>
+
+                {/* Category */}
+                <div className="flex items-center gap-3 p-3 bg-muted/10 border border-border/30 rounded-xl">
+                  <Tag size={18} className="text-muted-foreground shrink-0" />
+                  <div>
+                    <span className="text-[10px] text-muted-foreground uppercase tracking-wider block font-semibold">Category</span>
+                    <span className="text-sm font-bold text-foreground capitalize">
+                      {selectedTrx.type === 'transfer' ? 'Bank Transfer' : selectedTrx.category}
+                    </span>
+                    {selectedTrx.subcategory && (
+                      <span className="text-xs text-muted-foreground block">
+                        › {selectedTrx.subcategory}
+                      </span>
+                    )}
+                  </div>
+                </div>
+
+                {/* Account / Source & Target Accounts */}
+                <div className="flex items-center gap-3 p-3 bg-muted/10 border border-border/30 rounded-xl sm:col-span-2">
+                  <Landmark size={18} className="text-muted-foreground shrink-0" />
+                  <div className="w-full">
+                    <span className="text-[10px] text-muted-foreground uppercase tracking-wider block font-semibold">
+                      {selectedTrx.type === 'transfer' ? 'Transfer Accounts' : 'Account'}
+                    </span>
+                    <div className="text-sm font-bold text-foreground flex flex-wrap items-center gap-1.5 mt-0.5">
+                      <span className="bg-muted px-2 py-0.5 rounded text-foreground/80 font-semibold border border-border/50">
+                        {selectedTrx.account_name || 'N/A'}
+                      </span>
+                      {selectedTrx.type === 'transfer' && selectedTrx.to_account_name && (
+                        <>
+                          <span className="text-muted-foreground font-black">➔</span>
+                          <span className="bg-muted px-2 py-0.5 rounded text-foreground/80 font-semibold border border-border/50">
+                            {selectedTrx.to_account_name}
+                          </span>
+                        </>
+                      )}
+                    </div>
+                  </div>
+                </div>
+
+                {/* Payment Method */}
+                {selectedTrx.payment_method && (
+                  <div className="flex items-center gap-3 p-3 bg-muted/10 border border-border/30 rounded-xl">
+                    <CreditCard size={18} className="text-muted-foreground shrink-0" />
+                    <div>
+                      <span className="text-[10px] text-muted-foreground uppercase tracking-wider block font-semibold">Payment Method</span>
+                      <span className="text-sm font-bold text-foreground">
+                        {selectedTrx.payment_method}
+                      </span>
+                    </div>
+                  </div>
+                )}
+
+                {/* Sync Status */}
+                <div className="flex items-center gap-3 p-3 bg-muted/10 border border-border/30 rounded-xl">
+                  {selectedTrx.synced === 1 ? (
+                    <Cloud size={18} className="text-emerald-500 shrink-0" />
+                  ) : (
+                    <Clock size={18} className="text-amber-500 shrink-0" />
+                  )}
+                  <div>
+                    <span className="text-[10px] text-muted-foreground uppercase tracking-wider block font-semibold">Sync Status</span>
+                    <span className="text-sm font-bold text-foreground">
+                      {selectedTrx.synced === 1 ? 'Synced with cloud' : 'Sync pending'}
+                    </span>
+                  </div>
+                </div>
+              </div>
+
+              {/* Description */}
+              {selectedTrx.description && (
+                <div className="space-y-2">
+                  <span className="text-xs text-muted-foreground uppercase tracking-widest font-semibold block">
+                    Description / Notes
+                  </span>
+                  <div className="p-4 bg-muted/40 border border-border rounded-2xl text-sm leading-relaxed text-foreground whitespace-pre-wrap">
+                    {selectedTrx.description}
+                  </div>
+                </div>
+              )}
+            </div>
+
+            {/* Footer actions */}
+            <div className="p-6 bg-muted/20 border-t border-border flex flex-wrap gap-3">
+              <button
+                type="button"
+                onClick={() => setSelectedTrx(null)}
+                className="px-4 py-2.5 rounded-xl font-semibold border border-border bg-card hover:bg-muted transition-all text-sm flex-1 min-w-[80px]"
+              >
+                Close
+              </button>
+              
+              <button
+                type="button"
+                onClick={() => {
+                  setSelectedTrx(null);
+                  navigate(`/edit/${selectedTrx.id}`);
+                }}
+                className="px-4 py-2.5 rounded-xl font-semibold bg-primary text-primary-foreground hover:opacity-90 transition-all text-sm flex-1 min-w-[80px] flex items-center justify-center gap-1.5 shadow-md shadow-primary/10"
+              >
+                <Edit2 size={16} />
+                <span>Edit</span>
+              </button>
+              
+              <button
+                type="button"
+                onClick={() => {
+                  setSelectedTrx(null);
+                  handleDelete(selectedTrx.id);
+                }}
+                className="px-4 py-2.5 rounded-xl font-semibold bg-destructive text-destructive-foreground hover:bg-destructive/90 transition-all text-sm flex-1 min-w-[80px] flex items-center justify-center gap-1.5 shadow-md shadow-destructive/10"
+              >
+                <Trash2 size={16} />
+                <span>Delete</span>
+              </button>
+            </div>
+          </div>
         </div>
       )}
     </div>

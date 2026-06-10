@@ -599,6 +599,44 @@ export const getMonthlyComparison = async () => {
   return results[0] || { current_income: 0, current_expense: 0, prev_income: 0, prev_expense: 0 };
 };
 
+export interface MonthlyCashFlow {
+  month: string;
+  income: number;
+  expense: number;
+}
+
+export const getCashFlowHistory = async (monthsCount: number): Promise<MonthlyCashFlow[]> => {
+  const now = new Date();
+  const months: string[] = [];
+  for (let i = monthsCount - 1; i >= 0; i--) {
+    const d = new Date(now.getFullYear(), now.getMonth() - i, 1);
+    const monthStr = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`;
+    months.push(monthStr);
+  }
+
+  const earliestMonth = months[0];
+  const results = await runWithBindings(`
+    SELECT 
+      substr(date, 1, 7) as month,
+      SUM(CASE WHEN type = 'income' THEN amount ELSE 0 END) as income,
+      SUM(CASE WHEN type = 'expense' THEN amount ELSE 0 END) as expense
+    FROM transactions
+    WHERE substr(date, 1, 7) >= ?
+    GROUP BY month
+  `, [earliestMonth]);
+
+  const resultMap = new Map<string, { income: number; expense: number }>();
+  results.forEach((r: any) => {
+    resultMap.set(r.month, { income: r.income || 0, expense: r.expense || 0 });
+  });
+
+  return months.map(m => ({
+    month: m,
+    income: resultMap.get(m)?.income || 0,
+    expense: resultMap.get(m)?.expense || 0
+  }));
+};
+
 export const getBurnRate = async () => {
   const results = await executeQuery(`
     SELECT SUM(amount) / 30.0 as daily_burn

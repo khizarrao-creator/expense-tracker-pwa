@@ -1,7 +1,7 @@
 import React, { useState, useRef } from 'react';
 import * as XLSX from 'xlsx';
-import { getTransactions, exportAllData, importAllData, clearAllData, vacuumDB, normalizeCategories, getDBSizeMB } from '../db/queries';
-import { Download, Moon, Sun, Monitor, CloudSync, FileJson, Upload, AlertTriangle, LayoutList, ChevronRight, User as UserIcon, Mail, Shield, LogOut, CheckCircle2, X, Eye, EyeOff, Key } from 'lucide-react';
+import { getTransactions, exportAllData, importAllData, clearAllData, vacuumDB, normalizeCategories, getDBSizeMB, getConfig, setConfig } from '../db/queries';
+import { Download, Moon, Sun, Monitor, CloudSync, FileJson, Upload, AlertTriangle, LayoutList, ChevronRight, User as UserIcon, Mail, Shield, LogOut, CheckCircle2, X, Eye, EyeOff, Key, MessageSquare } from 'lucide-react';
 import { useNavigate } from 'react-router-dom';
 import { useCurrency } from '../contexts/CurrencyContext';
 import { useTheme } from '../contexts/ThemeContext';
@@ -12,6 +12,7 @@ import { toast } from 'sonner';
 import { syncManager } from '../db/SyncManager';
 import ConfirmModal from '../components/ConfirmModal';
 import AdminTransitionOverlay from '../components/AdminTransitionOverlay';
+import { getWhatsAppStatus, logoutWhatsApp, initWhatsApp, type WhatsAppAccount } from '../services/whatsappService';
 
 const Settings: React.FC = () => {
   const { currency, setCurrency, currencies } = useCurrency();
@@ -45,6 +46,87 @@ const Settings: React.FC = () => {
   const [connectionStatus, setConnectionStatus] = useState<'idle' | 'connected' | 'not_configured'>('idle');
   const [isSavingKeys, setIsSavingKeys] = useState(false);
 
+  // WhatsApp Settings States
+  const [isWhatsAppSettingsOpen, setIsWhatsAppSettingsOpen] = useState(false);
+  const [waAccounts, setWaAccounts] = useState<WhatsAppAccount[]>([]);
+  const [defaultWaAccount, setDefaultWaAccount] = useState<string>('account1');
+  const [loadingWaStatus, setLoadingWaStatus] = useState(false);
+
+  React.useEffect(() => {
+    const loadDefaultAccount = async () => {
+      const saved = await getConfig('whatsapp_default_account');
+      if (saved) setDefaultWaAccount(saved);
+    };
+    loadDefaultAccount();
+  }, []);
+
+  React.useEffect(() => {
+    if (!isWhatsAppSettingsOpen) return;
+
+    const fetchStatus = async () => {
+      setLoadingWaStatus(true);
+      const res = await getWhatsAppStatus();
+      if (res && res.accounts) {
+        setWaAccounts(res.accounts);
+      }
+      setLoadingWaStatus(false);
+    };
+
+    fetchStatus();
+
+    const interval = setInterval(async () => {
+      const res = await getWhatsAppStatus();
+      if (res && res.accounts) {
+        setWaAccounts(res.accounts);
+      }
+    }, 3000);
+
+    return () => clearInterval(interval);
+  }, [isWhatsAppSettingsOpen]);
+
+  const handleSetDefaultWaAccount = async (accountId: string) => {
+    try {
+      await setConfig('whatsapp_default_account', accountId);
+      setDefaultWaAccount(accountId);
+      toast.success(`Default WhatsApp account set`);
+    } catch (e) {
+      toast.error('Failed to save default account');
+    }
+  };
+
+  const handleDisconnectWa = async (accountId: string) => {
+    if (!confirm('Are you sure you want to unlink this WhatsApp account?')) return;
+    toast.loading('Unlinking device...', { id: 'wa-logout' });
+    const success = await logoutWhatsApp(accountId);
+    toast.dismiss('wa-logout');
+    if (success) {
+      toast.success('WhatsApp account unlinked');
+      const res = await getWhatsAppStatus();
+      if (res && res.accounts) {
+        setWaAccounts(res.accounts);
+      }
+    } else {
+      toast.error('Failed to unlink WhatsApp account');
+    }
+  };
+
+  const [initializingWaId, setInitializingWaId] = useState<string | null>(null);
+
+  const handleInitWa = async (accountId: string) => {
+    setInitializingWaId(accountId);
+    const success = await initWhatsApp(accountId);
+    if (success) {
+      toast.success('Initializing pairing process...');
+      const res = await getWhatsAppStatus();
+      if (res && res.accounts) {
+        setWaAccounts(res.accounts);
+      }
+    } else {
+      toast.error('Failed to start WhatsApp link');
+    }
+    setInitializingWaId(null);
+  };
+
   const handleThemeChange = (newTheme: 'light' | 'dark' | 'system') => {
     setTheme(newTheme);
     toast.success(`${newTheme.charAt(0).toUpperCase() + newTheme.slice(1)} theme applied`);
@@ -68,12 +150,12 @@ const Settings: React.FC = () => {
       const { getConfig } = await import('../db/queries');
       const keyName = `${selectedExchangeId}_api_key`;
       const secretName = `${selectedExchangeId}_api_secret`;
-      
+
       const [key, secret] = await Promise.all([
         getConfig(keyName),
         getConfig(secretName)
       ]);
-      
+
       if (key && secret) {
         setApiKeyInput(key);
         setApiSecretInput(secret);
@@ -100,12 +182,12 @@ const Settings: React.FC = () => {
       const { setConfig } = await import('../db/queries');
       const keyName = `${selectedExchangeId}_api_key`;
       const secretName = `${selectedExchangeId}_api_secret`;
-      
+
       await Promise.all([
         setConfig(keyName, apiKeyInput.trim()),
         setConfig(secretName, apiSecretInput.trim())
       ]);
-      
+
       toast.success('Exchange credentials saved successfully');
       setConnectionStatus('connected');
     } catch (e) {
@@ -122,12 +204,12 @@ const Settings: React.FC = () => {
       const { setConfig } = await import('../db/queries');
       const keyName = `${selectedExchangeId}_api_key`;
       const secretName = `${selectedExchangeId}_api_secret`;
-      
+
       await Promise.all([
         setConfig(keyName, ''),
         setConfig(secretName, '')
       ]);
-      
+
       setApiKeyInput('');
       setApiSecretInput('');
       setConnectionStatus('not_configured');
@@ -156,9 +238,9 @@ const Settings: React.FC = () => {
           toast.error(`Connection failed: ${res.error}`);
         } else if (res && res.balances) {
           const activeBalances = res.balances.filter((b: any) => parseFloat(b.free) > 0 || parseFloat(b.locked) > 0);
-          setTestStatus({ 
-            success: true, 
-            message: `Connected successfully! Verified ${activeBalances.length} active asset wallets.` 
+          setTestStatus({
+            success: true,
+            message: `Connected successfully! Verified ${activeBalances.length} active asset wallets.`
           });
           toast.success('Connection test passed!');
         } else {
@@ -587,21 +669,39 @@ const Settings: React.FC = () => {
       {/* Exchange Integration Card */}
       <div className="bg-card p-6 rounded-2xl shadow-sm border border-border">
         <h2 className="text-lg font-semibold mb-4 border-b border-border pb-4">Integrations</h2>
-        <button
-          onClick={() => setIsExchangeSettingsOpen(true)}
-          className="w-full flex items-center justify-between p-4 rounded-xl border border-border hover:bg-muted transition-colors text-left group"
-        >
-          <div className="flex items-center gap-3">
-            <div className="bg-primary/10 text-primary p-2 rounded-lg group-hover:bg-primary/20 transition-colors">
-              <CloudSync size={20} />
+        <div className="space-y-3">
+          <button
+            onClick={() => setIsExchangeSettingsOpen(true)}
+            className="w-full flex items-center justify-between p-4 rounded-xl border border-border hover:bg-muted transition-colors text-left group"
+          >
+            <div className="flex items-center gap-3">
+              <div className="bg-primary/10 text-primary p-2 rounded-lg group-hover:bg-primary/20 transition-colors">
+                <CloudSync size={20} />
+              </div>
+              <div>
+                <h3 className="font-medium text-foreground">Exchange Connections</h3>
+                <p className="text-sm text-muted-foreground">Manage and test secure API integrations for live wallets</p>
+              </div>
             </div>
-            <div>
-              <h3 className="font-medium text-foreground">Exchange Connections</h3>
-              <p className="text-sm text-muted-foreground">Manage and test secure API integrations for live wallets</p>
+            <ChevronRight size={20} className="text-muted-foreground group-hover:translate-x-1 transition-transform" />
+          </button>
+
+          <button
+            onClick={() => setIsWhatsAppSettingsOpen(true)}
+            className="w-full flex items-center justify-between p-4 rounded-xl border border-border hover:bg-muted transition-colors text-left group"
+          >
+            <div className="flex items-center gap-3">
+              <div className="bg-emerald-500/10 text-emerald-500 p-2 rounded-lg group-hover:bg-emerald-500/20 transition-colors">
+                <MessageSquare size={20} />
+              </div>
+              <div>
+                <h3 className="font-medium text-foreground">WhatsApp Linked Devices</h3>
+                <p className="text-sm text-muted-foreground">Link and manage multiple WhatsApp accounts for reminders</p>
+              </div>
             </div>
-          </div>
-          <ChevronRight size={20} className="text-muted-foreground group-hover:translate-x-1 transition-transform" />
-        </button>
+            <ChevronRight size={20} className="text-muted-foreground group-hover:translate-x-1 transition-transform" />
+          </button>
+        </div>
       </div>
 
       <div className="bg-card p-6 rounded-2xl shadow-sm border border-border">
@@ -768,7 +868,7 @@ const Settings: React.FC = () => {
                 <h2 className="text-xl font-bold">Exchange Connections</h2>
                 <p className="text-xs text-muted-foreground">Integrate live crypto exchange balances & data</p>
               </div>
-              <button 
+              <button
                 onClick={() => setIsExchangeSettingsOpen(false)}
                 className="p-2 text-muted-foreground hover:bg-muted rounded-full transition-colors"
               >
@@ -786,11 +886,10 @@ const Settings: React.FC = () => {
                   <button
                     key={ex.id}
                     onClick={() => setSelectedExchangeId(ex.id)}
-                    className={`flex flex-col items-center justify-center p-4 rounded-2xl border-2 transition-all ${
-                      selectedExchangeId === ex.id 
-                        ? 'border-primary bg-primary/5 text-primary' 
+                    className={`flex flex-col items-center justify-center p-4 rounded-2xl border-2 transition-all ${selectedExchangeId === ex.id
+                        ? 'border-primary bg-primary/5 text-primary'
                         : 'border-border text-muted-foreground hover:bg-muted'
-                    }`}
+                      }`}
                   >
                     <span className="text-sm font-bold">{ex.name}</span>
                     <span className="text-[10px] text-muted-foreground font-mono mt-0.5">{ex.id}</span>
@@ -803,9 +902,8 @@ const Settings: React.FC = () => {
             <div className="space-y-4">
               <div className="flex justify-between items-center">
                 <label className="text-xs font-bold uppercase tracking-wider text-muted-foreground">Credentials</label>
-                <span className={`px-2 py-0.5 rounded text-[10px] font-black uppercase tracking-wider ${
-                  connectionStatus === 'connected' ? 'bg-emerald-500/10 text-emerald-500' : 'bg-muted text-muted-foreground'
-                }`}>
+                <span className={`px-2 py-0.5 rounded text-[10px] font-black uppercase tracking-wider ${connectionStatus === 'connected' ? 'bg-emerald-500/10 text-emerald-500' : 'bg-muted text-muted-foreground'
+                  }`}>
                   {connectionStatus === 'connected' ? 'Connected' : 'Not Configured'}
                 </span>
               </div>
@@ -848,11 +946,10 @@ const Settings: React.FC = () => {
 
             {/* Test Status Panel */}
             {testStatus && (
-              <div className={`p-4 rounded-2xl border text-xs leading-normal animate-in slide-in-from-top-2 ${
-                testStatus.success 
-                  ? 'bg-emerald-500/10 border-emerald-500/20 text-emerald-600 dark:text-emerald-400' 
+              <div className={`p-4 rounded-2xl border text-xs leading-normal animate-in slide-in-from-top-2 ${testStatus.success
+                  ? 'bg-emerald-500/10 border-emerald-500/20 text-emerald-600 dark:text-emerald-400'
                   : 'bg-destructive/10 border-destructive/20 text-destructive'
-              }`}>
+                }`}>
                 <p className="font-bold mb-1">{testStatus.success ? '✓ Connection Verified' : '✗ Connection Failed'}</p>
                 <p className="opacity-90">{testStatus.message}</p>
               </div>
@@ -868,7 +965,7 @@ const Settings: React.FC = () => {
                 >
                   {isTesting ? 'Testing...' : 'Test Connection'}
                 </button>
-                
+
                 <button
                   onClick={handleSaveKeys}
                   disabled={isSavingKeys || !apiKeyInput || !apiSecretInput}
@@ -891,8 +988,128 @@ const Settings: React.FC = () => {
           </div>
         </div>
       )}
+
+      {/* WhatsApp Connections Modal */}
+      {isWhatsAppSettingsOpen && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/80 backdrop-blur-sm animate-in fade-in duration-300">
+          <div className="bg-card w-full max-w-lg rounded-3xl p-6 border border-border shadow-2xl space-y-6 animate-in zoom-in duration-300 relative max-h-[90vh] overflow-y-auto">
+            <div className="flex justify-between items-center pb-4 border-b border-border">
+              <div>
+                <h2 className="text-xl font-bold">WhatsApp Linked Devices</h2>
+                <p className="text-xs text-muted-foreground">Link and manage up to 3 accounts to send in-system reminders</p>
+              </div>
+              <button
+                onClick={() => setIsWhatsAppSettingsOpen(false)}
+                className="p-2 text-muted-foreground hover:bg-muted rounded-full transition-colors"
+              >
+                <X size={20} />
+              </button>
+            </div>
+
+            {loadingWaStatus && waAccounts.length === 0 ? (
+              <div className="py-8 text-center space-y-2">
+                <div className="w-8 h-8 border-4 border-primary border-t-transparent rounded-full animate-spin mx-auto"></div>
+                <p className="text-xs text-muted-foreground">Checking connection status...</p>
+              </div>
+            ) : (
+              <div className="space-y-4">
+                {waAccounts.map((acc) => {
+                  const isDefault = defaultWaAccount === acc.id;
+
+                  return (
+                    <div key={acc.id} className="p-4 bg-muted/20 border border-border rounded-2xl space-y-3">
+                      <div className="flex items-center justify-between">
+                        <div className="flex items-center gap-2">
+                          <MessageSquare className={acc.status === 'connected' ? 'text-emerald-500' : 'text-muted-foreground'} size={18} />
+                          <div>
+                            <span className="text-sm font-bold block text-foreground">{acc.name}</span>
+                            <span className="text-[10px] text-muted-foreground font-mono uppercase">{acc.id}</span>
+                          </div>
+                        </div>
+                        <div className="flex items-center gap-2">
+                          <span className={`px-2 py-0.5 rounded text-[9px] font-black uppercase tracking-wider ${acc.status === 'connected' ? 'bg-emerald-500/10 text-emerald-500' :
+                              acc.status === 'qr' ? 'bg-amber-500/10 text-amber-500' :
+                                acc.status === 'connecting' ? 'bg-blue-500/10 text-blue-500' :
+                                  'bg-muted text-muted-foreground'
+                            }`}>
+                            {acc.status === 'connected' ? 'Connected' :
+                              acc.status === 'qr' ? 'Action Required' :
+                                acc.status === 'connecting' ? 'Connecting...' :
+                                  'Disconnected'}
+                          </span>
+                        </div>
+                      </div>
+
+                      {/* Display QR code if pairing is required */}
+                      {acc.status === 'qr' && acc.qrCodeUrl && (
+                        <div className="flex flex-col items-center justify-center p-4 bg-white rounded-xl border border-border shadow-sm">
+                          <img src={acc.qrCodeUrl} alt="WhatsApp QR Code" className="w-48 h-48" />
+                          <p className="text-[10px] text-black font-semibold mt-2 text-center">
+                            Open WhatsApp on your phone → Linked Devices → Link a Device.
+                          </p>
+                          <p className="text-[9px] text-muted-foreground text-center mt-1">
+                            The QR code will automatically refresh as scanned.
+                          </p>
+                        </div>
+                      )}
+
+                      {acc.status === 'connecting' && (
+                        <div className="py-2 text-center text-xs text-muted-foreground animate-pulse">
+                          Establishing connection with WhatsApp servers...
+                        </div>
+                      )}
+
+                      <div className="flex items-center justify-between pt-2 border-t border-border/40">
+                        {acc.status === 'connected' ? (
+                          <>
+                            <button
+                              onClick={() => handleSetDefaultWaAccount(acc.id)}
+                              className={`flex items-center gap-1.5 text-xs font-bold px-3 py-1.5 rounded-lg border transition-all ${isDefault
+                                  ? 'bg-primary/10 border-primary text-primary'
+                                  : 'bg-muted border-transparent text-muted-foreground hover:bg-muted/80'
+                                }`}
+                            >
+                              {isDefault ? '✓ Default Account' : 'Set as Default'}
+                            </button>
+                            <button
+                              onClick={() => handleDisconnectWa(acc.id)}
+                              className="text-xs font-bold text-destructive hover:bg-destructive/10 px-3 py-1.5 rounded-lg transition-colors border border-transparent hover:border-destructive/10"
+                            >
+                              Disconnect Device
+                            </button>
+                          </>
+                        ) : (
+                          <div className="w-full flex items-center justify-between gap-4">
+                            <span className="text-[10px] text-muted-foreground leading-normal italic">
+                              {acc.status === 'qr' ? 'Scan the QR code above using your phone to link.' : 'Account is currently unlinked.'}
+                            </span>
+                            {acc.status === 'disconnected' && (
+                              <button
+                                onClick={() => handleInitWa(acc.id)}
+                                disabled={initializingWaId !== null}
+                                className="px-3 py-1.5 bg-emerald-500 hover:bg-emerald-600 disabled:opacity-50 text-white font-bold rounded-lg text-[10px] transition-colors shrink-0"
+                              >
+                                {initializingWaId === acc.id ? 'Generating...' : 'Generate QR Code'}
+                              </button>
+                            )}
+                          </div>
+                        )}
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+            )}
+
+            <p className="text-[10px] text-center text-muted-foreground italic leading-normal">
+              Note: Linking your personal device relies on WhatsApp Web multi-device mode. Accounts will automatically stay connected in the background.
+            </p>
+          </div>
+        </div>
+      )}
     </div>
   );
 };
+
 
 export default Settings;

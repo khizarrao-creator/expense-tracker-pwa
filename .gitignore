@@ -27,3 +27,4 @@ dist-ssr
 *.sw?
 
 .env
+whatsapp-server/auth_info_baileys

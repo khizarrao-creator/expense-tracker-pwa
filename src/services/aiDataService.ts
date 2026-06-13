@@ -96,6 +96,7 @@ export interface FinancialSnapshot {
     totalCost: number;
     liters: number;
     date: string;
+    vehicleName?: string;
   }[];
 }
 
@@ -274,7 +275,8 @@ export const buildFinancialSnapshot = async (): Promise<FinancialSnapshot> => {
     pricePerLiter: f.price_per_liter,
     totalCost: f.total_cost,
     liters: f.liters,
-    date: f.date
+    date: f.date,
+    vehicleName: f.vehicle_name || undefined
   }));
 
   return {
@@ -420,7 +422,8 @@ export const formatSnapshotForAI = (snapshot: FinancialSnapshot, currencySymbol:
   if (snapshot.fuelLogs && snapshot.fuelLogs.length > 0) {
     lines.push('\nRECENT FUEL LOGS:');
     snapshot.fuelLogs.forEach(f => {
-      lines.push(`  - ${f.date} | ${f.fuelType} | ${f.liters}L @ ${fmt(f.pricePerLiter)}/L | Total Cost: ${fmt(f.totalCost)}`);
+      const vehicleInfo = f.vehicleName ? ` | Vehicle: ${f.vehicleName}` : '';
+      lines.push(`  - ${f.date} | ${f.fuelType} | ${f.liters}L @ ${fmt(f.pricePerLiter)}/L | Total Cost: ${fmt(f.totalCost)}${vehicleInfo}`);
     });
   }
 

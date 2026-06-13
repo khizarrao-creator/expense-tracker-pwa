@@ -3,9 +3,13 @@ import {
   getTransactions,
   getLoans,
   getFuelLogs,
+  getVehicles,
+  getVehicleExpenses,
   type Transaction,
   type Loan,
-  type FuelLog
+  type FuelLog,
+  type Vehicle,
+  type VehicleExpense
 } from '../db/queries';
 import { useCurrency } from '../contexts/CurrencyContext';
 import {
@@ -155,6 +159,9 @@ const Reports: React.FC = () => {
   const [transactions, setTransactions] = useState<Transaction[]>([]);
   const [loans, setLoans] = useState<Loan[]>([]);
   const [fuelLogs, setFuelLogs] = useState<FuelLog[]>([]);
+  const [vehicleExpenses, setVehicleExpenses] = useState<VehicleExpense[]>([]);
+  const [vehicles, setVehicles] = useState<Vehicle[]>([]);
+  const [selectedVehicleId, setSelectedVehicleId] = useState<string>('all');
 
   // Fuel analytics states
   const [selectedFuelType, setSelectedFuelType] = useState<string>('all');
@@ -178,14 +185,18 @@ const Reports: React.FC = () => {
       setLoading(true);
       try {
         // Fetch up to 10,000 to have a good dataset for reports
-        const [txs, lns, fuel] = await Promise.all([
+        const [txs, lns, fuel, vehs, vexps] = await Promise.all([
           getTransactions(10000, 0),
           getLoans({ status: 'all' }),
-          getFuelLogs()
+          getFuelLogs(),
+          getVehicles(),
+          getVehicleExpenses()
         ]);
         setTransactions(txs as Transaction[]);
         setLoans(lns);
         setFuelLogs(fuel);
+        setVehicles(vehs);
+        setVehicleExpenses(vexps);
       } catch (err) {
         console.error('Failed to load reports data', err);
       } finally {
@@ -519,18 +530,23 @@ const Reports: React.FC = () => {
 
   // Precise Liter-per-day Next Refill Prediction
   const nextRefillEstimate = useMemo(() => {
-    if (fuelLogs.length === 0) {
-      return { text: 'N/A', subtext: 'No fuel logs logged yet', fuelType: '', statusClass: 'text-muted-foreground' };
+    let activeLogs = fuelLogs;
+    if (selectedVehicleId !== 'all') {
+      activeLogs = fuelLogs.filter(log => log.vehicle_id === selectedVehicleId);
+    }
+
+    if (activeLogs.length === 0) {
+      return { text: 'N/A', subtext: 'No fuel logs logged yet for this vehicle', fuelType: '', statusClass: 'text-muted-foreground' };
     }
 
     // Determine the fuel type to predict. If 'all', use the most recently refueled type.
     let targetFuelType = selectedFuelType;
     if (targetFuelType === 'all') {
-      const sortedAll = [...fuelLogs].sort((a, b) => new Date(a.date).getTime() - new Date(b.date).getTime());
+      const sortedAll = [...activeLogs].sort((a, b) => new Date(a.date).getTime() - new Date(b.date).getTime());
       targetFuelType = sortedAll[sortedAll.length - 1].fuel_type;
     }
 
-    const typeLogs = fuelLogs.filter(log => log.fuel_type === targetFuelType);
+    const typeLogs = activeLogs.filter(log => log.fuel_type === targetFuelType);
     const sortedTypeLogs = [...typeLogs].sort((a, b) => new Date(a.date).getTime() - new Date(b.date).getTime());
 
     // Combine logs on the same date (to handle multiple partial fills on same day)
@@ -640,15 +656,28 @@ const Reports: React.FC = () => {
       fuelType: targetFuelType,
       statusClass
     };
-  }, [fuelLogs, selectedFuelType]);
+  }, [fuelLogs, selectedFuelType, selectedVehicleId]);
 
   const fuelMetrics = useMemo(() => {
-    // Filter by fuel type if selected
-    const filteredLogs = selectedFuelType === 'all'
+    // Filter by fuel type and vehicle if selected
+    let filteredLogs = selectedFuelType === 'all'
       ? fuelLogs
       : fuelLogs.filter(log => log.fuel_type === selectedFuelType);
 
-    let totalCost = 0;
+    if (selectedVehicleId !== 'all') {
+      filteredLogs = filteredLogs.filter(log => log.vehicle_id === selectedVehicleId);
+    }
+
+    let filteredExpenses = vehicleExpenses;
+    if (selectedVehicleId !== 'all') {
+      filteredExpenses = vehicleExpenses.filter(e => e.vehicle_id === selectedVehicleId);
+    }
+
+    const totalVehicleExpensesCost = selectedFuelType === 'all'
+      ? filteredExpenses.reduce((sum, e) => sum + e.cost, 0)
+      : 0;
+
+    let totalCost = filteredLogs.reduce((sum, l) => sum + l.total_cost, 0) + totalVehicleExpensesCost;
     let totalLiters = 0;
     const monthlyData: Record<string, { cost: number; liters: number; count: number }> = {};
     const weeklyData: Record<string, { cost: number; liters: number }> = {};
@@ -657,7 +686,6 @@ const Reports: React.FC = () => {
     const sortedLogs = [...filteredLogs].sort((a, b) => new Date(a.date).getTime() - new Date(b.date).getTime());
 
     for (const f of sortedLogs) {
-      totalCost += f.total_cost;
       totalLiters += f.liters;
 
       const date = new Date(f.date);
@@ -676,6 +704,15 @@ const Reports: React.FC = () => {
       if (!weeklyData[week]) weeklyData[week] = { cost: 0, liters: 0 };
       weeklyData[week].cost += f.total_cost;
       weeklyData[week].liters += f.liters;
+    }
+
+    // Incorporate vehicle expenses into monthly costs
+    if (selectedFuelType === 'all') {
+      for (const e of filteredExpenses) {
+        const month = e.date.substring(0, 7);
+        if (!monthlyData[month]) monthlyData[month] = { cost: 0, liters: 0, count: 0 };
+        monthlyData[month].cost += e.cost;
+      }
     }
 
     const months = Object.keys(monthlyData).sort();
@@ -802,7 +839,7 @@ const Reports: React.FC = () => {
       stats,
       hasData: sortedLogs.length > 0
     };
-  }, [fuelLogs, selectedFuelType, chartMetric, chartGrouping]);
+  }, [fuelLogs, vehicleExpenses, selectedFuelType, chartMetric, chartGrouping, selectedVehicleId]);
 
   if (loading) {
     return (
@@ -1392,21 +1429,42 @@ const Reports: React.FC = () => {
         {/* --- FUEL TAB --- */}
         {activeTab === 'fuel' && (
           <div className="space-y-6">
-            {/* Fuel Type Filters */}
-            <div className="flex flex-wrap items-center gap-2 mb-4 bg-muted/40 p-2 rounded-2xl border border-border max-w-max">
-              <span className="text-xs text-muted-foreground px-2 font-medium">Filter:</span>
-              {uniqueFuelTypes.map(type => (
-                <button
-                  key={type}
-                  onClick={() => setSelectedFuelType(type)}
-                  className={`px-3 py-1 text-xs font-semibold rounded-xl transition-all duration-300 ${selectedFuelType === type
-                    ? 'bg-primary text-primary-foreground shadow-sm shadow-primary/10'
-                    : 'text-muted-foreground hover:text-foreground'
-                    }`}
+            {/* Filters Row */}
+            <div className="flex flex-wrap items-center gap-4 mb-4">
+              {/* Fuel Type Filters */}
+              <div className="flex flex-wrap items-center gap-2 bg-muted/40 p-2 rounded-2xl border border-border max-w-max">
+                <span className="text-xs text-muted-foreground px-2 font-medium">Fuel Type:</span>
+                {uniqueFuelTypes.map(type => (
+                  <button
+                    key={type}
+                    type="button"
+                    onClick={() => setSelectedFuelType(type)}
+                    className={`px-3 py-1 text-xs font-semibold rounded-xl transition-all duration-300 ${selectedFuelType === type
+                      ? 'bg-primary text-primary-foreground shadow-sm shadow-primary/10'
+                      : 'text-muted-foreground hover:text-foreground'
+                      }`}
+                  >
+                    {type === 'all' ? 'All' : type}
+                  </button>
+                ))}
+              </div>
+
+              {/* Vehicle Filter */}
+              <div className="flex items-center gap-2 bg-muted/40 p-2 rounded-2xl border border-border max-w-max">
+                <span className="text-xs text-muted-foreground px-2 font-medium">Vehicle:</span>
+                <select
+                  value={selectedVehicleId}
+                  onChange={(e) => setSelectedVehicleId(e.target.value)}
+                  className="bg-transparent border-none outline-none text-xs font-semibold pr-4 cursor-pointer text-foreground"
                 >
-                  {type === 'all' ? 'All Fuel Types' : type}
-                </button>
-              ))}
+                  <option value="all">All Vehicles</option>
+                  {vehicles.map(v => (
+                    <option key={v.id} value={v.id}>
+                      {v.name} ({v.type === 'Other / Custom' ? (v.custom_type || 'Custom') : v.type})
+                    </option>
+                  ))}
+                </select>
+              </div>
             </div>
 
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">

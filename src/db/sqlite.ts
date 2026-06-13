@@ -269,6 +269,8 @@ const initializeSchema = async () => {
       timestamp TEXT NOT NULL,
       notes TEXT,
       duration INTEGER DEFAULT 0, -- session duration in seconds
+      created_at TEXT NOT NULL,
+      updated_at TEXT NOT NULL,
       deviceId TEXT,
       synced INTEGER DEFAULT 0,
       FOREIGN KEY (task_id) REFERENCES tasks(id) ON DELETE CASCADE
@@ -345,10 +347,65 @@ const initializeSchema = async () => {
       liters REAL NOT NULL,
       date TEXT NOT NULL,
       transaction_id TEXT,
+      vehicle_id TEXT,
+      attachment_url TEXT,
       created_at TEXT NOT NULL,
       updated_at TEXT NOT NULL,
       deviceId TEXT,
       synced INTEGER DEFAULT 0
+    );
+
+    CREATE TABLE IF NOT EXISTS vehicles (
+      id TEXT PRIMARY KEY,
+      name TEXT NOT NULL,
+      type TEXT NOT NULL,
+      custom_type TEXT,
+      purchase_date TEXT,
+      purchase_price REAL,
+      seller_info TEXT,
+      chassis_number TEXT,
+      engine_number TEXT,
+      license_plate TEXT,
+      reg_book_url TEXT,
+      insurance_url TEXT,
+      license_url TEXT,
+      photos_url TEXT,
+      service_records_url TEXT,
+      created_at TEXT NOT NULL,
+      updated_at TEXT NOT NULL,
+      deviceId TEXT,
+      synced INTEGER DEFAULT 0
+    );
+
+    CREATE TABLE IF NOT EXISTS vehicle_expenses (
+      id TEXT PRIMARY KEY,
+      vehicle_id TEXT NOT NULL,
+      expense_type TEXT NOT NULL,
+      cost REAL NOT NULL,
+      date TEXT NOT NULL,
+      description TEXT,
+      attachment_url TEXT,
+      transaction_id TEXT,
+      created_at TEXT NOT NULL,
+      updated_at TEXT NOT NULL,
+      deviceId TEXT,
+      synced INTEGER DEFAULT 0,
+      FOREIGN KEY (vehicle_id) REFERENCES vehicles(id) ON DELETE CASCADE
+    );
+
+    CREATE TABLE IF NOT EXISTS vehicle_reminders (
+      id TEXT PRIMARY KEY,
+      vehicle_id TEXT NOT NULL,
+      service_type TEXT NOT NULL,
+      reminder_type TEXT NOT NULL,
+      target_date TEXT,
+      target_mileage INTEGER,
+      status TEXT DEFAULT 'pending',
+      created_at TEXT NOT NULL,
+      updated_at TEXT NOT NULL,
+      deviceId TEXT,
+      synced INTEGER DEFAULT 0,
+      FOREIGN KEY (vehicle_id) REFERENCES vehicles(id) ON DELETE CASCADE
     );
 
     CREATE TABLE IF NOT EXISTS config (
@@ -451,7 +508,8 @@ const initializeSchema = async () => {
     "ALTER TABLE transactions ADD COLUMN exchange_rate REAL;",
     "ALTER TABLE investments ADD COLUMN trade_avg_buy_price REAL DEFAULT 0;",
     "ALTER TABLE asset_transactions ADD COLUMN funding_account_id TEXT;",
-    "CREATE TABLE IF NOT EXISTS task_logs (id TEXT PRIMARY KEY, task_id TEXT NOT NULL, type TEXT NOT NULL, timestamp TEXT NOT NULL, notes TEXT, duration INTEGER DEFAULT 0, deviceId TEXT, synced INTEGER DEFAULT 0, FOREIGN KEY (task_id) REFERENCES tasks(id) ON DELETE CASCADE);"
+    "CREATE TABLE IF NOT EXISTS task_logs (id TEXT PRIMARY KEY, task_id TEXT NOT NULL, type TEXT NOT NULL, timestamp TEXT NOT NULL, notes TEXT, duration INTEGER DEFAULT 0, created_at TEXT NOT NULL DEFAULT '', updated_at TEXT NOT NULL DEFAULT '', deviceId TEXT, synced INTEGER DEFAULT 0, FOREIGN KEY (task_id) REFERENCES tasks(id) ON DELETE CASCADE);",
+    "CREATE TABLE IF NOT EXISTS vehicles (id TEXT PRIMARY KEY, name TEXT NOT NULL, type TEXT NOT NULL, custom_type TEXT, created_at TEXT NOT NULL, updated_at TEXT NOT NULL, deviceId TEXT, synced INTEGER DEFAULT 0);"
   ];
 
   const addColumn = (table: string, column: string, type: string) => {
@@ -469,6 +527,42 @@ const initializeSchema = async () => {
   addColumn('tasks', 'time_spent', 'INTEGER DEFAULT 0');
   addColumn('tasks', 'last_started_at', 'TEXT');
   addColumn('asset_transactions', 'funding_account_id', 'TEXT');
+  addColumn('fuel_logs', 'vehicle_id', 'TEXT');
+  addColumn('fuel_logs', 'attachment_url', 'TEXT');
+  addColumn('task_logs', 'created_at', 'TEXT NOT NULL DEFAULT ""');
+  addColumn('task_logs', 'updated_at', 'TEXT NOT NULL DEFAULT ""');
+
+  // Self-healing columns for vehicle_expenses & vehicle_reminders in case of partial creation
+  addColumn('vehicle_expenses', 'created_at', 'TEXT NOT NULL DEFAULT ""');
+  addColumn('vehicle_expenses', 'updated_at', 'TEXT NOT NULL DEFAULT ""');
+  addColumn('vehicle_expenses', 'deviceId', 'TEXT');
+  addColumn('vehicle_expenses', 'synced', 'INTEGER DEFAULT 0');
+  addColumn('vehicle_expenses', 'attachment_url', 'TEXT');
+  addColumn('vehicle_expenses', 'transaction_id', 'TEXT');
+
+  addColumn('vehicle_reminders', 'created_at', 'TEXT NOT NULL DEFAULT ""');
+  addColumn('vehicle_reminders', 'updated_at', 'TEXT NOT NULL DEFAULT ""');
+  addColumn('vehicle_reminders', 'deviceId', 'TEXT');
+  addColumn('vehicle_reminders', 'synced', 'INTEGER DEFAULT 0');
+  
+  // Vehicle migration columns
+  addColumn('vehicles', 'purchase_date', 'TEXT');
+  addColumn('vehicles', 'purchase_price', 'REAL');
+  addColumn('vehicles', 'seller_info', 'TEXT');
+  addColumn('vehicles', 'chassis_number', 'TEXT');
+  addColumn('vehicles', 'engine_number', 'TEXT');
+  addColumn('vehicles', 'license_plate', 'TEXT');
+  addColumn('vehicles', 'reg_book_url', 'TEXT');
+  addColumn('vehicles', 'insurance_url', 'TEXT');
+  addColumn('vehicles', 'license_url', 'TEXT');
+  addColumn('vehicles', 'photos_url', 'TEXT');
+  addColumn('vehicles', 'service_records_url', 'TEXT');
+
+  // Indexes for vehicle extensions
+  try {
+    db.run("CREATE INDEX IF NOT EXISTS idx_vehicle_expenses_vehicle ON vehicle_expenses(vehicle_id);");
+    db.run("CREATE INDEX IF NOT EXISTS idx_vehicle_reminders_vehicle ON vehicle_reminders(vehicle_id);");
+  } catch (e) { }
 
   for (const m of migrations) {
     try {

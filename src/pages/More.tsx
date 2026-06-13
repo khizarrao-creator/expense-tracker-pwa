@@ -122,8 +122,8 @@ const DEFAULT_OPTIONS: MoreOption[] = [
   },
   {
     id: 'fuel',
-    name: 'Fuel Tracking',
-    description: 'Track fuel consumption and costs',
+    name: 'Vehicle & Fuel Tracking',
+    description: 'Track fuel consumption and vehicle expenses',
     path: '/fuel',
     icon: Fuel,
     color: 'text-blue-500',
@@ -196,9 +196,8 @@ const SortableItem = ({ option }: { option: MoreOption }) => {
       className={`relative group h-full ${isDragging ? 'opacity-50 scale-105 z-50' : 'opacity-100'} cursor-pointer select-none`}
     >
       <div
-        className={`bg-card p-6 rounded-3xl border border-border flex flex-col justify-between h-full hover:shadow-md hover:border-primary/50 transition-all duration-200 ${
-          isDragging ? 'shadow-xl border-primary bg-background' : ''
-        }`}
+        className={`bg-card p-6 rounded-3xl border border-border flex flex-col justify-between h-full hover:shadow-md hover:border-primary/50 transition-all duration-200 ${isDragging ? 'shadow-xl border-primary bg-background' : ''
+          }`}
       >
         <div>
           {/* Top row: Icon & Badge */}
@@ -207,11 +206,10 @@ const SortableItem = ({ option }: { option: MoreOption }) => {
               <Icon size={22} />
             </div>
             {option.badge && (
-              <span className={`text-[9px] font-bold px-2 py-0.5 rounded-lg flex-shrink-0 border uppercase tracking-wider ${
-                option.id === 'tasks' ? 'bg-blue-500/10 text-blue-500 border-blue-500/20' :
+              <span className={`text-[9px] font-bold px-2 py-0.5 rounded-lg flex-shrink-0 border uppercase tracking-wider ${option.id === 'tasks' ? 'bg-blue-500/10 text-blue-500 border-blue-500/20' :
                 option.id === 'reminders' ? 'bg-amber-500/10 text-amber-500 border-amber-500/20 animate-pulse' :
-                'bg-indigo-500/10 text-indigo-500 border-indigo-500/20'
-              }`}>
+                  'bg-indigo-500/10 text-indigo-500 border-indigo-500/20'
+                }`}>
                 {option.badge}
               </span>
             )}
@@ -240,7 +238,7 @@ const SortableItem = ({ option }: { option: MoreOption }) => {
 
 const More: React.FC = () => {
   const { config, disabledFeatures } = useApp();
-  
+
   const [taskCount, setTaskCount] = useState<number | null>(null);
   const [reminderCount, setReminderCount] = useState<number | null>(null);
   const [goalCount, setGoalCount] = useState<number | null>(null);
@@ -312,7 +310,7 @@ const More: React.FC = () => {
         if (disabledFeatures?.includes(o.id)) return false;
         return true;
       });
-      
+
       const missing = availableDefaults.filter(d => !filtered.find(s => s.id === d.id));
       return [...filtered, ...missing];
     });

@@ -1,12 +1,25 @@
 import React, { useState, useEffect } from 'react';
-import { addTransaction, getTransaction, updateTransaction, getCategories, getAccounts, addFuelLog, getFuelLogByTransactionId, deleteFuelLog } from '../db/queries';
-import type { Category, Account } from '../db/queries';
+import {
+  addTransaction,
+  getTransaction,
+  updateTransaction,
+  getCategories,
+  getAccounts,
+  addFuelLog,
+  getFuelLogByTransactionId,
+  deleteFuelLog,
+  getVehicles,
+  addVehicleExpense,
+  getVehicleExpenseByTransactionId,
+  deleteVehicleExpense
+} from '../db/queries';
+import type { Category, Account, Vehicle } from '../db/queries';
 import { useNavigate, useParams } from 'react-router-dom';
-import { Landmark } from 'lucide-react';
+import { Landmark, RefreshCw, ArrowRightLeft, FileText, Plus } from 'lucide-react';
 import { useCurrency } from '../contexts/CurrencyContext';
 import { toast } from 'sonner';
 import { v4 as uuidv4 } from 'uuid';
-import { RefreshCw, ArrowRightLeft } from 'lucide-react';
+import { uploadToCloudinary } from '../services/cloudinaryService';
 
 const AddTransaction: React.FC = () => {
   const navigate = useNavigate();
@@ -30,11 +43,69 @@ const AddTransaction: React.FC = () => {
   const [toAccountId, setToAccountId] = useState('');
   const [loading, setLoading] = useState(false);
 
-  // Fuel Tracking
-  const [isFuel, setIsFuel] = useState(false);
+  // Vehicle Expense Integration
+  const [isVehicleExpense, setIsVehicleExpense] = useState(false);
+  const [vehicleExpenseType, setVehicleExpenseType] = useState('Fuel');
   const [fuelType, setFuelType] = useState('Petrol');
   const [pricePerLiter, setPricePerLiter] = useState('');
+  const [attachmentUrl, setAttachmentUrl] = useState<string | null>(null);
+  const [uploadingAttachment, setUploadingAttachment] = useState(false);
   const [existingFuelLogId, setExistingFuelLogId] = useState<string | null>(null);
+  const [existingVehicleExpenseId, setExistingVehicleExpenseId] = useState<string | null>(null);
+  const [vehicles, setVehicles] = useState<Vehicle[]>([]);
+  const [selectedVehicleId, setSelectedVehicleId] = useState('');
+
+  // Document Viewer State
+  const [viewerUrl, setViewerUrl] = useState<string | null>(null);
+
+  const getUrlType = (url: string): 'image' | 'video' | 'pdf' => {
+    const lower = url.toLowerCase();
+    if (lower.includes('/video/upload/') || lower.endsWith('.mp4') || lower.endsWith('.webm') || lower.endsWith('.mov') || lower.endsWith('.avi')) {
+      return 'video';
+    }
+    if (lower.includes('/raw/upload/') || lower.endsWith('.pdf')) {
+      return 'pdf';
+    }
+    return 'image';
+  };
+
+  const getVideoDuration = (file: File): Promise<number> => {
+    return new Promise((resolve) => {
+      const video = document.createElement('video');
+      video.preload = 'metadata';
+      video.onloadedmetadata = () => {
+        window.URL.revokeObjectURL(video.src);
+        resolve(video.duration);
+      };
+      video.onerror = () => {
+        window.URL.revokeObjectURL(video.src);
+        resolve(0);
+      };
+      video.src = window.URL.createObjectURL(file);
+    });
+  };
+
+  const validateAndUpload = async (file: File, folder: string): Promise<string> => {
+    const sizeMB = file.size / (1024 * 1024);
+    if (sizeMB > 10) {
+      throw new Error('File size exceeds the 10MB limit.');
+    }
+
+    const type = file.type.toLowerCase();
+    if (type.startsWith('video/')) {
+      if (type !== 'video/mp4') {
+        throw new Error('Only MP4 videos are supported.');
+      }
+      const duration = await getVideoDuration(file);
+      if (duration < 5.8 || duration > 8.2) {
+        throw new Error(`Video duration must be between 6 to 8 seconds. Selected video is ${duration.toFixed(1)} seconds.`);
+      }
+    } else if (!type.startsWith('image/') && type !== 'application/pdf') {
+      throw new Error('Unsupported file format. Please upload an image, PDF, or MP4 video.');
+    }
+
+    return await uploadToCloudinary(file, folder);
+  };
 
   // Multi-Currency Transfer
   const [rates, setRates] = useState<Record<string, number>>({});
@@ -51,18 +122,21 @@ const AddTransaction: React.FC = () => {
 
   useEffect(() => {
     const loadInitialData = async () => {
-      const [cats, accs] = await Promise.all([
+      const [cats, accs, vehs] = await Promise.all([
         getCategories(type === 'transfer' ? undefined : type),
-        getAccounts()
+        getAccounts(),
+        getVehicles()
       ]);
       setCategories(cats);
       setAccounts(accs);
+      setVehicles(vehs);
 
       // Only set initial bank/account if not already set or editing
       if (!id) {
         if (accs.length > 0 && !accountId) setAccountId(accs[0].id);
         if (accs.length > 1 && !toAccountId) setToAccountId(accs[1].id);
         if (cats.length > 0) setCategory(cats[0].name);
+        if (vehs.length > 0) setSelectedVehicleId(vehs[0].id);
       }
 
       if (id) {
@@ -81,14 +155,26 @@ const AddTransaction: React.FC = () => {
           setAccountId(trx.account_id || '');
           setToAccountId(trx.to_account_id || '');
 
-          // Check for fuel log
+          // Check for vehicle expense or fuel log
           if (trx.type === 'expense') {
             const fuelLog = await getFuelLogByTransactionId(id);
             if (fuelLog) {
-              setIsFuel(true);
+              setIsVehicleExpense(true);
+              setVehicleExpenseType('Fuel');
               setFuelType(fuelLog.fuel_type);
               setPricePerLiter(fuelLog.price_per_liter.toString());
+              setAttachmentUrl(fuelLog.attachment_url || null);
               setExistingFuelLogId(fuelLog.id);
+              setSelectedVehicleId(fuelLog.vehicle_id || '');
+            } else {
+              const vExp = await getVehicleExpenseByTransactionId(id);
+              if (vExp) {
+                setIsVehicleExpense(true);
+                setVehicleExpenseType(vExp.expense_type);
+                setAttachmentUrl(vExp.attachment_url);
+                setExistingVehicleExpenseId(vExp.id);
+                setSelectedVehicleId(vExp.vehicle_id);
+              }
             }
           }
 
@@ -232,6 +318,21 @@ const AddTransaction: React.FC = () => {
       return;
     }
 
+    if (type === 'expense' && isVehicleExpense) {
+      if (vehicles.length === 0) {
+        toast.error('Please create a vehicle first in the Fuel Tracking section.');
+        return;
+      }
+      if (!selectedVehicleId) {
+        toast.error('Please select a vehicle.');
+        return;
+      }
+      if (vehicleExpenseType === 'Fuel' && (!pricePerLiter || isNaN(Number(pricePerLiter)) || Number(pricePerLiter) <= 0)) {
+        toast.error('Please enter a valid price per liter.');
+        return;
+      }
+    }
+
     if (type === 'transfer' && (!accountId || !toAccountId)) {
       toast.error('Please select both accounts for the transfer');
       return;
@@ -269,17 +370,29 @@ const AddTransaction: React.FC = () => {
         await updateTransaction(id, trxData);
 
         if (type === 'expense') {
-          if (isFuel) {
-            const liters = Number(amount) / Number(pricePerLiter);
-            if (!isNaN(liters) && liters > 0) {
-              if (existingFuelLogId) {
-                // Delete and re-add or we could add updateFuelLog, but delete/add is simpler for now given the sync architecture
-                await deleteFuelLog(existingFuelLogId);
-              }
-              await addFuelLog(fuelType, Number(pricePerLiter), Number(amount), liters, date, undefined, id);
-            }
-          } else if (existingFuelLogId) {
+          // Clean up old log types if changed
+          if (existingFuelLogId && (!isVehicleExpense || vehicleExpenseType !== 'Fuel')) {
             await deleteFuelLog(existingFuelLogId);
+          }
+          if (existingVehicleExpenseId && (!isVehicleExpense || vehicleExpenseType === 'Fuel')) {
+            await deleteVehicleExpense(existingVehicleExpenseId);
+          }
+
+          if (isVehicleExpense) {
+            if (vehicleExpenseType === 'Fuel') {
+              const liters = Number(amount) / Number(pricePerLiter);
+              if (!isNaN(liters) && liters > 0) {
+                if (existingFuelLogId) {
+                  await deleteFuelLog(existingFuelLogId);
+                }
+                await addFuelLog(fuelType, Number(pricePerLiter), Number(amount), liters, date, undefined, id, selectedVehicleId || null, attachmentUrl);
+              }
+            } else {
+              if (existingVehicleExpenseId) {
+                await deleteVehicleExpense(existingVehicleExpenseId);
+              }
+              await addVehicleExpense(selectedVehicleId, vehicleExpenseType, Number(amount), date, description || '', attachmentUrl, id);
+            }
           }
         }
       } else {
@@ -299,10 +412,14 @@ const AddTransaction: React.FC = () => {
           trxData.exchange_rate
         );
 
-        if (isFuel && type === 'expense') {
-          const liters = Number(amount) / Number(pricePerLiter);
-          if (!isNaN(liters) && liters > 0) {
-            await addFuelLog(fuelType, Number(pricePerLiter), Number(amount), liters, date, undefined, trxId);
+        if (isVehicleExpense && type === 'expense') {
+          if (vehicleExpenseType === 'Fuel') {
+            const liters = Number(amount) / Number(pricePerLiter);
+            if (!isNaN(liters) && liters > 0) {
+              await addFuelLog(fuelType, Number(pricePerLiter), Number(amount), liters, date, undefined, trxId, selectedVehicleId || null, attachmentUrl);
+            }
+          } else {
+            await addVehicleExpense(selectedVehicleId, vehicleExpenseType, Number(amount), date, description || '', attachmentUrl, trxId);
           }
         }
       }
@@ -615,58 +732,160 @@ const AddTransaction: React.FC = () => {
           {type === 'expense' && (
             <div className="space-y-4 pt-2">
               <label className="flex items-center gap-3 cursor-pointer group">
-                <div className={`w-6 h-6 rounded-lg border-2 flex items-center justify-center transition-all ${isFuel ? 'bg-primary border-primary' : 'border-border group-hover:border-primary/50'}`}>
+                <div className={`w-6 h-6 rounded-lg border-2 flex items-center justify-center transition-all ${isVehicleExpense ? 'bg-primary border-primary' : 'border-border group-hover:border-primary/50'}`}>
                   <input
                     type="checkbox"
                     className="hidden"
-                    checked={isFuel}
-                    onChange={(e) => setIsFuel(e.target.checked)}
+                    checked={isVehicleExpense}
+                    onChange={(e) => setIsVehicleExpense(e.target.checked)}
                   />
-                  {isFuel && <svg className="w-4 h-4 text-primary-foreground" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={3}><path strokeLinecap="round" strokeLinejoin="round" d="M5 13l4 4L19 7" /></svg>}
+                  {isVehicleExpense && <svg className="w-4 h-4 text-primary-foreground" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={3}><path strokeLinecap="round" strokeLinejoin="round" d="M5 13l4 4L19 7" /></svg>}
                 </div>
-                <span className="font-medium">Mark as Fuel Consumption</span>
+                <span className="font-medium">Mark as Vehicle Expense</span>
               </label>
 
-              {isFuel && (
+              {isVehicleExpense && (
                 <div className="p-4 bg-muted/50 rounded-2xl border border-border space-y-4 animate-in slide-in-from-top-2 duration-200">
+                  {/* Vehicle Selection */}
                   <div className="space-y-2">
-                    <label className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">Fuel Type</label>
-                    <div className="flex flex-wrap gap-2">
-                      {['Petrol', 'High Octane', 'LPG', 'CNG', 'Diesel'].map((t) => (
+                    <label className="text-xs font-semibold uppercase tracking-wider text-muted-foreground block">Select Vehicle</label>
+                    {vehicles.length === 0 ? (
+                      <div className="p-3 bg-destructive/10 text-destructive rounded-xl text-xs font-semibold border border-destructive/20 flex flex-col gap-2">
+                        <span>No vehicles registered. Please create a vehicle first under Fuel Tracking.</span>
                         <button
-                          key={t}
                           type="button"
-                          onClick={() => setFuelType(t)}
-                          className={`px-3 py-1.5 rounded-lg text-xs font-medium transition-all border ${fuelType === t
-                            ? 'bg-primary border-primary text-primary-foreground shadow-sm'
-                            : 'bg-background border-border text-muted-foreground hover:border-primary/50'
-                            }`}
+                          onClick={() => navigate('/fuel')}
+                          className="bg-destructive text-destructive-foreground px-3 py-1.5 rounded-lg text-[10px] self-start hover:opacity-90 transition-all font-bold"
                         >
-                          {t}
+                          Go to Fuel Tracking
                         </button>
-                      ))}
-                    </div>
+                      </div>
+                    ) : (
+                      <select
+                        value={selectedVehicleId}
+                        onChange={(e) => setSelectedVehicleId(e.target.value)}
+                        className="w-full px-4 py-2.5 bg-background border border-border rounded-xl focus:outline-none focus:ring-2 focus:ring-primary text-sm font-medium"
+                        required={isVehicleExpense}
+                      >
+                        <option value="" disabled>Choose a vehicle</option>
+                        {vehicles.map((v) => (
+                          <option key={v.id} value={v.id}>
+                            {v.name} ({v.type === 'Other / Custom' ? (v.custom_type || 'Custom') : v.type})
+                          </option>
+                        ))}
+                      </select>
+                    )}
                   </div>
 
+                  {/* Expense Type Selection */}
                   <div className="space-y-2">
-                    <label className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">Price per Liter</label>
-                    <input
-                      type="number"
-                      step="0.01"
-                      placeholder="e.g. 300,320,400"
-                      value={pricePerLiter}
-                      onChange={(e) => setPricePerLiter(e.target.value)}
-                      className="w-full px-4 py-2.5 bg-background border border-border rounded-xl focus:outline-none focus:ring-2 focus:ring-primary"
-                      required={isFuel}
-                    />
+                    <label className="text-xs font-semibold uppercase tracking-wider text-muted-foreground block">Vehicle Expense Type</label>
+                    <select
+                      value={vehicleExpenseType}
+                      onChange={(e) => setVehicleExpenseType(e.target.value)}
+                      className="w-full px-4 py-2.5 bg-background border border-border rounded-xl focus:outline-none focus:ring-2 focus:ring-primary text-sm font-medium"
+                      required={isVehicleExpense}
+                    >
+                      {['Fuel', 'Oil Change', 'Tire Replacement', 'Maintenance', 'Repairs', 'Insurance', 'Registration/Token Tax', 'Parking', 'Toll Charges', 'Other'].map(type => (
+                        <option key={type} value={type}>{type}</option>
+                      ))}
+                    </select>
                   </div>
 
-                  {amount && pricePerLiter && !isNaN(Number(amount) / Number(pricePerLiter)) && (
-                    <div className="flex justify-between items-center px-2">
-                      <span className="text-sm text-muted-foreground">Calculated Quantity:</span>
-                      <span className="font-bold text-primary">{(Number(amount) / Number(pricePerLiter)).toFixed(2)} L</span>
-                    </div>
+                  {vehicleExpenseType === 'Fuel' && (
+                    <>
+                      <div className="space-y-2">
+                        <label className="text-xs font-semibold uppercase tracking-wider text-muted-foreground block">Fuel Type</label>
+                        <div className="flex flex-wrap gap-2">
+                          {['Petrol', 'High Octane', 'LPG', 'CNG', 'Diesel'].map((t) => (
+                            <button
+                              key={t}
+                              type="button"
+                              onClick={() => setFuelType(t)}
+                              className={`px-3 py-1.5 rounded-lg text-xs font-medium transition-all border ${fuelType === t
+                                ? 'bg-primary border-primary text-primary-foreground shadow-sm'
+                                : 'bg-background border-border text-muted-foreground hover:border-primary/50'
+                                }`}
+                            >
+                              {t}
+                            </button>
+                          ))}
+                        </div>
+                      </div>
+
+                      <div className="space-y-2">
+                        <label className="text-xs font-semibold uppercase tracking-wider text-muted-foreground block">Price per Liter</label>
+                        <input
+                          type="number"
+                          step="0.01"
+                          placeholder="e.g. 300,320,400"
+                          value={pricePerLiter}
+                          onChange={(e) => setPricePerLiter(e.target.value)}
+                          className="w-full px-4 py-2.5 bg-background border border-border rounded-xl focus:outline-none focus:ring-2 focus:ring-primary"
+                          required={isVehicleExpense && vehicleExpenseType === 'Fuel'}
+                        />
+                      </div>
+
+                      {amount && pricePerLiter && !isNaN(Number(amount) / Number(pricePerLiter)) && (
+                        <div className="flex justify-between items-center px-2">
+                          <span className="text-sm text-muted-foreground">Calculated Quantity:</span>
+                          <span className="font-bold text-primary">{(Number(amount) / Number(pricePerLiter)).toFixed(2)} L</span>
+                        </div>
+                      )}
+                    </>
                   )}
+
+                  {/* Attachment Upload */}
+                  <div className="space-y-2 pt-2 border-t border-border/40">
+                    <label className="text-xs font-semibold uppercase tracking-wider text-muted-foreground block">Receipt / Invoice Attachment</label>
+                    {attachmentUrl ? (
+                      <div className="flex items-center justify-between p-3 bg-primary/5 border border-primary/20 rounded-xl">
+                        <button
+                          type="button"
+                          onClick={() => setViewerUrl(attachmentUrl)}
+                          className="text-xs text-primary font-bold hover:underline truncate max-w-[200px]"
+                        >
+                          📄 View Attached Document
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => setAttachmentUrl(null)}
+                          className="text-[10px] bg-destructive text-destructive-foreground font-bold px-2 py-1 rounded-lg"
+                        >
+                          Remove
+                        </button>
+                      </div>
+                    ) : (
+                      <div className="relative">
+                        <input
+                          type="file"
+                          accept="image/*,application/pdf,video/mp4"
+                          disabled={uploadingAttachment}
+                          onChange={async (e) => {
+                            const file = e.target.files?.[0];
+                            if (!file) return;
+                            setUploadingAttachment(true);
+                            try {
+                              const url = await validateAndUpload(file, 'vehicle_attachments');
+                              setAttachmentUrl(url);
+                              toast.success('Receipt uploaded successfully');
+                            } catch (err: any) {
+                              console.error('Cloudinary upload error:', err);
+                              toast.error(err.message || 'Failed to upload receipt');
+                            } finally {
+                              setUploadingAttachment(false);
+                            }
+                          }}
+                          className="w-full text-xs text-muted-foreground file:mr-4 file:py-2 file:px-4 file:rounded-xl file:border-0 file:text-xs file:font-semibold file:bg-primary/10 file:text-primary file:cursor-pointer hover:file:bg-primary/20"
+                        />
+                        {uploadingAttachment && (
+                          <span className="text-xs text-primary font-bold animate-pulse absolute right-2 top-1/2 -translate-y-1/2">
+                            Uploading...
+                          </span>
+                        )}
+                      </div>
+                    )}
+                  </div>
                 </div>
               )}
             </div>
@@ -682,9 +901,58 @@ const AddTransaction: React.FC = () => {
           </div>
         </form>
       </div>
+
+      {/* --- IN-SYSTEM DOCUMENT VIEWER MODAL --- */}
+      {viewerUrl && (
+        <div className="fixed inset-0 z-[100] flex items-center justify-center p-4 bg-background/80 backdrop-blur-md animate-in fade-in duration-200">
+          <div className="bg-card w-full max-w-4xl max-h-[90vh] rounded-2xl border border-border shadow-2xl overflow-hidden flex flex-col animate-in zoom-in-95 duration-200">
+            <div className="p-4 border-b border-border flex items-center justify-between bg-muted/20">
+              <div className="flex items-center gap-2">
+                <FileText className="text-primary" size={18} />
+                <h3 className="text-sm font-bold text-foreground truncate max-w-[300px] sm:max-w-md">
+                  Document Viewer
+                </h3>
+              </div>
+              <button
+                type="button"
+                onClick={() => setViewerUrl(null)}
+                className="p-1.5 hover:bg-muted rounded-full transition-colors text-muted-foreground hover:text-foreground"
+              >
+                <Plus size={20} className="rotate-45" />
+              </button>
+            </div>
+            
+            <div className="flex-1 bg-muted/10 p-6 overflow-auto flex items-center justify-center min-h-[300px]">
+              {getUrlType(viewerUrl) === 'image' && (
+                <img
+                  src={viewerUrl}
+                  alt="Attachment Preview"
+                  className="max-w-full max-h-[70vh] object-contain rounded-lg shadow-md border border-border/40"
+                />
+              )}
+              {getUrlType(viewerUrl) === 'video' && (
+                <video
+                  src={viewerUrl}
+                  controls
+                  autoPlay
+                  className="max-w-full max-h-[70vh] rounded-lg shadow-md border border-border/40"
+                />
+              )}
+              {getUrlType(viewerUrl) === 'pdf' && (
+                <iframe
+                  src={viewerUrl}
+                  className="w-full h-[70vh] rounded-lg border border-border/40 shadow-sm bg-white"
+                  title="PDF Attachment Viewer"
+                />
+              )}
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 };
 
 export default AddTransaction;
+
 

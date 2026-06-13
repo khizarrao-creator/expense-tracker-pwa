@@ -45,6 +45,28 @@ export interface Category {
   parent_id: string | null;
 }
 
+export interface Vehicle {
+  id: string;
+  name: string;
+  type: string;
+  custom_type: string | null;
+  created_at: string;
+  updated_at: string;
+  deviceId: string | null;
+  synced: number;
+  purchase_date?: string | null;
+  purchase_price?: number | null;
+  seller_info?: string | null;
+  chassis_number?: string | null;
+  engine_number?: string | null;
+  license_plate?: string | null;
+  reg_book_url?: string | null;
+  insurance_url?: string | null;
+  license_url?: string | null;
+  photos_url?: string | null;
+  service_records_url?: string | null;
+}
+
 export interface FuelLog {
   id: string;
   fuel_type: string;
@@ -53,9 +75,43 @@ export interface FuelLog {
   liters: number;
   date: string;
   transaction_id: string | null;
+  vehicle_id: string | null;
+  vehicle_name?: string;
+  vehicle_type?: string;
+  vehicle_custom_type?: string | null;
   created_at: string;
   updated_at: string;
   synced: number;
+  attachment_url?: string | null;
+}
+
+export interface VehicleExpense {
+  id: string;
+  vehicle_id: string;
+  expense_type: string;
+  cost: number;
+  date: string;
+  description: string | null;
+  attachment_url: string | null;
+  transaction_id: string | null;
+  created_at: string;
+  updated_at: string;
+  synced: number;
+  vehicle_name?: string;
+}
+
+export interface VehicleReminder {
+  id: string;
+  vehicle_id: string;
+  service_type: string;
+  reminder_type: string;
+  target_date: string | null;
+  target_mileage: number | null;
+  status: 'pending' | 'completed';
+  created_at: string;
+  updated_at: string;
+  synced: number;
+  vehicle_name?: string;
 }
 
 export const addToSyncQueue = async (type: string, payload: any) => {
@@ -764,7 +820,7 @@ export const deleteGoal = async (id: string) => {
 // --- Data Portability ---
 
 export const exportAllData = async () => {
-  const [transactions, accounts, categories, goals, investments, reminders, tasks, task_logs, loan_parties, loans, loan_repayments, events, fuel_logs] = await Promise.all([
+  const [transactions, accounts, categories, goals, investments, reminders, tasks, task_logs, loan_parties, loans, loan_repayments, events, fuel_logs, vehicles, vehicle_expenses, vehicle_reminders] = await Promise.all([
     executeQuery(`SELECT * FROM transactions`),
     executeQuery(`SELECT * FROM accounts`),
     executeQuery(`SELECT * FROM categories`),
@@ -777,7 +833,10 @@ export const exportAllData = async () => {
     executeQuery(`SELECT * FROM loans`),
     executeQuery(`SELECT * FROM loan_repayments`),
     executeQuery(`SELECT * FROM events`),
-    executeQuery(`SELECT * FROM fuel_logs`)
+    executeQuery(`SELECT * FROM fuel_logs`),
+    executeQuery(`SELECT * FROM vehicles`),
+    executeQuery(`SELECT * FROM vehicle_expenses`),
+    executeQuery(`SELECT * FROM vehicle_reminders`)
   ]);
 
   return {
@@ -795,7 +854,10 @@ export const exportAllData = async () => {
     loans,
     loan_repayments,
     events,
-    fuel_logs
+    fuel_logs,
+    vehicles,
+    vehicle_expenses,
+    vehicle_reminders
   };
 };
 
@@ -813,6 +875,9 @@ export const clearAllData = async () => {
   await executeQuery(`DELETE FROM loan_repayments`);
   await executeQuery(`DELETE FROM events`);
   await executeQuery(`DELETE FROM fuel_logs`);
+  await executeQuery(`DELETE FROM vehicles`);
+  await executeQuery(`DELETE FROM vehicle_expenses`);
+  await executeQuery(`DELETE FROM vehicle_reminders`);
   await executeQuery(`DELETE FROM sync_queue`);
   // Clear migration flags so they re-run correctly after a fresh wipe.
   // deviceId, currency, and theme are intentionally preserved.
@@ -910,9 +975,11 @@ export const importAllData = async (data: any) => {
 
   if (data.task_logs) {
     for (const l of data.task_logs) {
+      const logCreatedAt = l.created_at || l.timestamp;
+      const logUpdatedAt = l.updated_at || l.timestamp;
       await runWithBindings(
-        `INSERT OR REPLACE INTO task_logs (id, task_id, type, timestamp, notes, duration, deviceId, synced) VALUES (?, ?, ?, ?, ?, ?, ?, 0)`,
-        [l.id, l.task_id, l.type, l.timestamp, l.notes ?? null, l.duration ?? 0, l.deviceId]
+        `INSERT OR REPLACE INTO task_logs (id, task_id, type, timestamp, notes, duration, created_at, updated_at, deviceId, synced) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 0)`,
+        [l.id, l.task_id, l.type, l.timestamp, l.notes ?? null, l.duration ?? 0, logCreatedAt, logUpdatedAt, l.deviceId]
       );
       await addToSyncQueue('task_log_add', l);
     }
@@ -972,10 +1039,50 @@ export const importAllData = async (data: any) => {
   if (data.fuel_logs) {
     for (const f of data.fuel_logs) {
       await runWithBindings(
-        `INSERT OR REPLACE INTO fuel_logs (id, fuel_type, price_per_liter, total_cost, liters, date, transaction_id, created_at, updated_at, deviceId, synced) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 0)`,
-        [f.id, f.fuel_type, f.price_per_liter, f.total_cost, f.liters, f.date, f.transaction_id ?? null, f.created_at, f.updated_at, f.deviceId]
+        `INSERT OR REPLACE INTO fuel_logs (id, fuel_type, price_per_liter, total_cost, liters, date, transaction_id, vehicle_id, created_at, updated_at, deviceId, synced, attachment_url) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 0, ?)`,
+        [f.id, f.fuel_type, f.price_per_liter, f.total_cost, f.liters, f.date, f.transaction_id ?? null, f.vehicle_id ?? null, f.created_at, f.updated_at, f.deviceId, f.attachment_url ?? null]
       );
       await addToSyncQueue('fuel_log_add', f);
+    }
+  }
+
+  if (data.vehicles) {
+    for (const v of data.vehicles) {
+      await runWithBindings(
+        `INSERT OR REPLACE INTO vehicles (
+          id, name, type, custom_type, created_at, updated_at, deviceId, synced,
+          purchase_date, purchase_price, seller_info, chassis_number, engine_number, license_plate,
+          reg_book_url, insurance_url, license_url, photos_url, service_records_url
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, 0, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+        [
+          v.id, v.name, v.type, v.custom_type ?? null, v.created_at, v.updated_at, v.deviceId,
+          v.purchase_date ?? null, v.purchase_price ?? null, v.seller_info ?? null,
+          v.chassis_number ?? null, v.engine_number ?? null, v.license_plate ?? null,
+          v.reg_book_url ?? null, v.insurance_url ?? null, v.license_url ?? null,
+          v.photos_url ?? null, v.service_records_url ?? null
+        ]
+      );
+      await addToSyncQueue('vehicle_add', v);
+    }
+  }
+
+  if (data.vehicle_expenses) {
+    for (const e of data.vehicle_expenses) {
+      await runWithBindings(
+        `INSERT OR REPLACE INTO vehicle_expenses (id, vehicle_id, expense_type, cost, date, description, attachment_url, transaction_id, created_at, updated_at, deviceId, synced) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 0)`,
+        [e.id, e.vehicle_id, e.expense_type, e.cost, e.date, e.description ?? null, e.attachment_url ?? null, e.transaction_id ?? null, e.created_at, e.updated_at, e.deviceId]
+      );
+      await addToSyncQueue('vehicle_expense_add', e);
+    }
+  }
+
+  if (data.vehicle_reminders) {
+    for (const r of data.vehicle_reminders) {
+      await runWithBindings(
+        `INSERT OR REPLACE INTO vehicle_reminders (id, vehicle_id, service_type, reminder_type, target_date, target_mileage, status, created_at, updated_at, deviceId, synced) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 0)`,
+        [r.id, r.vehicle_id, r.service_type, r.reminder_type, r.target_date ?? null, r.target_mileage ?? null, r.status ?? 'pending', r.created_at, r.updated_at, r.deviceId]
+      );
+      await addToSyncQueue('vehicle_reminder_add', r);
     }
   }
 };
@@ -1034,7 +1141,12 @@ export const getInvestments = async (): Promise<Investment[]> => {
 // --- Fuel Tracking ---
 
 export const getFuelLogs = async (): Promise<FuelLog[]> => {
-  return await executeQuery(`SELECT * FROM fuel_logs ORDER BY date DESC, created_at DESC`);
+  return await executeQuery(`
+    SELECT f.*, v.name as vehicle_name, v.type as vehicle_type, v.custom_type as vehicle_custom_type 
+    FROM fuel_logs f 
+    LEFT JOIN vehicles v ON f.vehicle_id = v.id 
+    ORDER BY f.date DESC, f.created_at DESC
+  `);
 };
 
 export const getFuelLogByTransactionId = async (transactionId: string): Promise<FuelLog | null> => {
@@ -1049,22 +1161,323 @@ export const addFuelLog = async (
   liters: number,
   date: string,
   providedId?: string,
-  transaction_id: string | null = null
+  transaction_id: string | null = null,
+  vehicle_id: string | null = null,
+  attachment_url: string | null = null
 ) => {
   const id = providedId || uuidv4();
   const now = new Date().toISOString();
   const deviceId = localStorage.getItem('deviceId') || 'unknown';
 
-  const fuelData = { id, fuel_type, price_per_liter, total_cost, liters, date, transaction_id, created_at: now, updated_at: now, deviceId };
+  const fuelData = { id, fuel_type, price_per_liter, total_cost, liters, date, transaction_id, vehicle_id, created_at: now, updated_at: now, deviceId, attachment_url };
 
   await syncManager.performOperation('fuel_log_add', fuelData, () =>
     runWithBindings(
-      `INSERT INTO fuel_logs (id, fuel_type, price_per_liter, total_cost, liters, date, transaction_id, created_at, updated_at, deviceId, synced) 
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 0)`,
-      [id, fuel_type, price_per_liter, total_cost, liters, date, transaction_id, now, now, deviceId]
+      `INSERT INTO fuel_logs (id, fuel_type, price_per_liter, total_cost, liters, date, transaction_id, vehicle_id, created_at, updated_at, deviceId, synced, attachment_url) 
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 0, ?)`,
+      [id, fuel_type, price_per_liter, total_cost, liters, date, transaction_id, vehicle_id, now, now, deviceId, attachment_url]
     )
   );
   return id;
+};
+
+// --- Vehicle Management ---
+
+export const getVehicles = async (): Promise<Vehicle[]> => {
+  return await executeQuery(`SELECT * FROM vehicles ORDER BY name ASC`);
+};
+
+export const addVehicle = async (
+  name: string,
+  type: string,
+  custom_type: string | null = null,
+  providedId?: string,
+  purchase_date: string | null = null,
+  purchase_price: number | null = null,
+  seller_info: string | null = null,
+  chassis_number: string | null = null,
+  engine_number: string | null = null,
+  license_plate: string | null = null,
+  reg_book_url: string | null = null,
+  insurance_url: string | null = null,
+  license_url: string | null = null,
+  photos_url: string | null = null,
+  service_records_url: string | null = null
+) => {
+  if (!name || !name.trim()) throw new Error('Vehicle name is required');
+  const id = providedId || uuidv4();
+  const now = new Date().toISOString();
+  const deviceId = localStorage.getItem('deviceId') || 'unknown';
+
+  const vehicleData = {
+    id, name: name.trim(), type, custom_type, created_at: now, updated_at: now, deviceId,
+    purchase_date, purchase_price, seller_info, chassis_number, engine_number, license_plate,
+    reg_book_url, insurance_url, license_url, photos_url, service_records_url
+  };
+
+  await syncManager.performOperation('vehicle_add', vehicleData, () =>
+    runWithBindings(
+      `INSERT INTO vehicles (
+        id, name, type, custom_type, created_at, updated_at, deviceId, synced,
+        purchase_date, purchase_price, seller_info, chassis_number, engine_number, license_plate,
+        reg_book_url, insurance_url, license_url, photos_url, service_records_url
+      ) 
+       VALUES (?, ?, ?, ?, ?, ?, ?, 0, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+      [
+        id, name.trim(), type, custom_type, now, now, deviceId,
+        purchase_date, purchase_price, seller_info, chassis_number, engine_number, license_plate,
+        reg_book_url, insurance_url, license_url, photos_url, service_records_url
+      ]
+    )
+  );
+  return id;
+};
+
+export const updateVehicle = async (id: string, data: Partial<Omit<Vehicle, 'id' | 'created_at' | 'synced'>>) => {
+  const now = new Date().toISOString();
+  const deviceId = localStorage.getItem('deviceId') || 'unknown';
+
+  const fields = Object.keys(data);
+  const values = Object.values(data);
+  const setClause = fields.map(f => `${f} = ?`).join(', ');
+
+  const vehicleData = { id, ...data, updated_at: now, deviceId };
+
+  await syncManager.performOperation('vehicle_update', vehicleData, () =>
+    runWithBindings(
+      `UPDATE vehicles SET ${setClause}, updated_at = ?, deviceId = ?, synced = 0 WHERE id = ?`,
+      [...values, now, deviceId, id]
+    )
+  );
+};
+
+export const deleteVehicle = async (id: string) => {
+  await runWithBindings(`DELETE FROM vehicle_expenses WHERE vehicle_id = ?`, [id]);
+  await runWithBindings(`DELETE FROM vehicle_reminders WHERE vehicle_id = ?`, [id]);
+  await runWithBindings(`UPDATE fuel_logs SET vehicle_id = NULL WHERE vehicle_id = ?`, [id]);
+  await syncManager.performOperation('vehicle_delete', { id }, () =>
+    runWithBindings(`DELETE FROM vehicles WHERE id = ?`, [id])
+  );
+};
+
+// --- Vehicle Expenses ---
+
+export const getVehicleExpenses = async (vehicleId?: string): Promise<VehicleExpense[]> => {
+  if (vehicleId) {
+    return await runWithBindings(`
+      SELECT e.*, v.name as vehicle_name 
+      FROM vehicle_expenses e
+      LEFT JOIN vehicles v ON e.vehicle_id = v.id
+      WHERE e.vehicle_id = ?
+      ORDER BY e.date DESC, e.created_at DESC
+    `, [vehicleId]);
+  }
+  return await executeQuery(`
+    SELECT e.*, v.name as vehicle_name 
+    FROM vehicle_expenses e
+    LEFT JOIN vehicles v ON e.vehicle_id = v.id
+    ORDER BY e.date DESC, e.created_at DESC
+  `);
+};
+
+export const getVehicleExpenseByTransactionId = async (transactionId: string): Promise<VehicleExpense | null> => {
+  const results = await runWithBindings(`SELECT * FROM vehicle_expenses WHERE transaction_id = ?`, [transactionId]);
+  return results[0] || null;
+};
+
+export const addVehicleExpense = async (
+  vehicle_id: string,
+  expense_type: string,
+  cost: number,
+  date: string,
+  description: string | null = null,
+  attachment_url: string | null = null,
+  transaction_id: string | null = null,
+  providedId?: string
+) => {
+  const id = providedId || uuidv4();
+  const now = new Date().toISOString();
+  const deviceId = localStorage.getItem('deviceId') || 'unknown';
+
+  const expenseData = {
+    id, vehicle_id, expense_type, cost, date,
+    description, attachment_url, transaction_id,
+    created_at: now, updated_at: now, deviceId
+  };
+
+  await syncManager.performOperation('vehicle_expense_add', expenseData, () =>
+    runWithBindings(
+      `INSERT INTO vehicle_expenses (id, vehicle_id, expense_type, cost, date, description, attachment_url, transaction_id, created_at, updated_at, deviceId, synced)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 0)`,
+      [id, vehicle_id, expense_type, cost, date, description, attachment_url, transaction_id, now, now, deviceId]
+    )
+  );
+  return id;
+};
+
+export const updateVehicleExpense = async (
+  id: string,
+  data: Partial<Omit<VehicleExpense, 'id' | 'created_at' | 'synced'>>
+) => {
+  const now = new Date().toISOString();
+  const deviceId = localStorage.getItem('deviceId') || 'unknown';
+
+  const fields = Object.keys(data);
+  const values = Object.values(data);
+  const setClause = fields.map(f => `${f} = ?`).join(', ');
+
+  const expenseData = { id, ...data, updated_at: now, deviceId };
+
+  await syncManager.performOperation('vehicle_expense_update', expenseData, async () => {
+    await runWithBindings(
+      `UPDATE vehicle_expenses SET ${setClause}, updated_at = ?, deviceId = ?, synced = 0 WHERE id = ?`,
+      [...values, now, deviceId, id]
+    );
+
+    // If linked transaction, update amount and date
+    const rows = await runWithBindings(`SELECT transaction_id FROM vehicle_expenses WHERE id = ?`, [id]);
+    const txnId = rows[0]?.transaction_id;
+    if (txnId) {
+      if (data.cost !== undefined) {
+        await runWithBindings(
+          `UPDATE transactions SET amount = ?, updated_at = ?, synced = 0 WHERE id = ?`,
+          [data.cost, now, txnId]
+        );
+      }
+      if (data.date !== undefined) {
+        await runWithBindings(
+          `UPDATE transactions SET date = ?, updated_at = ?, synced = 0 WHERE id = ?`,
+          [data.date, now, txnId]
+        );
+      }
+    }
+  });
+};
+
+export const deleteVehicleExpense = async (id: string) => {
+  const rows = await runWithBindings(`SELECT transaction_id FROM vehicle_expenses WHERE id = ?`, [id]);
+  const txnId = rows[0]?.transaction_id;
+  if (txnId) {
+    await runWithBindings(`DELETE FROM transactions WHERE id = ?`, [txnId]);
+  }
+
+  await syncManager.performOperation('vehicle_expense_delete', { id }, () =>
+    runWithBindings(`DELETE FROM vehicle_expenses WHERE id = ?`, [id])
+  );
+};
+
+// --- Vehicle Reminders ---
+
+export const getVehicleReminders = async (vehicleId?: string): Promise<VehicleReminder[]> => {
+  if (vehicleId) {
+    return await runWithBindings(`
+      SELECT r.*, v.name as vehicle_name 
+      FROM vehicle_reminders r
+      LEFT JOIN vehicles v ON r.vehicle_id = v.id
+      WHERE r.vehicle_id = ?
+      ORDER BY r.target_date ASC, r.created_at DESC
+    `, [vehicleId]);
+  }
+  return await executeQuery(`
+    SELECT r.*, v.name as vehicle_name 
+    FROM vehicle_reminders r
+    LEFT JOIN vehicles v ON r.vehicle_id = v.id
+    ORDER BY r.target_date ASC, r.created_at DESC
+  `);
+};
+
+export const addVehicleReminder = async (
+  vehicle_id: string,
+  service_type: string,
+  reminder_type: string,
+  target_date: string | null = null,
+  target_mileage: number | null = null,
+  status: 'pending' | 'completed' = 'pending',
+  providedId?: string
+) => {
+  const id = providedId || uuidv4();
+  const now = new Date().toISOString();
+  const deviceId = localStorage.getItem('deviceId') || 'unknown';
+
+  const reminderData = {
+    id, vehicle_id, service_type, reminder_type, target_date, target_mileage, status,
+    created_at: now, updated_at: now, deviceId
+  };
+
+  await syncManager.performOperation('vehicle_reminder_add', reminderData, () =>
+    runWithBindings(
+      `INSERT INTO vehicle_reminders (id, vehicle_id, service_type, reminder_type, target_date, target_mileage, status, created_at, updated_at, deviceId, synced)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 0)`,
+      [id, vehicle_id, service_type, reminder_type, target_date, target_mileage, status, now, now, deviceId]
+    )
+  );
+  return id;
+};
+
+export const updateVehicleReminder = async (
+  id: string,
+  data: Partial<Omit<VehicleReminder, 'id' | 'created_at' | 'synced'>>
+) => {
+  const now = new Date().toISOString();
+  const deviceId = localStorage.getItem('deviceId') || 'unknown';
+
+  const fields = Object.keys(data);
+  const values = Object.values(data);
+  const setClause = fields.map(f => `${f} = ?`).join(', ');
+
+  const reminderData = { id, ...data, updated_at: now, deviceId };
+
+  await syncManager.performOperation('vehicle_reminder_update', reminderData, () =>
+    runWithBindings(
+      `UPDATE vehicle_reminders SET ${setClause}, updated_at = ?, deviceId = ?, synced = 0 WHERE id = ?`,
+      [...values, now, deviceId, id]
+    )
+  );
+};
+
+export const deleteVehicleReminder = async (id: string) => {
+  await syncManager.performOperation('vehicle_reminder_delete', { id }, () =>
+    runWithBindings(`DELETE FROM vehicle_reminders WHERE id = ?`, [id])
+  );
+};
+
+export const updateFuelLog = async (
+  id: string,
+  data: Partial<Omit<FuelLog, 'id' | 'created_at' | 'synced'>>
+) => {
+  const now = new Date().toISOString();
+  const deviceId = localStorage.getItem('deviceId') || 'unknown';
+
+  const fields = Object.keys(data);
+  const values = Object.values(data);
+  const setClause = fields.map(f => `${f} = ?`).join(', ');
+
+  const fuelData = { id, ...data, updated_at: now, deviceId };
+
+  await syncManager.performOperation('fuel_log_update', fuelData, async () => {
+    await runWithBindings(
+      `UPDATE fuel_logs SET ${setClause}, updated_at = ?, deviceId = ?, synced = 0 WHERE id = ?`,
+      [...values, now, deviceId, id]
+    );
+
+    // If there is a linked transaction, update its amount and date to match
+    const logs = await runWithBindings(`SELECT transaction_id FROM fuel_logs WHERE id = ?`, [id]);
+    const txnId = logs[0]?.transaction_id;
+    if (txnId) {
+      if (data.total_cost !== undefined) {
+        await runWithBindings(
+          `UPDATE transactions SET amount = ?, updated_at = ?, synced = 0 WHERE id = ?`,
+          [data.total_cost, now, txnId]
+        );
+      }
+      if (data.date !== undefined) {
+        await runWithBindings(
+          `UPDATE transactions SET date = ?, updated_at = ?, synced = 0 WHERE id = ?`,
+          [data.date, now, txnId]
+        );
+      }
+    }
+  });
 };
 
 export const deleteFuelLog = async (id: string) => {
@@ -2128,14 +2541,16 @@ export const addTaskLog = async (
     timestamp: now,
     notes,
     duration,
+    created_at: now,
+    updated_at: now,
     deviceId
   };
 
   await syncManager.performOperation('task_log_add', logData, () =>
     runWithBindings(
-      `INSERT INTO task_logs (id, task_id, type, timestamp, notes, duration, deviceId, synced)
-       VALUES (?, ?, ?, ?, ?, ?, ?, 0)`,
-      [id, task_id, type, now, notes, duration, deviceId]
+      `INSERT INTO task_logs (id, task_id, type, timestamp, notes, duration, created_at, updated_at, deviceId, synced)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 0)`,
+      [id, task_id, type, now, notes, duration, now, now, deviceId]
     )
   );
   return id;

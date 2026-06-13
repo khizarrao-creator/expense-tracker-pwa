@@ -45,6 +45,7 @@ import {
 import { useCurrency } from '../contexts/CurrencyContext';
 import { toast } from 'sonner';
 import { format } from 'date-fns';
+import { getWhatsAppStatus, sendWhatsAppMessage, logoutWhatsApp, type WhatsAppAccount } from '../services/whatsappService';
 
 const Loans: React.FC = () => {
   const { formatAmount } = useCurrency();
@@ -73,6 +74,36 @@ const Loans: React.FC = () => {
   const [editingLoan, setEditingLoan] = useState<Loan | null>(null);
   const [isReminderModalOpen, setIsReminderModalOpen] = useState(false);
   const [reminderMessage, setReminderMessage] = useState('');
+
+  // WhatsApp Integration states for Loans page
+  const [waAccounts, setWaAccounts] = useState<WhatsAppAccount[]>([]);
+  const [selectedWaAccountId, setSelectedWaAccountId] = useState<string>('account1');
+  const [sendMethod, setSendMethod] = useState<'direct' | 'manual'>('manual');
+  const [isSendingWa, setIsSendingWa] = useState(false);
+  const [isWaLinkModalOpen, setIsWaLinkModalOpen] = useState(false);
+
+  useEffect(() => {
+    if (!isWaLinkModalOpen) return;
+
+    const interval = setInterval(async () => {
+      try {
+        const res = await getWhatsAppStatus();
+        const accounts = res.accounts || [];
+        setWaAccounts(accounts);
+        
+        const active = accounts.find(a => a.id === selectedWaAccountId);
+        if (active && active.status === 'connected') {
+          toast.success(`${active.name} connected successfully!`);
+          setSendMethod('direct');
+          setIsWaLinkModalOpen(false);
+        }
+      } catch (e) {
+        console.error(e);
+      }
+    }, 3000);
+
+    return () => clearInterval(interval);
+  }, [isWaLinkModalOpen, selectedWaAccountId]);
 
   // Loan Form State
   const [loanDirection, setLoanDirection] = useState<'given' | 'taken'>('given');
@@ -314,6 +345,7 @@ const Loans: React.FC = () => {
   };
 
   const handleOpenReminderModal = async (loan: Loan) => {
+    setSelectedLoan(loan);
     const party = parties.find(p => p.id === loan.party_id);
     const remaining = loan.remaining_balance || 0;
     const amountStr = formatAmount(remaining);
@@ -329,20 +361,71 @@ const Loans: React.FC = () => {
     
     setReminderMessage(message);
     setIsReminderModalOpen(true);
+
+    try {
+      const res = await getWhatsAppStatus();
+      const accounts = res.accounts || [];
+      setWaAccounts(accounts);
+      
+      const defaultAcc = await getConfig('whatsapp_default_account') || 'account1';
+      setSelectedWaAccountId(defaultAcc);
+
+      const activeAccount = accounts.find(a => a.id === defaultAcc);
+      if (activeAccount && activeAccount.status === 'connected') {
+        setSendMethod('direct');
+      } else {
+        const connected = accounts.find(a => a.status === 'connected');
+        if (connected) {
+          setSelectedWaAccountId(connected.id);
+          setSendMethod('direct');
+        } else {
+          setSendMethod('manual');
+        }
+      }
+    } catch (e) {
+      console.error(e);
+      setSendMethod('manual');
+    }
   };
 
-  const handleSendWhatsApp = () => {
+  const handleSendWhatsApp = async () => {
     if (!selectedLoan) return;
     const party = parties.find(p => p.id === selectedLoan.party_id);
     if (!party?.phone) {
       toast.error('No phone number found for this party. Please add a phone number in the Counterparties tab.');
       return;
     }
-    // Remove non-numeric characters for the phone number
-    const cleanPhone = party.phone.replace(/\D/g, '');
-    const encodedMsg = encodeURIComponent(reminderMessage);
-    window.open(`https://wa.me/${cleanPhone}?text=${encodedMsg}`, '_blank');
-    setIsReminderModalOpen(false);
+
+    if (sendMethod === 'manual') {
+      const cleanPhone = party.phone.replace(/\D/g, '');
+      const encodedMsg = encodeURIComponent(reminderMessage);
+      window.open(`https://wa.me/${cleanPhone}?text=${encodedMsg}`, '_blank');
+      setIsReminderModalOpen(false);
+    } else {
+      const activeAccount = waAccounts.find(a => a.id === selectedWaAccountId);
+      if (!activeAccount || activeAccount.status !== 'connected') {
+        toast.error('Selected WhatsApp device is not connected. Please scan the QR code first.');
+        return;
+      }
+
+      setIsSendingWa(true);
+      toast.loading('Sending WhatsApp reminder...', { id: 'wa-send' });
+      try {
+        const res = await sendWhatsAppMessage(selectedWaAccountId, party.phone, reminderMessage);
+        toast.dismiss('wa-send');
+        if (res.success) {
+          toast.success('Reminder message sent successfully!');
+          setIsReminderModalOpen(false);
+        } else {
+          toast.error(res.error || 'Failed to send message');
+        }
+      } catch (err: any) {
+        toast.dismiss('wa-send');
+        toast.error(err.message || 'Failed to send message');
+      } finally {
+        setIsSendingWa(false);
+      }
+    }
   };
 
   const filteredLoans = loans.filter(l => 
@@ -1005,46 +1088,203 @@ const Loans: React.FC = () => {
             <div className="p-6 border-b border-border flex items-center justify-between">
               <div className="flex items-center gap-2">
                 <MessageSquare className="text-emerald-500" size={24} />
-                <h2 className="text-xl font-bold">Reminder Preview</h2>
+                <h2 className="text-xl font-bold">WhatsApp Reminder</h2>
               </div>
               <button onClick={() => setIsReminderModalOpen(false)} className="text-muted-foreground hover:text-foreground">
                 <X size={24} />
               </button>
             </div>
+            
             <div className="p-6 space-y-4">
-              <p className="text-sm text-muted-foreground">You can customize the message before sending it to WhatsApp.</p>
-              
-              <div className="relative">
-                <textarea
-                  value={reminderMessage}
-                  onChange={(e) => setReminderMessage(e.target.value)}
-                  className="w-full bg-muted border border-border rounded-2xl p-4 text-sm min-h-[250px] outline-none focus:ring-2 focus:ring-emerald-500 transition-all font-sans leading-relaxed"
-                  placeholder="Type your message here..."
-                />
-                <div className="absolute bottom-4 right-4 opacity-10">
-                  <Send size={48} className="text-emerald-500" />
+              {/* Send Method Toggle */}
+              <div className="space-y-1">
+                <label className="text-xs font-bold uppercase tracking-wider text-muted-foreground">Send Method</label>
+                <div className="flex p-1 bg-muted rounded-xl">
+                  <button
+                    type="button"
+                    onClick={() => setSendMethod('direct')}
+                    className={`flex-1 py-1.5 text-xs font-bold rounded-lg transition-all ${sendMethod === 'direct' ? 'bg-card shadow-sm text-emerald-500' : 'text-muted-foreground'}`}
+                  >
+                    Direct (Auto)
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setSendMethod('manual')}
+                    className={`flex-1 py-1.5 text-xs font-bold rounded-lg transition-all ${sendMethod === 'manual' ? 'bg-card shadow-sm text-muted-foreground' : 'text-muted-foreground'}`}
+                  >
+                    WhatsApp Web (Manual)
+                  </button>
                 </div>
               </div>
 
-              <div className="flex gap-3">
+              {/* Direct Send Settings (Account Picker) */}
+              {sendMethod === 'direct' && (
+                <div className="p-3 bg-muted/30 border border-border rounded-2xl space-y-3">
+                  <div className="space-y-1.5">
+                    <label className="text-[10px] font-bold uppercase tracking-wider text-muted-foreground">Send From Account</label>
+                    <select
+                      value={selectedWaAccountId}
+                      onChange={(e) => setSelectedWaAccountId(e.target.value)}
+                      className="w-full bg-background border border-border rounded-xl px-3 py-2 text-xs outline-none focus:ring-1 focus:ring-primary font-medium"
+                    >
+                      <option value="account1">Primary Account</option>
+                      <option value="account2">Secondary Account</option>
+                      <option value="account3">Work Account</option>
+                    </select>
+                  </div>
+
+                  {/* Account Status Indicator */}
+                  {(() => {
+                    const activeAcc = waAccounts.find(a => a.id === selectedWaAccountId);
+                    const isConnected = activeAcc?.status === 'connected';
+
+                    return (
+                      <div className="flex flex-col gap-2 pt-1">
+                        <div className="flex items-center justify-between text-xs">
+                          <span className="text-muted-foreground">Device Status:</span>
+                          <span className={`font-bold uppercase tracking-wider text-[9px] px-2 py-0.5 rounded ${
+                            isConnected ? 'bg-emerald-500/10 text-emerald-500' : 'bg-amber-500/10 text-amber-500'
+                          }`}>
+                            {isConnected ? 'Connected' : 'Action Required / Unlinked'}
+                          </span>
+                        </div>
+
+                        {!isConnected && (
+                          <div className="p-3 bg-amber-500/5 border border-amber-500/10 rounded-xl space-y-2">
+                            <p className="text-[10px] text-amber-600 dark:text-amber-400 leading-normal font-medium">
+                              This WhatsApp account is not linked as a device. Scan the QR code to pair it before sending.
+                            </p>
+                            <button
+                              type="button"
+                              onClick={() => {
+                                setIsWaLinkModalOpen(true);
+                              }}
+                              className="w-full bg-amber-500 hover:bg-amber-600 text-white font-bold py-1.5 px-3 rounded-lg text-[10px] transition-colors"
+                            >
+                              Scan QR Code & Link Account
+                            </button>
+                          </div>
+                        )}
+                      </div>
+                    );
+                  })()}
+                </div>
+              )}
+
+              {/* Message Input Box */}
+              <div className="space-y-1">
+                <label className="text-xs font-bold uppercase tracking-wider text-muted-foreground">Reminder Message</label>
+                <div className="relative">
+                  <textarea
+                    value={reminderMessage}
+                    onChange={(e) => setReminderMessage(e.target.value)}
+                    className="w-full bg-muted border border-border rounded-2xl p-4 text-xs min-h-[180px] outline-none focus:ring-2 focus:ring-emerald-500 transition-all font-sans leading-relaxed"
+                    placeholder="Type your message here..."
+                  />
+                  <div className="absolute bottom-4 right-4 opacity-10">
+                    <Send size={36} className="text-emerald-500" />
+                  </div>
+                </div>
+              </div>
+
+              <div className="flex gap-3 pt-2">
                 <button
                   onClick={() => setIsReminderModalOpen(false)}
-                  className="flex-1 bg-secondary text-secondary-foreground py-4 rounded-2xl font-bold hover:opacity-90 transition-opacity"
+                  className="flex-1 bg-secondary text-secondary-foreground py-3.5 rounded-2xl font-bold hover:opacity-90 transition-opacity text-xs"
                 >
                   Cancel
                 </button>
                 <button
                   onClick={handleSendWhatsApp}
-                  className="flex-2 px-8 bg-emerald-500 text-white py-4 rounded-2xl font-bold hover:opacity-90 transition-opacity flex items-center justify-center gap-2"
+                  disabled={isSendingWa || (sendMethod === 'direct' && !(waAccounts.find(a => a.id === selectedWaAccountId)?.status === 'connected'))}
+                  className="flex-2 px-6 bg-emerald-500 text-white py-3.5 rounded-2xl font-bold hover:opacity-90 transition-opacity flex items-center justify-center gap-2 disabled:opacity-50 text-xs shadow-md shadow-emerald-500/10"
                 >
-                  <Send size={18} />
-                  Send to WhatsApp
+                  {isSendingWa ? (
+                    <span className="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin"></span>
+                  ) : (
+                    <Send size={14} />
+                  )}
+                  {sendMethod === 'direct' ? 'Send Direct (Auto)' : 'Open WhatsApp Web'}
                 </button>
               </div>
               
-              <p className="text-[10px] text-center text-muted-foreground italic">
-                Note: This will open WhatsApp. You will still need to click the send button manually in the WhatsApp app.
+              <p className="text-[9px] text-center text-muted-foreground leading-normal italic">
+                {sendMethod === 'direct' 
+                  ? 'Message will be delivered immediately through the linked device backend.' 
+                  : 'This opens a new tab. You must manually click the send button inside WhatsApp.'}
               </p>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* WhatsApp Scanner / Link Modal */}
+      {isWaLinkModalOpen && (
+        <div className="fixed inset-0 z-[100] flex items-center justify-center p-4 bg-black/80 backdrop-blur-sm animate-in fade-in duration-300">
+          <div className="bg-card w-full max-w-md rounded-3xl p-6 border border-border shadow-2xl space-y-6 animate-in zoom-in duration-300 relative">
+            <div className="flex justify-between items-center pb-4 border-b border-border">
+              <div>
+                <h2 className="text-lg font-bold">Link WhatsApp Account</h2>
+                <p className="text-xs text-muted-foreground">
+                  Connect {waAccounts.find(a => a.id === selectedWaAccountId)?.name || 'device'}
+                </p>
+              </div>
+              <button 
+                onClick={() => setIsWaLinkModalOpen(false)}
+                className="p-2 text-muted-foreground hover:bg-muted rounded-full transition-colors"
+              >
+                <X size={20} />
+              </button>
+            </div>
+
+            <div className="flex flex-col items-center justify-center p-4 space-y-4">
+              {(() => {
+                const active = waAccounts.find(a => a.id === selectedWaAccountId);
+                if (!active) return null;
+
+                if (active.status === 'qr' && active.qrCodeUrl) {
+                  return (
+                    <div className="flex flex-col items-center space-y-4">
+                      <div className="bg-white p-4 rounded-2xl border border-border shadow-sm">
+                        <img src={active.qrCodeUrl} alt="WhatsApp QR Code" className="w-56 h-56" />
+                      </div>
+                      <div className="text-center space-y-1">
+                        <p className="text-xs font-bold text-foreground">
+                          Scan this QR code with WhatsApp
+                        </p>
+                        <p className="text-[10px] text-muted-foreground leading-normal max-w-[280px]">
+                          Open WhatsApp on your phone → Settings → Linked Devices → Scan. The system will automatically connect once scanned.
+                        </p>
+                      </div>
+                    </div>
+                  );
+                }
+
+                if (active.status === 'connecting') {
+                  return (
+                    <div className="py-8 text-center space-y-3">
+                      <div className="w-8 h-8 border-4 border-primary border-t-transparent rounded-full animate-spin mx-auto"></div>
+                      <p className="text-xs text-muted-foreground">Connecting to WhatsApp servers...</p>
+                    </div>
+                  );
+                }
+
+                return (
+                  <div className="py-8 text-center space-y-3">
+                    <div className="w-8 h-8 border-4 border-primary border-t-transparent rounded-full animate-spin mx-auto"></div>
+                    <p className="text-xs text-muted-foreground">Generating QR pairing code...</p>
+                  </div>
+                );
+              })()}
+            </div>
+            
+            <div className="flex gap-2">
+              <button
+                onClick={() => setIsWaLinkModalOpen(false)}
+                className="w-full bg-secondary text-secondary-foreground py-3 rounded-xl font-bold hover:opacity-90 transition-opacity text-xs"
+              >
+                Close Scanner
+              </button>
             </div>
           </div>
         </div>

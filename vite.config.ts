@@ -53,6 +53,11 @@ export default defineConfig({
         target: 'https://api.mexc.com',
         changeOrigin: true,
         rewrite: (path) => path.replace(/^\/mexc-api/, '')
+      },
+      '/whatsapp-api': {
+        target: 'http://localhost:3001',
+        changeOrigin: true,
+        rewrite: (path) => path.replace(/^\/whatsapp-api/, '')
       }
     }
   }

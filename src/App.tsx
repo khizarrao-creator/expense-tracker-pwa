@@ -8,6 +8,7 @@ import { ThemeProvider } from './contexts/ThemeContext';
 import { AppProvider, useApp } from './contexts/AppContext';
 import { Toaster } from 'sonner';
 import { useTaskReminders } from './hooks/useTaskReminders';
+import { useWhatsAppBillReminders } from './hooks/useWhatsAppBillReminders';
 import Layout from './components/Layout';
 import Login from './pages/Login';
 import Dashboard from './pages/Dashboard';
@@ -31,6 +32,7 @@ import Admin from './pages/Admin';
 import MexcDetails from './pages/MexcDetails';
 import AIChat from './pages/AIChat';
 import Subscriptions from './pages/Subscriptions';
+import WhatsApp from './pages/WhatsApp';
 
 const ProtectedRoute: React.FC<{ children: React.ReactNode }> = ({ children }) => {
   const { user, loading } = useAuth();
@@ -66,10 +68,14 @@ const FeatureRoute: React.FC<{ featureId: string; children: React.ReactNode }> =
   return <>{children}</>;
 };
 
-const App: React.FC = () => {
+const AppHooks: React.FC = () => {
   // Global hooks
   useTaskReminders();
+  useWhatsAppBillReminders();
+  return null;
+};
 
+const App: React.FC = () => {
   return (
     <BrowserRouter>
       <AuthProvider>
@@ -78,6 +84,7 @@ const App: React.FC = () => {
             <SyncProvider>
               <CurrencyProvider>
                 <ThemeProvider>
+                  <AppHooks />
                   <Toaster position="top-center" richColors closeButton visibleToasts={3} />
                   <Routes>
                     <Route path="/login" element={<Login />} />
@@ -104,6 +111,7 @@ const App: React.FC = () => {
                       <Route path="mexc-details/:id" element={<MexcDetails />} />
                       <Route path="ai-chat" element={<FeatureRoute featureId="ai-chat"><AIChat /></FeatureRoute>} />
                       <Route path="subscriptions" element={<FeatureRoute featureId="subscriptions"><Subscriptions /></FeatureRoute>} />
+                      <Route path="whatsapp" element={<FeatureRoute featureId="whatsapp"><WhatsApp /></FeatureRoute>} />
                     </Route>
                     <Route path="/admin" element={<Admin />} />
                   </Routes>

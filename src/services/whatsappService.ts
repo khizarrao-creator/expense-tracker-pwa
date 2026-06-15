@@ -98,3 +98,108 @@ export const initWhatsApp = async (accountId: string): Promise<boolean> => {
     return false;
   }
 };
+
+export interface WhatsAppContact {
+  jid: string;
+  name: string;
+  phone: string;
+}
+
+export interface WhatsAppMessage {
+  id: string;
+  fromMe: boolean;
+  text: string;
+  timestamp: number;
+  senderName: string;
+}
+
+export interface WhatsAppStatus {
+  filename: string;
+  contactName: string;
+  contactNumber: string;
+  timestamp: number;
+  mediaType: 'image' | 'video';
+  cloudinaryUrl: string | null;
+}
+
+export const getWhatsAppContacts = async (accountId: string): Promise<WhatsAppContact[]> => {
+  try {
+    const response = await fetch(`/whatsapp-api/contacts?accountId=${accountId}`);
+    if (!response.ok) {
+      throw new Error(`HTTP error! status: ${response.status}`);
+    }
+    const data = await response.json();
+    return data.contacts || [];
+  } catch (error) {
+    console.error('Failed to get WhatsApp contacts:', error);
+    return [];
+  }
+};
+
+export const getWhatsAppMessages = async (accountId: string, jid: string): Promise<WhatsAppMessage[]> => {
+  try {
+    const response = await fetch(`/whatsapp-api/messages?accountId=${accountId}&jid=${encodeURIComponent(jid)}`);
+    if (!response.ok) {
+      throw new Error(`HTTP error! status: ${response.status}`);
+    }
+    const data = await response.json();
+    return data.messages || [];
+  } catch (error) {
+    console.error('Failed to get WhatsApp messages:', error);
+    return [];
+  }
+};
+
+export const getWhatsAppStatuses = async (accountId: string): Promise<WhatsAppStatus[]> => {
+  try {
+    const response = await fetch(`/whatsapp-api/statuses?accountId=${accountId}`);
+    if (!response.ok) {
+      throw new Error(`HTTP error! status: ${response.status}`);
+    }
+    const data = await response.json();
+    return data.statuses || [];
+  } catch (error) {
+    console.error('Failed to get WhatsApp statuses:', error);
+    return [];
+  }
+};
+
+export const syncWhatsAppStatus = async (accountId: string, filename: string): Promise<WhatsAppStatus | null> => {
+  try {
+    const response = await fetch('/whatsapp-api/sync-status', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json'
+      },
+      body: JSON.stringify({ accountId, filename })
+    });
+    if (!response.ok) {
+      throw new Error(`HTTP error! status: ${response.status}`);
+    }
+    const data = await response.json();
+    return data.success ? data.status : null;
+  } catch (error) {
+    console.error('Failed to sync WhatsApp status:', error);
+    return null;
+  }
+};
+
+export const syncAllWhatsAppStatuses = async (accountId: string): Promise<WhatsAppStatus[]> => {
+  try {
+    const response = await fetch('/whatsapp-api/sync-all-statuses', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json'
+      },
+      body: JSON.stringify({ accountId })
+    });
+    if (!response.ok) {
+      throw new Error(`HTTP error! status: ${response.status}`);
+    }
+    const data = await response.json();
+    return data.success ? data.syncedItems || [] : [];
+  } catch (error) {
+    console.error('Failed to sync all WhatsApp statuses:', error);
+    return [];
+  }
+};

@@ -37,7 +37,7 @@ const Layout: React.FC = () => {
             <span className="bg-primary text-primary-foreground p-1 rounded-md shadow-sm">
               <Book size={20} />
             </span>
-            Ledger
+            The Ledger
           </h1>
           {!isOnline && (
             <div className="mt-2 text-[10px] bg-destructive/10 text-destructive px-2 py-1 rounded-full font-bold flex items-center gap-1">
@@ -56,8 +56,8 @@ const Layout: React.FC = () => {
                 key={item.name}
                 to={item.path}
                 className={`flex items-center gap-3 px-4 py-3 rounded-lg transition-colors ${isActive
-                    ? 'bg-primary text-primary-foreground'
-                    : 'text-muted-foreground hover:bg-muted hover:text-foreground'
+                  ? 'bg-primary text-primary-foreground'
+                  : 'text-muted-foreground hover:bg-muted hover:text-foreground'
                   }`}
               >
                 <Icon size={20} />

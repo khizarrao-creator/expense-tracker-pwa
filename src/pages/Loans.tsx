@@ -45,7 +45,7 @@ import {
 import { useCurrency } from '../contexts/CurrencyContext';
 import { toast } from 'sonner';
 import { format } from 'date-fns';
-import { getWhatsAppStatus, sendWhatsAppMessage, logoutWhatsApp, type WhatsAppAccount } from '../services/whatsappService';
+import { getWhatsAppStatus, sendWhatsAppMessage, type WhatsAppAccount } from '../services/whatsappService';
 
 const Loans: React.FC = () => {
   const { formatAmount } = useCurrency();

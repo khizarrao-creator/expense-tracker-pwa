@@ -292,8 +292,8 @@ class SyncManager {
       ]);
     } else if (collection === 'reminders') {
       await runWithBindings(`
-        INSERT OR REPLACE INTO reminders (id, title, amount, due_date, frequency, category_id, status, created_at, updated_at, deviceId, synced)
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 1)
+        INSERT OR REPLACE INTO reminders (id, title, amount, due_date, frequency, category_id, status, created_at, updated_at, deviceId, synced, whatsapp_phone, whatsapp_name, whatsapp_date, whatsapp_time, whatsapp_sent)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 1, ?, ?, ?, ?, ?)
       `, [
         data.id,
         data.title,
@@ -304,7 +304,12 @@ class SyncManager {
         data.status ?? 'pending',
         data.created_at,
         data.updated_at,
-        data.deviceId ?? null
+        data.deviceId ?? null,
+        data.whatsapp_phone ?? null,
+        data.whatsapp_name ?? null,
+        data.whatsapp_date ?? null,
+        data.whatsapp_time ?? null,
+        data.whatsapp_sent ?? 0
       ]);
     } else if (collection === 'tasks') {
       await runWithBindings(`

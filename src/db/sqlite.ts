@@ -231,7 +231,12 @@ const initializeSchema = async () => {
       created_at TEXT NOT NULL,
       updated_at TEXT NOT NULL,
       deviceId TEXT,
-      synced INTEGER DEFAULT 0
+      synced INTEGER DEFAULT 0,
+      whatsapp_phone TEXT,
+      whatsapp_name TEXT,
+      whatsapp_date TEXT,
+      whatsapp_time TEXT,
+      whatsapp_sent INTEGER DEFAULT 0
     );
 
     CREATE TABLE IF NOT EXISTS budgets (
@@ -544,6 +549,13 @@ const initializeSchema = async () => {
   addColumn('vehicle_reminders', 'updated_at', 'TEXT NOT NULL DEFAULT ""');
   addColumn('vehicle_reminders', 'deviceId', 'TEXT');
   addColumn('vehicle_reminders', 'synced', 'INTEGER DEFAULT 0');
+
+  // WhatsApp reminders integration
+  addColumn('reminders', 'whatsapp_phone', 'TEXT');
+  addColumn('reminders', 'whatsapp_name', 'TEXT');
+  addColumn('reminders', 'whatsapp_date', 'TEXT');
+  addColumn('reminders', 'whatsapp_time', 'TEXT');
+  addColumn('reminders', 'whatsapp_sent', 'INTEGER DEFAULT 0');
   
   // Vehicle migration columns
   addColumn('vehicles', 'purchase_date', 'TEXT');
@@ -749,7 +761,8 @@ export const executeQuery = async (query: string, params: any[] = [], skipSave: 
   if (!db) await initDB();
 
   const results: any[] = [];
-  const stmt = db!.prepare(query, params);
+  const sanitizedParams = params.map(p => p === undefined ? null : p);
+  const stmt = db!.prepare(query, sanitizedParams);
 
   while (stmt.step()) {
     results.push(stmt.getAsObject());

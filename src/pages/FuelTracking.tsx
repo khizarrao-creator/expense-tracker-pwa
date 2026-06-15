@@ -19,12 +19,10 @@ import {
   FileText,
   UploadCloud,
   CheckCircle2,
-  AlertCircle,
   ExternalLink,
   Eye,
   Paperclip,
   User,
-  Hash,
   Activity,
   Check
 } from 'lucide-react';

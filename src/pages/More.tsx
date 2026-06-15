@@ -15,7 +15,8 @@ import {
   Fuel,
   PieChart,
   Sparkles,
-  CreditCard
+  CreditCard,
+  MessageSquare
 } from 'lucide-react';
 import { useApp } from '../contexts/AppContext';
 import {
@@ -155,6 +156,15 @@ const DEFAULT_OPTIONS: MoreOption[] = [
     icon: CreditCard,
     color: 'text-cyan-400',
     bgColor: 'bg-cyan-500/10'
+  },
+  {
+    id: 'whatsapp',
+    name: 'WhatsApp Copilot',
+    description: 'Read, send messages, switch accounts, and sync statuses',
+    path: '/whatsapp',
+    icon: MessageSquare,
+    color: 'text-emerald-500',
+    bgColor: 'bg-emerald-500/10'
   }
 ];
 
@@ -228,7 +238,7 @@ const SortableItem = ({ option }: { option: MoreOption }) => {
 
         {/* Footer actions */}
         <div className="mt-5 pt-3.5 border-t border-border/40 flex items-center justify-between text-[10px] font-bold text-muted-foreground group-hover:text-primary transition-colors uppercase tracking-wider">
-          <span>Open Tool</span>
+          <span>View</span>
           <ChevronRight size={12} className="group-hover:translate-x-0.5 transition-transform" />
         </div>
       </div>

@@ -955,8 +955,24 @@ export const importAllData = async (data: any) => {
   if (data.reminders) {
     for (const rem of data.reminders) {
       await runWithBindings(
-        `INSERT OR REPLACE INTO reminders (id, title, amount, due_date, frequency, category_id, status, created_at, updated_at, deviceId, synced) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 0)`,
-        [rem.id, rem.title, rem.amount, rem.due_date, rem.frequency, rem.category_id, rem.status, rem.created_at, rem.updated_at, rem.deviceId]
+        `INSERT OR REPLACE INTO reminders (id, title, amount, due_date, frequency, category_id, status, created_at, updated_at, deviceId, synced, whatsapp_phone, whatsapp_name, whatsapp_date, whatsapp_time, whatsapp_sent) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 0, ?, ?, ?, ?, ?)`,
+        [
+          rem.id,
+          rem.title,
+          rem.amount,
+          rem.due_date,
+          rem.frequency,
+          rem.category_id,
+          rem.status,
+          rem.created_at,
+          rem.updated_at,
+          rem.deviceId,
+          rem.whatsapp_phone ?? null,
+          rem.whatsapp_name ?? null,
+          rem.whatsapp_date ?? null,
+          rem.whatsapp_time ?? null,
+          rem.whatsapp_sent ?? 0
+        ]
       );
       // Queue for sync
       await addToSyncQueue('reminder_add', rem);
@@ -2409,6 +2425,11 @@ export interface Reminder {
   created_at: string;
   updated_at: string;
   synced: number;
+  whatsapp_phone?: string | null;
+  whatsapp_name?: string | null;
+  whatsapp_date?: string | null;
+  whatsapp_time?: string | null;
+  whatsapp_sent?: number;
 }
 
 export const getReminders = async (): Promise<Reminder[]> => {
@@ -2421,19 +2442,39 @@ export const addReminder = async (
   due_date: string,
   frequency: string,
   category_id: string,
+  whatsapp_phone: string | null = null,
+  whatsapp_name: string | null = null,
+  whatsapp_date: string | null = null,
+  whatsapp_time: string | null = null,
   providedId?: string
 ) => {
   const id = providedId || uuidv4();
   const now = new Date().toISOString();
   const deviceId = localStorage.getItem('deviceId') || 'unknown';
 
-  const reminderData = { id, title, amount, due_date, frequency, category_id, status: 'pending', created_at: now, updated_at: now, deviceId };
+  const reminderData = {
+    id,
+    title,
+    amount,
+    due_date,
+    frequency,
+    category_id,
+    status: 'pending',
+    created_at: now,
+    updated_at: now,
+    deviceId,
+    whatsapp_phone,
+    whatsapp_name,
+    whatsapp_date,
+    whatsapp_time,
+    whatsapp_sent: 0
+  };
 
   await syncManager.performOperation('reminder_add', reminderData, () =>
     runWithBindings(
-      `INSERT INTO reminders (id, title, amount, due_date, frequency, category_id, status, created_at, updated_at, deviceId, synced) 
-       VALUES (?, ?, ?, ?, ?, ?, 'pending', ?, ?, ?, 0)`,
-      [id, title, amount, due_date, frequency, category_id, now, now, deviceId]
+      `INSERT INTO reminders (id, title, amount, due_date, frequency, category_id, status, created_at, updated_at, deviceId, synced, whatsapp_phone, whatsapp_name, whatsapp_date, whatsapp_time, whatsapp_sent) 
+       VALUES (?, ?, ?, ?, ?, ?, 'pending', ?, ?, ?, 0, ?, ?, ?, ?, 0)`,
+      [id, title, amount, due_date, frequency, category_id, now, now, deviceId, whatsapp_phone, whatsapp_name, whatsapp_date, whatsapp_time]
     )
   );
   return id;
@@ -2442,6 +2483,39 @@ export const addReminder = async (
 export const deleteReminder = async (id: string) => {
   await syncManager.performOperation('reminder_delete', { id }, () =>
     runWithBindings(`DELETE FROM reminders WHERE id = ?`, [id])
+  );
+};
+
+const REMINDER_UPDATABLE_FIELDS = new Set([
+  'title', 'amount', 'due_date', 'frequency', 'category_id', 'status', 'updated_at', 'deviceId', 'whatsapp_phone', 'whatsapp_name', 'whatsapp_date', 'whatsapp_time', 'whatsapp_sent'
+]);
+
+export const updateReminder = async (id: string, data: Partial<Omit<Reminder, 'id' | 'created_at' | 'synced'>>) => {
+  const now = new Date().toISOString();
+  const deviceId = localStorage.getItem('deviceId') || 'unknown';
+
+  const existingRows = await runWithBindings(`SELECT * FROM reminders WHERE id = ?`, [id]);
+  const existing = existingRows[0] as Reminder | undefined;
+  if (!existing) throw new Error('Reminder not found');
+
+  const sanitizedData: any = {};
+  Object.keys(data).forEach(key => {
+    if (REMINDER_UPDATABLE_FIELDS.has(key)) {
+      sanitizedData[key] = (data as any)[key] ?? null;
+    }
+  });
+
+  const fields = Object.keys(sanitizedData);
+  const values = Object.values(sanitizedData);
+  const setClause = fields.map(f => `${f} = ?`).join(', ');
+
+  const reminderData = { ...existing, ...sanitizedData, updated_at: now, deviceId };
+
+  await syncManager.performOperation('reminder_update', reminderData, () =>
+    runWithBindings(
+      `UPDATE reminders SET ${setClause}, updated_at = ?, deviceId = ?, synced = 0 WHERE id = ?`,
+      [...values, now, deviceId, id]
+    )
   );
 };
 

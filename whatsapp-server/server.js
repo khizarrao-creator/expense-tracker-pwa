@@ -567,20 +567,25 @@ app.post('/send', async (req, res) => {
       timestamp: Date.now(),
       senderName: 'Me'
     };
-    
-    messageStore[accountId][jid].push(newMsg);
-    if (messageStore[accountId][jid].length > 100) {
-      messageStore[accountId][jid].shift();
+    let msgAdded = false;
+    if (!messageStore[accountId][jid].find(m => m.id === newMsg.id)) {
+      messageStore[accountId][jid].push(newMsg);
+      if (messageStore[accountId][jid].length > 100) {
+        messageStore[accountId][jid].shift();
+      }
+      saveHistory(accountId);
+      msgAdded = true;
     }
-    saveHistory(accountId);
     
-    // Broadcast message via SSE
-    broadcastToClients({
-      event: 'new-message',
-      data: { accountId, jid, message: newMsg }
-    });
+    // Broadcast message via SSE if not already broadcasted
+    if (msgAdded) {
+      broadcastToClients({
+        event: 'new-message',
+        data: { accountId, jid, message: newMsg }
+      });
+    }
 
-    res.json({ success: true });
+    res.json({ success: true, message: newMsg });
   } catch (error) {
     console.error(`[${accountId}] Failed to send message:`, error);
     res.status(500).json({ success: false, error: error.message || 'Failed to send WhatsApp message' });

@@ -1,4 +1,5 @@
-import React, { useState, useEffect, useRef } from 'react';
+/* eslint-disable react-hooks/exhaustive-deps */
+import React, { useState, useEffect, useRef, useCallback } from 'react';
 import { 
   Search, 
   Send, 
@@ -94,6 +95,32 @@ const WhatsApp: React.FC = () => {
     }
   };
 
+  // Load contacts when active account changes or connects
+  const fetchContacts = useCallback(async () => {
+    if (activeAccount.status !== 'connected') {
+      setContacts([]);
+      return;
+    }
+    setLoadingContacts(true);
+    const list = await getWhatsAppContacts(activeAccountId);
+    setContacts(list);
+    setLoadingContacts(false);
+  }, [activeAccountId, activeAccount.status]);
+
+  // Load statuses
+  const fetchStatuses = useCallback(async () => {
+    if (activeAccount.status !== 'connected') {
+      setStatuses([]);
+      return;
+    }
+    setLoadingStatuses(true);
+    const list = await getWhatsAppStatuses(activeAccountId);
+    // Sort by timestamp desc
+    const sorted = [...list].sort((a, b) => b.timestamp - a.timestamp);
+    setStatuses(sorted);
+    setLoadingStatuses(false);
+  }, [activeAccountId, activeAccount.status]);
+
   useEffect(() => {
     fetchAccounts();
     fetchLedgerParties();
@@ -119,6 +146,15 @@ const WhatsApp: React.FC = () => {
             if (selectedContact && selectedContact.jid === jid) {
               setMessages(prev => {
                 if (prev.find(m => m.id === message.id)) return prev;
+                // If it's a sent message, look for an optimistic temp message with the same text to replace it
+                if (message.fromMe) {
+                  const tempIndex = prev.findIndex(m => m.id.startsWith('temp-') && m.text === message.text);
+                  if (tempIndex !== -1) {
+                    const next = [...prev];
+                    next[tempIndex] = message;
+                    return next;
+                  }
+                }
                 return [...prev, message];
               });
             }
@@ -153,17 +189,6 @@ const WhatsApp: React.FC = () => {
     };
   }, [activeAccountId, selectedContact]);
 
-  // Load contacts when active account changes or connects
-  const fetchContacts = async () => {
-    if (activeAccount.status !== 'connected') {
-      setContacts([]);
-      return;
-    }
-    setLoadingContacts(true);
-    const list = await getWhatsAppContacts(activeAccountId);
-    setContacts(list);
-    setLoadingContacts(false);
-  };
 
   useEffect(() => {
     fetchContacts();
@@ -197,19 +222,6 @@ const WhatsApp: React.FC = () => {
     messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
   }, [messages]);
 
-  // Load statuses
-  const fetchStatuses = async () => {
-    if (activeAccount.status !== 'connected') {
-      setStatuses([]);
-      return;
-    }
-    setLoadingStatuses(true);
-    const list = await getWhatsAppStatuses(activeAccountId);
-    // Sort by timestamp desc
-    const sorted = [...list].sort((a, b) => b.timestamp - a.timestamp);
-    setStatuses(sorted);
-    setLoadingStatuses(false);
-  };
 
   useEffect(() => {
     if (activeTab === 'statuses') {
@@ -238,9 +250,20 @@ const WhatsApp: React.FC = () => {
     setMessages(prev => [...prev, optimisticMsg]);
 
     const res = await sendWhatsAppMessage(activeAccountId, selectedContact.phone, textToSend);
-    if (!res.success) {
-      toast.error(res.error || 'Failed to send message');
-      // Remove optimistic message on error
+    if (res.success && res.message) {
+      setMessages(prev => {
+        // If the real message was already added by SSE, just remove the temp message
+        if (prev.some(m => m.id === res.message!.id)) {
+          return prev.filter(m => m.id !== tempId);
+        }
+        // Otherwise, replace the temp message with the real one
+        return prev.map(m => m.id === tempId ? res.message! : m);
+      });
+    } else {
+      if (!res.success) {
+        toast.error(res.error || 'Failed to send message');
+      }
+      // Remove optimistic message on error or if no message returned
       setMessages(prev => prev.filter(m => m.id !== tempId));
     }
     setIsSending(false);
@@ -262,8 +285,39 @@ const WhatsApp: React.FC = () => {
       await addLoanParty(contact.name, cleanPhone, null, 'Imported from WhatsApp');
       toast.success(`Successfully imported ${contact.name} to ledger!`);
       fetchLedgerParties();
-    } catch (err: any) {
-      toast.error(`Import failed: ${err.message}`);
+    } catch (err) {
+      const errorMsg = err instanceof Error ? err.message : String(err);
+      toast.error(`Import failed: ${errorMsg}`);
+    }
+  };
+
+  // Import all filtered contacts to Ledger
+  const handleImportAllContacts = async () => {
+    if (importableContacts.length === 0) {
+      toast.info('No new contacts to import.');
+      return;
+    }
+
+    if (!confirm(`Are you sure you want to import all ${importableContacts.length} new contact(s) to your ledger?`)) return;
+
+    toast.loading(`Importing ${importableContacts.length} contacts...`, { id: 'import-all' });
+    let successCount = 0;
+    let failCount = 0;
+    for (const contact of importableContacts) {
+      try {
+        await addLoanParty(contact.name, contact.phone, null, 'Imported from WhatsApp');
+        successCount++;
+      } catch (err) {
+        console.error(`Failed to import ${contact.name}:`, err);
+        failCount++;
+      }
+    }
+
+    fetchLedgerParties();
+    if (failCount > 0) {
+      toast.success(`Imported ${successCount} contacts. ${failCount} failed.`, { id: 'import-all' });
+    } else {
+      toast.success(`Successfully imported all ${successCount} contacts!`, { id: 'import-all' });
     }
   };
 
@@ -343,6 +397,11 @@ const WhatsApp: React.FC = () => {
   const filteredContacts = contacts.filter(c => 
     c.name.toLowerCase().includes(searchQuery.toLowerCase()) || 
     c.phone.includes(searchQuery)
+  );
+
+  // Filter contacts that are not yet in the ledger
+  const importableContacts = filteredContacts.filter(
+    c => !ledgerParties.some(p => p.phone?.replace(/\D/g, '') === c.phone)
   );
 
   // Parse Date/Time from metadata or filename
@@ -455,6 +514,21 @@ const WhatsApp: React.FC = () => {
                   />
                 </div>
               </div>
+
+              {/* Import All Option */}
+              {!loadingContacts && activeAccount.status === 'connected' && importableContacts.length > 0 && (
+                <div className="px-4 py-2 bg-emerald-500/5 border-b border-border flex justify-between items-center animate-in slide-in-from-top-2 duration-200">
+                  <span className="text-[10px] text-muted-foreground font-bold uppercase tracking-wider">
+                    {importableContacts.length} new contact{importableContacts.length > 1 ? 's' : ''}
+                  </span>
+                  <button
+                    onClick={handleImportAllContacts}
+                    className="text-[10px] bg-primary text-primary-foreground font-bold px-3 py-1 rounded-xl hover:opacity-90 active:scale-95 transition-all flex items-center gap-1 shadow-sm"
+                  >
+                    <UserPlus size={10} /> Import All
+                  </button>
+                </div>
+              )}
 
               {/* Contacts List */}
               <div className="flex-1 overflow-y-auto p-2 space-y-1">

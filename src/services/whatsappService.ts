@@ -12,6 +12,7 @@ export interface WhatsAppStatusResponse {
 
 export interface SendMessageResponse {
   success: boolean;
+  message?: WhatsAppMessage;
   error?: string;
 }
 
@@ -53,9 +54,10 @@ export const sendWhatsAppMessage = async (
       throw new Error(data.error || 'Failed to send message');
     }
     return data;
-  } catch (error: any) {
+  } catch (error) {
     console.error('Failed to send WhatsApp message:', error);
-    return { success: false, error: error.message || 'Network error' };
+    const errorMsg = error instanceof Error ? error.message : 'Network error';
+    return { success: false, error: errorMsg };
   }
 };
 

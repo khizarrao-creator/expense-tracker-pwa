@@ -567,86 +567,29 @@ export const sendToGemini = async (
   currencySymbol: string,
   apiKey?: string
 ): Promise<GeminiResponse> => {
-  const snapshotText = formatSnapshotForAI(snapshot, currencySymbol);
-
-  const systemInstruction = `You are Ledger AI — a personal financial copilot and smart agent embedded in the user's expense tracker app.
-You have access to the user's real financial data (shown below) and you can actively perform operations on their behalf (e.g., adding expenses, incomes, transfers, and loans) using your tools.
-
-Instructions:
-- Base answers on the actual data provided. Never make up figures or invent transactions.
-- Formatting: Format responses using Markdown (use **bold**, bullet lists, and headers (##) where helpful).
-- Currency: Use the user's currency (${currencyCode} / ${currencySymbol}) for all monetary values.
-- Friendly and actionable: Be concise and explain clearly when you perform actions.
-- Missing Fields: If the user requests an action (like adding a transaction or loan) but fails to specify mandatory information (like the amount or which account to use), DO NOT attempt to call the tool. Instead, ask the user to clarify or provide the missing field(s).
-- Creating Loans: When recording a loan, both a loan entry and a corresponding transaction entry (to update the account balance) will be created. Always check if the account name is specified or clear.
-
-${snapshotText}`;
-
-  const preferredModelId = localStorage.getItem('ai_preferred_model_id');
-  const modelIds = preferredModelId
-    ? [preferredModelId, ...selectModelChain('chat')]
-    : selectModelChain('chat');
-  const modelChain = modelIds.map(id => resolveModel(id, 'chat')).filter(m => m.isAvailable);
+  const systemInstruction = buildSystemInstruction(snapshot, currencyCode, currencySymbol);
+  const modelChain = buildModelChain();
 
   if (modelChain.length === 0) {
     throw new Error('No available models for chat. Check your API key and try again.');
   }
 
   const activeKey = apiKey || getApiKey();
+  if (!activeKey) throw new Error('Gemini API Key is missing.');
 
-  if (!activeKey) {
-    throw new Error('Gemini API Key is missing.');
-  }
-
+  const apiContents = buildApiContents(messages);
   const lastError: Error[] = [];
 
   for (const model of modelChain) {
     try {
       const apiUrl = `${GEMINI_BASE_URL}/${model.apiName}:generateContent`;
 
-      const apiContents = messages.map(msg => {
-        const parts: any[] = [];
-        
-        if (msg.functionCall) {
-          parts.push({
-            functionCall: {
-              name: msg.functionCall.name,
-              args: msg.functionCall.args,
-            }
-          });
-        } else if (msg.functionResponse) {
-          parts.push({
-            functionResponse: {
-              name: msg.functionResponse.name,
-              response: msg.functionResponse.response,
-            }
-          });
-        } else {
-          parts.push({ text: msg.content });
-          if (msg.image) {
-            parts.push({
-              inlineData: {
-                mimeType: msg.image.mimeType,
-                data: msg.image.data
-              }
-            });
-          }
-        }
-
-        return {
-          role: msg.role === 'user' ? 'user' : 'model',
-          parts,
-        };
-      });
-
       const response = await fetch(`${apiUrl}?key=${activeKey}`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           contents: apiContents,
-          systemInstruction: {
-            parts: [{ text: systemInstruction }],
-          },
+          systemInstruction: { parts: [{ text: systemInstruction }] },
           tools: AGENT_TOOLS,
           generationConfig: {
             temperature: model.temperature ?? 0.4,
@@ -683,10 +626,181 @@ ${snapshotText}`;
         };
       }
 
-      return {
-        text: candidatePart.text || '',
-      };
+      return { text: candidatePart.text || '' };
     } catch (error: any) {
+      lastError.push(error);
+    }
+  }
+
+  throw new Error(
+    lastError.length > 0
+      ? lastError[lastError.length - 1].message
+      : 'All available models failed to generate a response.'
+  );
+};
+
+/** ── Shared request builder ─────────────────────────────────────────────────── */
+
+const buildApiContents = (messages: ChatMessage[]) =>
+  messages.map(msg => {
+    const parts: any[] = [];
+    if (msg.functionCall) {
+      parts.push({ functionCall: { name: msg.functionCall.name, args: msg.functionCall.args } });
+    } else if (msg.functionResponse) {
+      parts.push({ functionResponse: { name: msg.functionResponse.name, response: msg.functionResponse.response } });
+    } else {
+      parts.push({ text: msg.content });
+      if (msg.image) {
+        parts.push({ inlineData: { mimeType: msg.image.mimeType, data: msg.image.data } });
+      }
+    }
+    return { role: msg.role === 'user' ? 'user' : 'model', parts };
+  });
+
+const buildSystemInstruction = (
+  snapshot: FinancialSnapshot,
+  currencyCode: string,
+  currencySymbol: string
+): string => {
+  const snapshotText = formatSnapshotForAI(snapshot, currencySymbol);
+  return `You are Ledger AI — a personal financial copilot and smart agent embedded in the user's expense tracker app.
+You have access to the user's real financial data (shown below) and you can actively perform operations on their behalf (e.g., adding expenses, incomes, transfers, and loans) using your tools.
+
+Instructions:
+- Base answers on the actual data provided. Never make up figures or invent transactions.
+- Formatting: Format responses using Markdown (use **bold**, bullet lists, and headers (##) where helpful).
+- Currency: Use the user's currency (${currencyCode} / ${currencySymbol}) for all monetary values.
+- Friendly and actionable: Be concise and explain clearly when you perform actions.
+- Missing Fields: If the user requests an action (like adding a transaction or loan) but fails to specify mandatory information (like the amount or which account to use), DO NOT attempt to call the tool. Instead, ask the user to clarify or provide the missing field(s).
+- Creating Loans: When recording a loan, both a loan entry and a corresponding transaction entry (to update the account balance) will be created. Always check if the account name is specified or clear.
+
+${snapshotText}`;
+};
+
+const buildModelChain = () => {
+  const preferredModelId = localStorage.getItem('ai_preferred_model_id');
+  const modelIds = preferredModelId
+    ? [preferredModelId, ...selectModelChain('chat')]
+    : selectModelChain('chat');
+  return modelIds.map(id => resolveModel(id, 'chat')).filter(m => m.isAvailable);
+};
+
+/** Parse a Gemini SSE stream and yield each text delta */
+async function* streamGeminiResponse(
+  apiUrl: string,
+  apiKey: string,
+  body: any
+): AsyncGenerator<{ textDelta?: string; functionCall?: { name: string; args: any } }, void, undefined> {
+  const response = await fetch(`${apiUrl}:streamGenerateContent?alt=sse&key=${apiKey}`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(body),
+  });
+
+  if (!response.ok) {
+    const errJson = await response.json().catch(() => ({}));
+    throw new Error(errJson?.error?.message || `Gemini API error: ${response.status}`);
+  }
+
+  const reader = response.body?.getReader();
+  if (!reader) throw new Error('Response body is not readable');
+
+  const decoder = new TextDecoder();
+  let buffer = '';
+
+  while (true) {
+    const { done, value } = await reader.read();
+    if (done) break;
+
+    buffer += decoder.decode(value, { stream: true });
+    const lines = buffer.split('\n');
+    buffer = lines.pop() || '';
+
+    for (const line of lines) {
+      const trimmed = line.trim();
+      if (!trimmed || !trimmed.startsWith('data: ')) continue;
+      const jsonStr = trimmed.slice(6);
+      if (jsonStr === '[DONE]' || jsonStr === 'done') continue;
+
+      try {
+        const data = JSON.parse(jsonStr);
+        const part = data?.candidates?.[0]?.content?.parts?.[0];
+        if (!part) continue;
+
+        if (part.functionCall) {
+          yield { functionCall: { name: part.functionCall.name, args: part.functionCall.args } };
+        } else if (part.text) {
+          yield { textDelta: part.text };
+        }
+      } catch {
+        // skip malformed SSE data
+      }
+    }
+  }
+}
+
+/**
+ * Send messages to Gemini and stream the response text chunk-by-chunk.
+ * Calls onChunk with each text fragment as it arrives.
+ * Returns the final GeminiResponse (for functionCall detection).
+ */
+export const sendToGeminiStream = async (
+  messages: ChatMessage[],
+  snapshot: FinancialSnapshot,
+  currencyCode: string,
+  currencySymbol: string,
+  onChunk: (text: string) => void,
+  apiKey?: string
+): Promise<GeminiResponse> => {
+  const systemInstruction = buildSystemInstruction(snapshot, currencyCode, currencySymbol);
+  const modelChain = buildModelChain();
+
+  if (modelChain.length === 0) {
+    throw new Error('No available models for chat. Check your API key and try again.');
+  }
+
+  const activeKey = apiKey || getApiKey();
+  if (!activeKey) throw new Error('Gemini API Key is missing.');
+
+  const apiContents = buildApiContents(messages);
+  const lastError: Error[] = [];
+
+  for (const model of modelChain) {
+    try {
+      const apiUrl = `${GEMINI_BASE_URL}/${model.apiName}`;
+      let accumulatedText = '';
+      let functionCallResult: GeminiResponse['functionCall'];
+
+      const stream = streamGeminiResponse(apiUrl, activeKey, {
+        contents: apiContents,
+        systemInstruction: { parts: [{ text: systemInstruction }] },
+        tools: AGENT_TOOLS,
+        generationConfig: {
+          temperature: model.temperature ?? 0.4,
+          maxOutputTokens: model.maxOutputTokens ?? 2048,
+        },
+      });
+
+      for await (const chunk of stream) {
+        if (chunk.functionCall) {
+          functionCallResult = chunk.functionCall;
+          break;
+        }
+        if (chunk.textDelta) {
+          accumulatedText += chunk.textDelta;
+          onChunk(accumulatedText);
+        }
+      }
+
+      if (functionCallResult) {
+        return { functionCall: functionCallResult };
+      }
+
+      return { text: accumulatedText };
+    } catch (error: any) {
+      if (error.message?.includes('404') || error.message?.includes('403') || error.message?.includes('not found')) {
+        markModelUnavailable(model.id);
+      }
       lastError.push(error);
     }
   }

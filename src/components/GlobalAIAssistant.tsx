@@ -11,7 +11,7 @@ import { v4 as uuidv4 } from 'uuid';
 
 import { getCachedSnapshot, invalidateAICache, type FinancialSnapshot } from '../services/aiDataService';
 import {
-  loadSession, saveMessage, clearSession, sendToGemini,
+  loadSession, saveMessage, clearSession, sendToGemini, sendToGeminiStream,
   type ChatMessage
 } from '../services/aiChatService';
 import { getModelRegistry, getModelById } from '../services/ai/modelRegistry';
@@ -155,8 +155,11 @@ export const GlobalAIAssistant: React.FC = () => {
   const [isRecording, setIsRecording] = useState(false);
   const recognitionRef = useRef<any>(null);
 
+  // Streaming state
+  const [streamingContent, setStreamingContent] = useState<string | null>(null);
+
   // Model selector state
-  const models = getModelRegistry().filter(m => m.supportedUseCases.includes('chat'));
+  const models = getModelRegistry().filter(m => m.capabilities.includes('chat'));
   const [selectedModelId, setSelectedModelId] = useState<string>(() => {
     return localStorage.getItem('ai_preferred_model_id') || 'gemini-2.5-flash';
   });
@@ -630,13 +633,23 @@ export const GlobalAIAssistant: React.FC = () => {
 
       while (keepLooping && loopCount < 5) {
         loopCount++;
-        const geminiRes = await sendToGemini(
+
+        setStreamingContent('');
+        let accumulatedText = '';
+
+        const geminiRes = await sendToGeminiStream(
           updatedMessages,
           snapshot,
           globalCurrency.code,
           globalCurrency.symbol,
+          (chunk) => {
+            accumulatedText = chunk;
+            setStreamingContent(chunk);
+          },
           apiKey
         );
+
+        setStreamingContent(null);
 
         if (geminiRes.functionCall) {
           const modelCallMsg: ChatMessage = {
@@ -727,6 +740,7 @@ export const GlobalAIAssistant: React.FC = () => {
         }
       }
     } catch (err: any) {
+      setStreamingContent(null);
       const errorMsg: ChatMessage = {
         role: 'model',
         content: `⚠️ **Error:** ${err.message || 'AI error occurred.'}`,
@@ -734,6 +748,7 @@ export const GlobalAIAssistant: React.FC = () => {
       };
       setMessages(prev => [...prev, errorMsg]);
     } finally {
+      setStreamingContent(null);
       setIsLoading(false);
       setTimeout(() => inputRef.current?.focus(), 50);
     }
@@ -892,7 +907,17 @@ export const GlobalAIAssistant: React.FC = () => {
               <MessageItem key={idx} msg={msg} />
             ))}
 
-            {isLoading && (
+            {isLoading && streamingContent !== null ? (
+              <div className="flex items-end gap-2 justify-start animate-in fade-in duration-200">
+                <div className="shrink-0 w-6 h-6 rounded-lg bg-primary/10 border border-primary/20 flex items-center justify-center text-primary">
+                  <Bot size={12} />
+                </div>
+                <div className="max-w-[85%] rounded-xl rounded-bl-none px-3 py-2 shadow-sm border bg-card text-foreground border-border">
+                  <CompactMarkdown content={streamingContent} />
+                  <span className="inline-block w-1 h-3.5 bg-primary ml-0.5 animate-pulse" />
+                </div>
+              </div>
+            ) : isLoading && (
               <div className="flex items-center gap-2 animate-in fade-in duration-200">
                 <div className="shrink-0 w-6 h-6 rounded-lg bg-primary/10 border border-primary/20 flex items-center justify-center text-primary">
                   <Bot size={12} />

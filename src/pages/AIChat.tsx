@@ -12,7 +12,7 @@ import { v4 as uuidv4 } from 'uuid';
 
 import { getCachedSnapshot, invalidateAICache, type FinancialSnapshot } from '../services/aiDataService';
 import {
-  loadSession, saveMessage, clearSession, sendToGemini,
+  loadSession, saveMessage, clearSession, sendToGemini, sendToGeminiStream,
   listSessions, deleteSession,
   type ChatMessage
 } from '../services/aiChatService';
@@ -214,7 +214,7 @@ const AIChat: React.FC = () => {
   const recognitionRef = useRef<any>(null);
 
   // Model selector state
-  const models = getModelRegistry().filter(m => m.supportedUseCases.includes('chat'));
+  const models = getModelRegistry().filter(m => m.capabilities.includes('chat'));
   const [selectedModelId, setSelectedModelId] = useState<string>(() => {
     return localStorage.getItem('ai_preferred_model_id') || 'gemini-2.5-flash';
   });
@@ -238,6 +238,9 @@ const AIChat: React.FC = () => {
     document.addEventListener('mousedown', handleClick);
     return () => document.removeEventListener('mousedown', handleClick);
   }, []);
+
+  // Streaming state
+  const [streamingContent, setStreamingContent] = useState<string | null>(null);
 
   // Approval Settings & Pending Approval States
   const [pendingApproval, setPendingApproval] = useState<{
@@ -784,13 +787,24 @@ const AIChat: React.FC = () => {
 
       while (keepLooping && loopCount < 5) {
         loopCount++;
-        const geminiRes = await sendToGemini(
+
+        // Start streaming: create a placeholder message and begin receiving chunks
+        setStreamingContent('');
+        let accumulatedText = '';
+
+        const geminiRes = await sendToGeminiStream(
           updatedMessages,
           snapshot,
           globalCurrency.code,
           globalCurrency.symbol,
+          (chunk) => {
+            accumulatedText = chunk;
+            setStreamingContent(chunk);
+          },
           apiKey
         );
+
+        setStreamingContent(null);
 
         if (geminiRes.functionCall) {
           const modelCallMsg: ChatMessage = {
@@ -881,6 +895,7 @@ const AIChat: React.FC = () => {
         }
       }
     } catch (err: any) {
+      setStreamingContent(null);
       const errorMsg: ChatMessage = {
         role: 'model',
         content: `⚠️ **Error:** ${err.message || 'Could not reach the AI model. Please check your connection and API key.'}`,
@@ -889,6 +904,7 @@ const AIChat: React.FC = () => {
       setMessages(prev => [...prev, errorMsg]);
       toast.error('AI request failed. Check console for details.');
     } finally {
+      setStreamingContent(null);
       setIsLoading(false);
       setTimeout(() => inputRef.current?.focus(), 100);
     }
@@ -1150,8 +1166,18 @@ const AIChat: React.FC = () => {
             />
           ))}
 
-          {/* Typing indicator */}
-          {isLoading && <TypingIndicator />}
+          {/* Streaming message (live-updating response) */}
+          {isLoading && streamingContent !== null ? (
+            <div className={`flex items-end gap-2.5 justify-start animate-in fade-in duration-200`}>
+              <div className="shrink-0 w-8 h-8 rounded-xl bg-primary/10 border border-primary/20 flex items-center justify-center text-primary">
+                <Bot size={15} />
+              </div>
+              <div className="max-w-[82%] rounded-2xl rounded-bl-sm px-4 py-3 shadow-sm border bg-card text-foreground border-border">
+                <MarkdownContent content={streamingContent} />
+                <span className="inline-block w-1.5 h-4 bg-primary ml-0.5 animate-pulse" />
+              </div>
+            </div>
+          ) : isLoading && <TypingIndicator />}
 
           <div ref={chatEndRef} />
         </div>

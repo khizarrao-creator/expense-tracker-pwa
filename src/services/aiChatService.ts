@@ -13,9 +13,11 @@ import {
 } from 'firebase/firestore';
 import type { FinancialSnapshot } from './aiDataService';
 import { formatSnapshotForAI } from './aiDataService';
+import { getApiKey, markModelUnavailable } from './ai';
+import { selectModelChain } from './ai/router';
+import { resolveModel } from './ai/modelRegistry';
 
-const GEMINI_MODEL = 'gemini-2.5-flash';
-const GEMINI_BASE_URL = `https://generativelanguage.googleapis.com/v1beta/models/${GEMINI_MODEL}:generateContent`;
+const GEMINI_BASE_URL = `https://generativelanguage.googleapis.com/v1beta/models`;
 
 export interface ChatMessage {
   role: 'user' | 'model';
@@ -563,7 +565,7 @@ export const sendToGemini = async (
   snapshot: FinancialSnapshot,
   currencyCode: string,
   currencySymbol: string,
-  apiKey: string
+  apiKey?: string
 ): Promise<GeminiResponse> => {
   const snapshotText = formatSnapshotForAI(snapshot, currencySymbol);
 
@@ -580,82 +582,117 @@ Instructions:
 
 ${snapshotText}`;
 
-  // Map messages to Gemini API format including tool call & response handling
-  const apiContents = messages.map(msg => {
-    const parts: any[] = [];
-    
-    if (msg.functionCall) {
-      parts.push({
-        functionCall: {
-          name: msg.functionCall.name,
-          args: msg.functionCall.args,
-        }
-      });
-    } else if (msg.functionResponse) {
-      parts.push({
-        functionResponse: {
-          name: msg.functionResponse.name,
-          response: msg.functionResponse.response,
-        }
-      });
-    } else {
-      parts.push({ text: msg.content });
-      if (msg.image) {
-        parts.push({
-          inlineData: {
-            mimeType: msg.image.mimeType,
-            data: msg.image.data
+  const modelIds = selectModelChain('chat');
+  const modelChain = modelIds.map(id => resolveModel(id, 'chat')).filter(m => m.isAvailable);
+
+  if (modelChain.length === 0) {
+    throw new Error('No available models for chat. Check your API key and try again.');
+  }
+
+  const activeKey = apiKey || getApiKey();
+
+  if (!activeKey) {
+    throw new Error('Gemini API Key is missing.');
+  }
+
+  const lastError: Error[] = [];
+
+  for (const model of modelChain) {
+    try {
+      const apiUrl = `${GEMINI_BASE_URL}/${model.apiName}:generateContent`;
+
+      const apiContents = messages.map(msg => {
+        const parts: any[] = [];
+        
+        if (msg.functionCall) {
+          parts.push({
+            functionCall: {
+              name: msg.functionCall.name,
+              args: msg.functionCall.args,
+            }
+          });
+        } else if (msg.functionResponse) {
+          parts.push({
+            functionResponse: {
+              name: msg.functionResponse.name,
+              response: msg.functionResponse.response,
+            }
+          });
+        } else {
+          parts.push({ text: msg.content });
+          if (msg.image) {
+            parts.push({
+              inlineData: {
+                mimeType: msg.image.mimeType,
+                data: msg.image.data
+              }
+            });
           }
-        });
+        }
+
+        return {
+          role: msg.role === 'user' ? 'user' : 'model',
+          parts,
+        };
+      });
+
+      const response = await fetch(`${apiUrl}?key=${activeKey}`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          contents: apiContents,
+          systemInstruction: {
+            parts: [{ text: systemInstruction }],
+          },
+          tools: AGENT_TOOLS,
+          generationConfig: {
+            temperature: model.temperature ?? 0.4,
+            maxOutputTokens: model.maxOutputTokens ?? 2048,
+          },
+        }),
+      });
+
+      if (!response.ok) {
+        const errJson = await response.json().catch(() => ({}));
+        const errorMsg = errJson?.error?.message || `Gemini API error: ${response.status}`;
+
+        if (response.status === 404 || response.status === 403) {
+          markModelUnavailable(model.id);
+        }
+
+        lastError.push(new Error(errorMsg));
+        continue;
       }
+
+      const data = await response.json();
+      const candidatePart = data?.candidates?.[0]?.content?.parts?.[0];
+      
+      if (!candidatePart) {
+        throw new Error('No response generated from the AI model.');
+      }
+
+      if (candidatePart.functionCall) {
+        return {
+          functionCall: {
+            name: candidatePart.functionCall.name,
+            args: candidatePart.functionCall.args,
+          }
+        };
+      }
+
+      return {
+        text: candidatePart.text || '',
+      };
+    } catch (error: any) {
+      lastError.push(error);
     }
-
-    return {
-      role: msg.role === 'user' ? 'user' : 'model',
-      parts,
-    };
-  });
-
-  const response = await fetch(`${GEMINI_BASE_URL}?key=${apiKey}`, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({
-      contents: apiContents,
-      systemInstruction: {
-        parts: [{ text: systemInstruction }],
-      },
-      tools: AGENT_TOOLS,
-      generationConfig: {
-        temperature: 0.4,
-        maxOutputTokens: 2048,
-      },
-    }),
-  });
-
-  if (!response.ok) {
-    const errJson = await response.json().catch(() => ({}));
-    throw new Error(errJson?.error?.message || `Gemini API error: ${response.status}`);
   }
 
-  const data = await response.json();
-  const candidatePart = data?.candidates?.[0]?.content?.parts?.[0];
-  
-  if (!candidatePart) {
-    throw new Error('No response generated from the AI model.');
-  }
-
-  if (candidatePart.functionCall) {
-    return {
-      functionCall: {
-        name: candidatePart.functionCall.name,
-        args: candidatePart.functionCall.args,
-      }
-    };
-  }
-
-  return {
-    text: candidatePart.text || '',
-  };
+  throw new Error(
+    lastError.length > 0
+      ? lastError[lastError.length - 1].message
+      : 'All available models failed to generate a response.'
+  );
 };
 
 /** List all chat sessions for a user from Firestore */

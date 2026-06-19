@@ -582,7 +582,10 @@ Instructions:
 
 ${snapshotText}`;
 
-  const modelIds = selectModelChain('chat');
+  const preferredModelId = localStorage.getItem('ai_preferred_model_id');
+  const modelIds = preferredModelId
+    ? [preferredModelId, ...selectModelChain('chat')]
+    : selectModelChain('chat');
   const modelChain = modelIds.map(id => resolveModel(id, 'chat')).filter(m => m.isAvailable);
 
   if (modelChain.length === 0) {

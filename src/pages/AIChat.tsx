@@ -1,9 +1,9 @@
 import React, { useState, useEffect, useRef, useCallback } from 'react';
 import {
-  Sparkles, Send, Trash2, ArrowLeft, Bot, User,
-  HelpCircle, Loader2, RefreshCw, AlertTriangle, Mic, MicOff,
-  History, Plus, X, Paperclip, Menu
-} from 'lucide-react';
+   Sparkles, Send, Trash2, ArrowLeft, Bot, User,
+   HelpCircle, Loader2, RefreshCw, AlertTriangle, Mic, MicOff,
+   History, Plus, X, Paperclip, Menu, ChevronDown
+ } from 'lucide-react';
 import { useNavigate } from 'react-router-dom';
 import { useCurrency } from '../contexts/CurrencyContext';
 import { useAuth } from '../contexts/AuthContext';
@@ -16,6 +16,8 @@ import {
   listSessions, deleteSession,
   type ChatMessage
 } from '../services/aiChatService';
+import { getModelRegistry, getModelById } from '../services/ai/modelRegistry';
+import type { ModelInfo } from '../services/ai/types';
 import { uploadToCloudinary } from '../services/cloudinaryService';
 import {
   addTransaction,
@@ -210,6 +212,32 @@ const AIChat: React.FC = () => {
   // Speech Recognition States
   const [isRecording, setIsRecording] = useState(false);
   const recognitionRef = useRef<any>(null);
+
+  // Model selector state
+  const models = getModelRegistry().filter(m => m.supportedUseCases.includes('chat'));
+  const [selectedModelId, setSelectedModelId] = useState<string>(() => {
+    return localStorage.getItem('ai_preferred_model_id') || 'gemini-2.5-flash';
+  });
+  const [showModelDropdown, setShowModelDropdown] = useState(false);
+  const modelDropdownRef = useRef<HTMLDivElement>(null);
+
+  const handleModelSelect = (modelId: string) => {
+    setSelectedModelId(modelId);
+    localStorage.setItem('ai_preferred_model_id', modelId);
+    setShowModelDropdown(false);
+    toast.success(`Switched to ${getModelById(modelId)?.name || modelId}`);
+  };
+
+  // Close dropdown on outside click
+  useEffect(() => {
+    const handleClick = (e: MouseEvent) => {
+      if (modelDropdownRef.current && !modelDropdownRef.current.contains(e.target as Node)) {
+        setShowModelDropdown(false);
+      }
+    };
+    document.addEventListener('mousedown', handleClick);
+    return () => document.removeEventListener('mousedown', handleClick);
+  }, []);
 
   // Approval Settings & Pending Approval States
   const [pendingApproval, setPendingApproval] = useState<{
@@ -979,23 +1007,54 @@ const AIChat: React.FC = () => {
             >
               <ArrowLeft size={20} />
             </button>
-            <div className="flex items-center gap-2.5">
-              <div className="p-2 bg-primary/10 text-primary rounded-xl">
-                <Sparkles size={18} />
+              <div className="flex items-center gap-2.5">
+                <div className="p-2 bg-primary/10 text-primary rounded-xl">
+                  <Sparkles size={18} />
+                </div>
+                <div>
+                  <h2 className="text-sm font-black tracking-tight leading-none">Rao Ai</h2>
+
+                  {/* Model Selector Dropdown */}
+                  <div className="relative mt-0.5" ref={modelDropdownRef}>
+                    <button
+                      onClick={() => setShowModelDropdown(prev => !prev)}
+                      className="flex items-center gap-1 text-[10px] font-bold uppercase tracking-widest text-muted-foreground hover:text-foreground transition-colors"
+                    >
+                      {snapshotLoading ? (
+                        <><Loader2 size={9} className="animate-spin" /> Syncing data…</>
+                      ) : snapshotError ? (
+                        <span className="text-destructive"><AlertTriangle size={9} className="inline mr-0.5" />Data error</span>
+                      ) : (
+                        <>{getModelById(selectedModelId)?.name || 'Model'} · {snapshot ? new Date(snapshot.generatedAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) : ''}</>
+                      )}
+                      <ChevronDown size={10} />
+                    </button>
+
+                    {showModelDropdown && (
+                      <div className="absolute top-full left-0 mt-1 w-52 bg-card border border-border rounded-xl shadow-xl z-50 py-1.5 animate-in fade-in zoom-in duration-150 origin-top-left">
+                        <p className="px-3 py-1 text-[8px] font-bold uppercase tracking-widest text-muted-foreground">Switch Model</p>
+                        {models.map(m => {
+                          const isActive = selectedModelId === m.id;
+                          return (
+                            <button
+                              key={m.id}
+                              onClick={() => handleModelSelect(m.id)}
+                              className={`w-full text-left px-3 py-2 text-[11px] font-medium transition-colors flex items-center justify-between gap-2 ${
+                                isActive
+                                  ? 'bg-primary/5 text-primary'
+                                  : 'text-foreground hover:bg-muted/50'
+                              }`}
+                            >
+                              <span className="truncate">{m.name}</span>
+                              {isActive && <span className="text-primary text-[8px] font-bold">✓</span>}
+                            </button>
+                          );
+                        })}
+                      </div>
+                    )}
+                  </div>
+                </div>
               </div>
-              <div>
-                <h2 className="text-sm font-black tracking-tight leading-none">AI Financial Copilot</h2>
-                <p className="text-[10px] text-muted-foreground font-bold mt-0.5 uppercase tracking-widest flex items-center gap-1">
-                  {snapshotLoading ? (
-                    <><Loader2 size={9} className="animate-spin" /> Syncing data…</>
-                  ) : snapshotError ? (
-                    <span className="text-destructive"><AlertTriangle size={9} className="inline mr-0.5" />Data error</span>
-                  ) : (
-                    <>Gemini Flash · Data synced {snapshot ? new Date(snapshot.generatedAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) : ''}</>
-                  )}
-                </p>
-              </div>
-            </div>
           </div>
 
           <div className="flex items-center gap-1">

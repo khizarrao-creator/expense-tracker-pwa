@@ -14,6 +14,7 @@ import {
   loadSession, saveMessage, clearSession, sendToGemini,
   type ChatMessage
 } from '../services/aiChatService';
+import { getModelRegistry, getModelById } from '../services/ai/modelRegistry';
 import { uploadToCloudinary } from '../services/cloudinaryService';
 import {
   addTransaction,
@@ -153,6 +154,31 @@ export const GlobalAIAssistant: React.FC = () => {
   // Speech Recognition states
   const [isRecording, setIsRecording] = useState(false);
   const recognitionRef = useRef<any>(null);
+
+  // Model selector state
+  const models = getModelRegistry().filter(m => m.supportedUseCases.includes('chat'));
+  const [selectedModelId, setSelectedModelId] = useState<string>(() => {
+    return localStorage.getItem('ai_preferred_model_id') || 'gemini-2.5-flash';
+  });
+  const [showModelDropdown, setShowModelDropdown] = useState(false);
+  const modelDropdownRef = useRef<HTMLDivElement>(null);
+
+  const handleModelSelect = (modelId: string) => {
+    setSelectedModelId(modelId);
+    localStorage.setItem('ai_preferred_model_id', modelId);
+    setShowModelDropdown(false);
+    toast.success(`Switched to ${getModelById(modelId)?.name || modelId}`);
+  };
+
+  useEffect(() => {
+    const handleClick = (e: MouseEvent) => {
+      if (modelDropdownRef.current && !modelDropdownRef.current.contains(e.target as Node)) {
+        setShowModelDropdown(false);
+      }
+    };
+    document.addEventListener('mousedown', handleClick);
+    return () => document.removeEventListener('mousedown', handleClick);
+  }, []);
 
   // Manual approval modal state
   const [pendingApproval, setPendingApproval] = useState<{
@@ -770,7 +796,40 @@ export const GlobalAIAssistant: React.FC = () => {
               </div>
               <div>
                 <h4 className="text-xs font-bold text-foreground leading-none">AI Copilot Widget</h4>
-                <p className="text-[9px] text-muted-foreground mt-0.5 uppercase tracking-widest font-semibold">Active Session</p>
+
+                {/* Model Selector */}
+                <div className="relative" ref={modelDropdownRef}>
+                  <button
+                    onClick={() => setShowModelDropdown(prev => !prev)}
+                    className="flex items-center gap-0.5 text-[8px] text-muted-foreground mt-0.5 uppercase tracking-widest font-semibold hover:text-foreground transition-colors"
+                  >
+                    {getModelById(selectedModelId)?.name || 'Model'}
+                    <ChevronDown size={8} />
+                  </button>
+
+                  {showModelDropdown && (
+                    <div className="absolute top-full left-0 mt-1 w-44 bg-card border border-border rounded-xl shadow-xl z-50 py-1 animate-in fade-in zoom-in duration-150 origin-top-left">
+                      <p className="px-3 py-1 text-[7px] font-bold uppercase tracking-widest text-muted-foreground">Switch Model</p>
+                      {models.map(m => {
+                        const isActive = selectedModelId === m.id;
+                        return (
+                          <button
+                            key={m.id}
+                            onClick={() => handleModelSelect(m.id)}
+                            className={`w-full text-left px-3 py-1.5 text-[10px] font-medium transition-colors flex items-center justify-between gap-2 ${
+                              isActive
+                                ? 'bg-primary/5 text-primary'
+                                : 'text-foreground hover:bg-muted/50'
+                            }`}
+                          >
+                            <span className="truncate">{m.name}</span>
+                            {isActive && <span className="text-primary font-bold">✓</span>}
+                          </button>
+                        );
+                      })}
+                    </div>
+                  )}
+                </div>
               </div>
             </div>
 

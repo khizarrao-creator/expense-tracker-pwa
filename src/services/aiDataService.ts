@@ -19,6 +19,7 @@ const CACHE_TTL_MS = 5 * 60 * 1000; // 5 minutes
 export interface FinancialSnapshot {
   generatedAt: string;
   accounts: {
+    id: string;
     name: string;
     type: string;
     currency: string;
@@ -38,6 +39,7 @@ export interface FinancialSnapshot {
     total: number;
   }[];
   recentTransactions: {
+    id: string;
     date: string;
     type: string;
     category: string;
@@ -62,6 +64,7 @@ export interface FinancialSnapshot {
     progressPct: number;
   }[];
   loans: {
+    id: string;
     party: string;
     direction: string;
     amount: number;
@@ -154,6 +157,7 @@ export const buildFinancialSnapshot = async (): Promise<FinancialSnapshot> => {
       (a.expense || 0) -
       (a.transfer_out || 0);
     return {
+      id: a.id,
       name: a.name,
       type: a.type || 'wallet',
       currency: a.currency || 'PKR',
@@ -182,6 +186,7 @@ export const buildFinancialSnapshot = async (): Promise<FinancialSnapshot> => {
 
   // --- Recent Transactions (clean, no internal IDs) ---
   const recentTransactions = (recentRows || []).map((t: any) => ({
+    id: t.id,
     date: t.date,
     type: t.type,
     category: t.category || 'Uncategorized',
@@ -223,6 +228,7 @@ export const buildFinancialSnapshot = async (): Promise<FinancialSnapshot> => {
     .filter((l: any) => !['closed'].includes(l.status))
     .slice(0, 10)
     .map((l: any) => ({
+      id: l.id,
       party: l.party_name || 'Unknown',
       direction: l.direction === 'given' ? 'Lent Out' : 'Borrowed',
       amount: Math.round((l.amount || 0) * 100) / 100,
@@ -331,7 +337,7 @@ export const formatSnapshotForAI = (snapshot: FinancialSnapshot, currencySymbol:
     lines.push('  (No accounts found)');
   } else {
     snapshot.accounts.forEach(a => {
-      lines.push(`  - ${a.name} [${a.type}]: ${a.currency} ${a.balance.toLocaleString()}`);
+      lines.push(`  - ${a.name} [${a.type}] [ID: ${a.id}]: ${a.currency} ${a.balance.toLocaleString()}`);
     });
   }
 
@@ -366,7 +372,7 @@ export const formatSnapshotForAI = (snapshot: FinancialSnapshot, currencySymbol:
     snapshot.recentTransactions.forEach(t => {
       const catLabel = t.subcategory ? `${t.category}/${t.subcategory}` : t.category;
       const desc = t.description ? ` "${t.description}"` : '';
-      lines.push(`  - ${t.date} | ${t.type.toUpperCase()} | ${catLabel}${desc} | ${t.currency} ${t.amount.toLocaleString()} (${t.accountName})`);
+      lines.push(`  - [ID: ${t.id}] ${t.date} | ${t.type.toUpperCase()} | ${catLabel}${desc} | ${t.currency} ${t.amount.toLocaleString()} (${t.accountName})`);
     });
   }
 
@@ -392,7 +398,7 @@ export const formatSnapshotForAI = (snapshot: FinancialSnapshot, currencySymbol:
   if (snapshot.loans.length > 0) {
     lines.push('\nOPEN LOANS:');
     snapshot.loans.forEach(l => {
-      lines.push(`  - ${l.direction} — ${l.party}: ${fmt(l.remaining)} remaining (Status: ${l.status})`);
+      lines.push(`  - [ID: ${l.id}] ${l.direction} — ${l.party}: ${fmt(l.remaining)} remaining (Status: ${l.status})`);
     });
   }
 

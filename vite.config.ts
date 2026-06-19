@@ -24,6 +24,22 @@ export default defineConfig({
             sizes: '512x512',
             type: 'image/png'
           }
+        ],
+        shortcuts: [
+          {
+            name: 'Add Transaction',
+            short_name: 'Add Tx',
+            description: 'Record a new expense, income, or transfer',
+            url: '/add',
+            icons: [{ src: 'pwa-192x192.png', sizes: '192x192' }]
+          },
+          {
+            name: 'Add Loan',
+            short_name: 'Add Loan',
+            description: 'Record a new loan borrowing or lending',
+            url: '/loans?add=true',
+            icons: [{ src: 'pwa-192x192.png', sizes: '192x192' }]
+          }
         ]
       },
       workbox: {

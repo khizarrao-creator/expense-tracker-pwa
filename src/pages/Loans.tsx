@@ -42,6 +42,7 @@ import {
   type LoanRepayment,
   type Account
 } from '../db/queries';
+import { useLocation, useNavigate } from 'react-router-dom';
 import { useCurrency } from '../contexts/CurrencyContext';
 import { toast } from 'sonner';
 import { format } from 'date-fns';
@@ -49,6 +50,8 @@ import { getWhatsAppStatus, sendWhatsAppMessage, type WhatsAppAccount } from '..
 
 const Loans: React.FC = () => {
   const { formatAmount } = useCurrency();
+  const location = useLocation();
+  const navigate = useNavigate();
   
   // Data State
   const [loans, setLoans] = useState<Loan[]>([]);
@@ -163,6 +166,16 @@ const Loans: React.FC = () => {
   useEffect(() => {
     loadData();
   }, [filterDirection, filterStatus]);
+
+  useEffect(() => {
+    const searchParams = new URLSearchParams(location.search);
+    const hasAddParam = searchParams.get('add') === 'true';
+    if ((location.state && (location.state as any).openAddModal) || hasAddParam) {
+      setIsLoanModalOpen(true);
+      // Clean up both location state and search parameter
+      navigate('/loans', { replace: true, state: {} });
+    }
+  }, [location, navigate]);
 
   const handleAddParty = async (e: React.FormEvent) => {
     e.preventDefault();

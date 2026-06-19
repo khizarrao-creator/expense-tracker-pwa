@@ -1,7 +1,7 @@
 import React, { useState, useRef } from 'react';
 import * as XLSX from 'xlsx';
-import { getTransactions, exportAllData, importAllData, clearAllData, vacuumDB, normalizeCategories, getDBSizeMB, getConfig, setConfig } from '../db/queries';
-import { Download, Moon, Sun, Monitor, CloudSync, FileJson, Upload, AlertTriangle, LayoutList, ChevronRight, User as UserIcon, Mail, Shield, LogOut, CheckCircle2, X, Eye, EyeOff, Key, MessageSquare } from 'lucide-react';
+import { getTransactions, exportAllData, importAllData, clearAllData, vacuumDB, normalizeCategories, getDBSizeMB, getConfig, setConfig, getAiAgentLogs } from '../db/queries';
+import { Download, Moon, Sun, Monitor, CloudSync, FileJson, Upload, AlertTriangle, LayoutList, ChevronRight, User as UserIcon, Mail, Shield, LogOut, CheckCircle2, X, Eye, EyeOff, Key, MessageSquare, Sparkles, ShieldCheck, Zap, Loader2 } from 'lucide-react';
 import { useNavigate } from 'react-router-dom';
 import { useCurrency } from '../contexts/CurrencyContext';
 import { useTheme } from '../contexts/ThemeContext';
@@ -51,6 +51,41 @@ const Settings: React.FC = () => {
   const [waAccounts, setWaAccounts] = useState<WhatsAppAccount[]>([]);
   const [defaultWaAccount, setDefaultWaAccount] = useState<string>('account1');
   const [loadingWaStatus, setLoadingWaStatus] = useState(false);
+
+  // AI Agent Approval Settings States
+  const [aiApproveMode, setAiApproveMode] = useState<'auto' | 'manual'>(() => {
+    return (localStorage.getItem('ai_agent_approve_mode') as 'auto' | 'manual') || 'manual';
+  });
+
+  const handleAiApproveModeChange = (mode: 'auto' | 'manual') => {
+    localStorage.setItem('ai_agent_approve_mode', mode);
+    setAiApproveMode(mode);
+    toast.success(`AI Agent operations set to ${mode === 'auto' ? 'Auto-Approve' : 'Manual Approval'}`);
+  };
+
+  // AI Agent Activity Log States
+  const [isLogsOpen, setIsLogsOpen] = useState(false);
+  const [logs, setLogs] = useState<any[]>([]);
+  const [isLoadingLogs, setIsLoadingLogs] = useState(false);
+
+  const fetchLogs = async () => {
+    setIsLoadingLogs(true);
+    try {
+      const data = await getAiAgentLogs();
+      setLogs(data);
+    } catch (e) {
+      console.error('[Settings] Failed to fetch AI logs:', e);
+      toast.error('Failed to load AI activity logs');
+    } finally {
+      setIsLoadingLogs(false);
+    }
+  };
+
+  const openChatSession = (sessId: string) => {
+    localStorage.setItem('ledger_ai_session_id', sessId);
+    navigate('/ai-chat');
+    toast.success('Loading conversation session...');
+  };
 
   React.useEffect(() => {
     const loadDefaultAccount = async () => {
@@ -704,6 +739,64 @@ const Settings: React.FC = () => {
         </div>
       </div>
 
+      {/* AI Assistant Settings Card */}
+      <div className="bg-card p-6 rounded-2xl shadow-sm border border-border space-y-4">
+        <h2 className="text-lg font-semibold border-b border-border pb-4 flex items-center gap-2">
+          <Sparkles size={20} className="text-primary" />
+          AI Assistant Settings
+        </h2>
+        <div className="space-y-3">
+          <p className="text-sm text-muted-foreground leading-relaxed">
+            Configure how the AI Copilot performs updates or deletions in your financial records.
+          </p>
+          <div className="grid grid-cols-2 gap-3 pt-2">
+            <button
+              onClick={() => handleAiApproveModeChange('manual')}
+              className={`flex flex-col items-center justify-center p-4 rounded-xl border-2 transition-all ${aiApproveMode === 'manual'
+                  ? 'border-primary bg-primary/5 text-primary'
+                  : 'border-border text-muted-foreground hover:bg-muted'
+                }`}
+            >
+              <ShieldCheck size={22} className="mb-1.5" />
+              <span className="text-xs font-bold uppercase tracking-wider">Approve Manually</span>
+              <span className="text-[10px] opacity-80 mt-0.5 text-center leading-tight">Prompt for validation before any mutation</span>
+            </button>
+            <button
+              onClick={() => handleAiApproveModeChange('auto')}
+              className={`flex flex-col items-center justify-center p-4 rounded-xl border-2 transition-all ${aiApproveMode === 'auto'
+                  ? 'border-primary bg-primary/5 text-primary'
+                  : 'border-border text-muted-foreground hover:bg-muted'
+                }`}
+            >
+              <Zap size={22} className="mb-1.5" />
+              <span className="text-xs font-bold uppercase tracking-wider">Always Auto-Approve</span>
+              <span className="text-[10px] opacity-80 mt-0.5 text-center leading-tight">Execute updates and deletes instantly</span>
+            </button>
+          </div>
+
+          <div className="pt-4 border-t border-border/50">
+            <button
+              onClick={() => {
+                fetchLogs();
+                setIsLogsOpen(true);
+              }}
+              className="w-full flex items-center justify-between p-3.5 bg-muted/40 hover:bg-muted rounded-xl transition-colors text-left group"
+            >
+              <div className="flex items-center gap-3">
+                <div className="bg-primary/10 text-primary p-2 rounded-lg group-hover:bg-primary/20 transition-colors">
+                  <LayoutList size={18} />
+                </div>
+                <div>
+                  <h3 className="text-sm font-semibold text-foreground">AI Action History Logs</h3>
+                  <p className="text-xs text-muted-foreground">View logs of all actions performed by the AI agent</p>
+                </div>
+              </div>
+              <ChevronRight size={18} className="text-muted-foreground group-hover:translate-x-1 transition-transform" />
+            </button>
+          </div>
+        </div>
+      </div>
+
       <div className="bg-card p-6 rounded-2xl shadow-sm border border-border">
         <h2 className="text-lg font-semibold mb-4 border-b border-border pb-4">Appearance</h2>
         <div className="grid grid-cols-3 gap-3">
@@ -887,8 +980,8 @@ const Settings: React.FC = () => {
                     key={ex.id}
                     onClick={() => setSelectedExchangeId(ex.id)}
                     className={`flex flex-col items-center justify-center p-4 rounded-2xl border-2 transition-all ${selectedExchangeId === ex.id
-                        ? 'border-primary bg-primary/5 text-primary'
-                        : 'border-border text-muted-foreground hover:bg-muted'
+                      ? 'border-primary bg-primary/5 text-primary'
+                      : 'border-border text-muted-foreground hover:bg-muted'
                       }`}
                   >
                     <span className="text-sm font-bold">{ex.name}</span>
@@ -947,8 +1040,8 @@ const Settings: React.FC = () => {
             {/* Test Status Panel */}
             {testStatus && (
               <div className={`p-4 rounded-2xl border text-xs leading-normal animate-in slide-in-from-top-2 ${testStatus.success
-                  ? 'bg-emerald-500/10 border-emerald-500/20 text-emerald-600 dark:text-emerald-400'
-                  : 'bg-destructive/10 border-destructive/20 text-destructive'
+                ? 'bg-emerald-500/10 border-emerald-500/20 text-emerald-600 dark:text-emerald-400'
+                : 'bg-destructive/10 border-destructive/20 text-destructive'
                 }`}>
                 <p className="font-bold mb-1">{testStatus.success ? '✓ Connection Verified' : '✗ Connection Failed'}</p>
                 <p className="opacity-90">{testStatus.message}</p>
@@ -1028,9 +1121,9 @@ const Settings: React.FC = () => {
                         </div>
                         <div className="flex items-center gap-2">
                           <span className={`px-2 py-0.5 rounded text-[9px] font-black uppercase tracking-wider ${acc.status === 'connected' ? 'bg-emerald-500/10 text-emerald-500' :
-                              acc.status === 'qr' ? 'bg-amber-500/10 text-amber-500' :
-                                acc.status === 'connecting' ? 'bg-blue-500/10 text-blue-500' :
-                                  'bg-muted text-muted-foreground'
+                            acc.status === 'qr' ? 'bg-amber-500/10 text-amber-500' :
+                              acc.status === 'connecting' ? 'bg-blue-500/10 text-blue-500' :
+                                'bg-muted text-muted-foreground'
                             }`}>
                             {acc.status === 'connected' ? 'Connected' :
                               acc.status === 'qr' ? 'Action Required' :
@@ -1065,8 +1158,8 @@ const Settings: React.FC = () => {
                             <button
                               onClick={() => handleSetDefaultWaAccount(acc.id)}
                               className={`flex items-center gap-1.5 text-xs font-bold px-3 py-1.5 rounded-lg border transition-all ${isDefault
-                                  ? 'bg-primary/10 border-primary text-primary'
-                                  : 'bg-muted border-transparent text-muted-foreground hover:bg-muted/80'
+                                ? 'bg-primary/10 border-primary text-primary'
+                                : 'bg-muted border-transparent text-muted-foreground hover:bg-muted/80'
                                 }`}
                             >
                               {isDefault ? '✓ Default Account' : 'Set as Default'}
@@ -1104,6 +1197,92 @@ const Settings: React.FC = () => {
             <p className="text-[10px] text-center text-muted-foreground italic leading-normal">
               Note: Linking your personal device relies on WhatsApp Web multi-device mode. Accounts will automatically stay connected in the background.
             </p>
+          </div>
+        </div>
+      )}
+
+      {isLogsOpen && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/80 backdrop-blur-sm animate-in fade-in duration-300">
+          <div className="bg-card w-full max-w-2xl rounded-3xl p-6 border border-border shadow-2xl space-y-6 animate-in zoom-in duration-300 relative max-h-[90vh] flex flex-col">
+            <div className="flex justify-between items-center pb-4 border-b border-border shrink-0">
+              <div>
+                <h2 className="text-xl font-bold flex items-center gap-2">
+                  <Sparkles className="text-primary h-5 w-5" />
+                  AI Agent Activity Logs
+                </h2>
+                <p className="text-xs text-muted-foreground">Historical records of functions executed by the AI copilot</p>
+              </div>
+              <button
+                onClick={() => setIsLogsOpen(false)}
+                className="p-2 text-muted-foreground hover:bg-muted rounded-full transition-colors"
+              >
+                <X size={20} />
+              </button>
+            </div>
+
+            <div className="flex-1 overflow-y-auto space-y-4 pr-1">
+              {isLoadingLogs ? (
+                <div className="flex flex-col items-center justify-center py-12 gap-2 text-muted-foreground">
+                  <Loader2 className="animate-spin text-primary" size={24} />
+                  <p className="text-xs font-bold uppercase tracking-wider">Loading activity log…</p>
+                </div>
+              ) : logs.length === 0 ? (
+                <p className="text-sm text-muted-foreground text-center py-12">No AI actions have been logged yet.</p>
+              ) : (
+                logs.map((log) => {
+                  let formattedArgs = log.arguments;
+                  try {
+                    formattedArgs = JSON.stringify(JSON.parse(log.arguments), null, 2);
+                  } catch (err) { }
+
+                  return (
+                    <div key={log.id} className="p-4 bg-muted/40 border border-border rounded-2xl space-y-3 text-xs">
+                      <div className="flex items-center justify-between gap-3">
+                        <div className="flex items-center gap-2">
+                          <span className={`px-2 py-0.5 rounded-full text-[10px] font-bold uppercase tracking-wider ${log.status === 'success'
+                              ? 'bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 border border-emerald-500/20'
+                              : log.status === 'declined'
+                                ? 'bg-amber-500/10 text-amber-600 dark:text-amber-400 border border-amber-500/20'
+                                : 'bg-destructive/10 text-destructive border border-destructive/20'
+                            }`}>
+                            {log.status}
+                          </span>
+                          <code className="text-primary font-mono font-bold">{log.action_name}</code>
+                        </div>
+                        <span className="text-[10px] text-muted-foreground font-medium">
+                          {new Date(log.timestamp).toLocaleString()}
+                        </span>
+                      </div>
+
+                      <div className="space-y-1.5">
+                        <p className="text-muted-foreground italic font-medium">
+                          Query: <span className="text-foreground not-italic font-bold">"{log.user_query}"</span>
+                        </p>
+                        <div className="bg-background/60 p-2.5 rounded-xl border border-border/50 font-mono text-[11px] overflow-x-auto">
+                          <p className="font-bold text-foreground/80 mb-1">Arguments:</p>
+                          <pre className="whitespace-pre-wrap leading-relaxed">{formattedArgs}</pre>
+                        </div>
+                        {log.error_message && (
+                          <p className="text-destructive font-semibold">
+                            Error: <span className="font-medium text-destructive/95">{log.error_message}</span>
+                          </p>
+                        )}
+                      </div>
+
+                      <div className="pt-2 border-t border-border/40 flex justify-end">
+                        <button
+                          onClick={() => openChatSession(log.session_id)}
+                          className="px-3.5 py-1.5 bg-primary/10 text-primary hover:bg-primary/20 font-bold rounded-lg text-[10px] uppercase tracking-wider transition-colors flex items-center gap-1.5"
+                        >
+                          <MessageSquare size={12} />
+                          View Conversation
+                        </button>
+                      </div>
+                    </div>
+                  );
+                })
+              )}
+            </div>
           </div>
         </div>
       )}

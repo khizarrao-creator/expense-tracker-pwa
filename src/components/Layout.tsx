@@ -4,6 +4,7 @@ import { LayoutDashboard, List, PlusCircle, Settings, LogOut, CloudSync, Landmar
 import { useAuth } from '../contexts/AuthContext';
 import { useSync } from '../contexts/SyncContext';
 import ConfirmModal from './ConfirmModal';
+import { GlobalAIAssistant } from './GlobalAIAssistant';
 
 const Layout: React.FC = () => {
   const { signOut } = useAuth();
@@ -135,6 +136,8 @@ const Layout: React.FC = () => {
         variant="danger"
         confirmText="Sign Out"
       />
+
+      <GlobalAIAssistant />
     </div>
   );
 };

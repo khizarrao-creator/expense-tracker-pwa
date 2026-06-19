@@ -3375,4 +3375,38 @@ export const linkItemsToEvent = async (eventId: string, transactionIds: string[]
   }
 };
 
+export interface AiAgentLog {
+  id: string;
+  timestamp: string;
+  action_name: string;
+  arguments: string;
+  status: 'success' | 'failed' | 'declined';
+  error_message: string | null;
+  session_id: string;
+  user_query: string;
+}
+
+export const logAiAgentAction = async (
+  action_name: string,
+  args: any,
+  status: 'success' | 'failed' | 'declined',
+  error_message: string | null,
+  session_id: string,
+  user_query: string
+) => {
+  const id = uuidv4();
+  const timestamp = new Date().toISOString();
+  await runWithBindings(
+    `INSERT INTO ai_agent_logs (id, timestamp, action_name, arguments, status, error_message, session_id, user_query)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
+    [id, timestamp, action_name, JSON.stringify(args), status, error_message, session_id, user_query]
+  );
+};
+
+export const getAiAgentLogs = async (): Promise<AiAgentLog[]> => {
+  const res = await executeQuery(`SELECT * FROM ai_agent_logs ORDER BY timestamp DESC LIMIT 100`);
+  return res as AiAgentLog[];
+};
+
+
 

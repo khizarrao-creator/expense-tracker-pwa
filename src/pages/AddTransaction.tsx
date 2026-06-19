@@ -464,6 +464,13 @@ const AddTransaction: React.FC = () => {
           >
             Transfer
           </button>
+          <button
+            type="button"
+            onClick={() => navigate('/loans', { state: { openAddModal: true } })}
+            className="flex-1 py-2 text-sm font-medium rounded-lg transition-colors text-muted-foreground hover:text-foreground"
+          >
+            Loan
+          </button>
         </div>
 
         <form onSubmit={handleSubmit} className="space-y-4">

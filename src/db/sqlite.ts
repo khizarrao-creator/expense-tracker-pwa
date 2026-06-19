@@ -455,6 +455,17 @@ const initializeSchema = async () => {
       avg_cost REAL NOT NULL,
       timestamp TEXT NOT NULL
     );
+
+    CREATE TABLE IF NOT EXISTS ai_agent_logs (
+      id TEXT PRIMARY KEY,
+      timestamp TEXT NOT NULL,
+      action_name TEXT NOT NULL,
+      arguments TEXT NOT NULL,
+      status TEXT NOT NULL,
+      error_message TEXT,
+      session_id TEXT NOT NULL,
+      user_query TEXT NOT NULL
+    );
   `);
 
   // 2. Robust Migrations (Add missing columns one by one for existing users)

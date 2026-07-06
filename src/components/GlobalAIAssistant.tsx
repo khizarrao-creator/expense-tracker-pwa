@@ -11,7 +11,7 @@ import { v4 as uuidv4 } from 'uuid';
 
 import { getCachedSnapshot, invalidateAICache, type FinancialSnapshot } from '../services/aiDataService';
 import {
-  loadSession, saveMessage, clearSession, sendToGemini, sendToGeminiStream,
+  loadSession, saveMessage, clearSession, sendToGeminiStream,
   type ChatMessage
 } from '../services/aiChatService';
 import { getModelRegistry, getModelById } from '../services/ai/modelRegistry';
@@ -635,7 +635,6 @@ export const GlobalAIAssistant: React.FC = () => {
         loopCount++;
 
         setStreamingContent('');
-        let accumulatedText = '';
 
         const geminiRes = await sendToGeminiStream(
           updatedMessages,
@@ -643,7 +642,6 @@ export const GlobalAIAssistant: React.FC = () => {
           globalCurrency.code,
           globalCurrency.symbol,
           (chunk) => {
-            accumulatedText = chunk;
             setStreamingContent(chunk);
           },
           apiKey

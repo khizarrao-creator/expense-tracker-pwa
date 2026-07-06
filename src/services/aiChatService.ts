@@ -582,20 +582,53 @@ export const sendToGemini = async (
 
   for (const model of modelChain) {
     try {
-      const apiUrl = `${GEMINI_BASE_URL}/${model.apiName}:generateContent`;
+      const isGemma = model.apiName.startsWith('gemma');
+      const baseUrl = isGemma
+        ? 'https://generativelanguage.googleapis.com/v1/models'
+        : GEMINI_BASE_URL;
+      const apiUrl = `${baseUrl}/${model.apiName}:generateContent`;
+
+      let modelContents = apiContents;
+      if (isGemma) {
+        modelContents = apiContents
+          .filter(c => c.parts.some(p => p.text))
+          .map((c, idx) => {
+            if (idx === 0 && c.role === 'user') {
+              const textParts = c.parts.filter(p => p.text);
+              if (textParts.length > 0) {
+                return {
+                  role: 'user',
+                  parts: [
+                    { text: `${systemInstruction}\n\nUser Query:\n${textParts[0].text}` },
+                    ...textParts.slice(1)
+                  ]
+                };
+              }
+            }
+            return {
+              role: c.role,
+              parts: c.parts.filter(p => p.text)
+            };
+          });
+      }
+
+      const body: any = {
+        contents: modelContents,
+        generationConfig: {
+          temperature: model.temperature ?? 0.4,
+          maxOutputTokens: model.maxOutputTokens ?? 2048,
+        },
+      };
+
+      if (!isGemma) {
+        body.systemInstruction = { parts: [{ text: systemInstruction }] };
+        body.tools = AGENT_TOOLS;
+      }
 
       const response = await fetch(`${apiUrl}?key=${activeKey}`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          contents: apiContents,
-          systemInstruction: { parts: [{ text: systemInstruction }] },
-          tools: AGENT_TOOLS,
-          generationConfig: {
-            temperature: model.temperature ?? 0.4,
-            maxOutputTokens: model.maxOutputTokens ?? 2048,
-          },
-        }),
+        body: JSON.stringify(body),
       });
 
       if (!response.ok) {
@@ -767,19 +800,52 @@ export const sendToGeminiStream = async (
 
   for (const model of modelChain) {
     try {
-      const apiUrl = `${GEMINI_BASE_URL}/${model.apiName}`;
+      const isGemma = model.apiName.startsWith('gemma');
+      const baseUrl = isGemma
+        ? 'https://generativelanguage.googleapis.com/v1/models'
+        : GEMINI_BASE_URL;
+      const apiUrl = `${baseUrl}/${model.apiName}`;
       let accumulatedText = '';
       let functionCallResult: GeminiResponse['functionCall'];
 
-      const stream = streamGeminiResponse(apiUrl, activeKey, {
-        contents: apiContents,
-        systemInstruction: { parts: [{ text: systemInstruction }] },
-        tools: AGENT_TOOLS,
+      let modelContents = apiContents;
+      if (isGemma) {
+        modelContents = apiContents
+          .filter(c => c.parts.some(p => p.text))
+          .map((c, idx) => {
+            if (idx === 0 && c.role === 'user') {
+              const textParts = c.parts.filter(p => p.text);
+              if (textParts.length > 0) {
+                return {
+                  role: 'user',
+                  parts: [
+                    { text: `${systemInstruction}\n\nUser Query:\n${textParts[0].text}` },
+                    ...textParts.slice(1)
+                  ]
+                };
+              }
+            }
+            return {
+              role: c.role,
+              parts: c.parts.filter(p => p.text)
+            };
+          });
+      }
+
+      const body: any = {
+        contents: modelContents,
         generationConfig: {
           temperature: model.temperature ?? 0.4,
           maxOutputTokens: model.maxOutputTokens ?? 2048,
         },
-      });
+      };
+
+      if (!isGemma) {
+        body.systemInstruction = { parts: [{ text: systemInstruction }] };
+        body.tools = AGENT_TOOLS;
+      }
+
+      const stream = streamGeminiResponse(apiUrl, activeKey, body);
 
       for await (const chunk of stream) {
         if (chunk.functionCall) {

@@ -12,12 +12,11 @@ import { v4 as uuidv4 } from 'uuid';
 
 import { getCachedSnapshot, invalidateAICache, type FinancialSnapshot } from '../services/aiDataService';
 import {
-  loadSession, saveMessage, clearSession, sendToGemini, sendToGeminiStream,
+  loadSession, saveMessage, clearSession, sendToGeminiStream,
   listSessions, deleteSession,
   type ChatMessage
 } from '../services/aiChatService';
 import { getModelRegistry, getModelById } from '../services/ai/modelRegistry';
-import type { ModelInfo } from '../services/ai/types';
 import { uploadToCloudinary } from '../services/cloudinaryService';
 import {
   addTransaction,
@@ -790,7 +789,6 @@ const AIChat: React.FC = () => {
 
         // Start streaming: create a placeholder message and begin receiving chunks
         setStreamingContent('');
-        let accumulatedText = '';
 
         const geminiRes = await sendToGeminiStream(
           updatedMessages,
@@ -798,7 +796,6 @@ const AIChat: React.FC = () => {
           globalCurrency.code,
           globalCurrency.symbol,
           (chunk) => {
-            accumulatedText = chunk;
             setStreamingContent(chunk);
           },
           apiKey

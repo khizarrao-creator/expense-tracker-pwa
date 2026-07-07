@@ -23,6 +23,7 @@ export interface ChatMessage {
   role: 'user' | 'model';
   content: string;
   timestamp: string;
+  thought?: string; // The model's reasoning/thought process
   imageUrl?: string; // Cloudinary secure URL saved in Firestore
   image?: {
     mimeType: string;
@@ -40,6 +41,7 @@ export interface ChatMessage {
 
 export interface GeminiResponse {
   text?: string;
+  thought?: string; // The model's reasoning/thought process
   functionCall?: {
     name: string;
     args: any;
@@ -83,6 +85,22 @@ export const loadSession = async (uid: string, sessionId: string): Promise<ChatS
   };
 };
 
+const removeUndefined = (obj: any): any => {
+  if (Array.isArray(obj)) {
+    return obj.map(item => removeUndefined(item));
+  } else if (obj !== null && typeof obj === 'object') {
+    const newObj: any = {};
+    for (const key of Object.keys(obj)) {
+      const val = obj[key];
+      if (val !== undefined) {
+        newObj[key] = removeUndefined(val);
+      }
+    }
+    return newObj;
+  }
+  return obj;
+};
+
 /** Append a message to the Firestore session */
 export const saveMessage = async (uid: string, sessionId: string, message: ChatMessage): Promise<void> => {
   try {
@@ -90,7 +108,7 @@ export const saveMessage = async (uid: string, sessionId: string, message: ChatM
     const snap = await getDoc(ref);
 
     // Strip large base64 data to avoid 1MB document size limit, use Cloudinary URL instead
-    const sanitizedMessage = { ...message };
+    const sanitizedMessage = removeUndefined({ ...message });
     if (sanitizedMessage.image) {
       delete sanitizedMessage.image;
     }
@@ -555,6 +573,130 @@ const AGENT_TOOLS = [
             }
           }
         }
+      },
+      // ─── WhatsApp Tools ───────────────────────────────────────────────────
+      {
+        name: 'get_whatsapp_status',
+        description: 'Check the connection status of all WhatsApp accounts (Primary, Secondary, Work). Returns which accounts are connected, disconnected, or waiting for QR scan.',
+        parameters: { type: 'OBJECT', properties: {} }
+      },
+      {
+        name: 'init_whatsapp',
+        description: 'Initiate or reconnect a WhatsApp account. This starts the QR code linking process. Tell the user to visit the WhatsApp page to scan the QR code after calling this.',
+        parameters: {
+          type: 'OBJECT',
+          properties: {
+            accountId: {
+              type: 'STRING',
+              enum: ['account1', 'account2', 'account3'],
+              description: 'The account to initiate. account1 = Primary Account, account2 = Secondary Account, account3 = Work Account.'
+            }
+          },
+          required: ['accountId']
+        }
+      },
+      {
+        name: 'logout_whatsapp',
+        description: 'Disconnect and unlink a WhatsApp account. This logs out the session and clears credentials.',
+        parameters: {
+          type: 'OBJECT',
+          properties: {
+            accountId: {
+              type: 'STRING',
+              enum: ['account1', 'account2', 'account3'],
+              description: 'The account to disconnect. account1 = Primary Account, account2 = Secondary Account, account3 = Work Account.'
+            }
+          },
+          required: ['accountId']
+        }
+      },
+      {
+        name: 'get_whatsapp_contacts',
+        description: 'Retrieve the list of contacts saved for a connected WhatsApp account.',
+        parameters: {
+          type: 'OBJECT',
+          properties: {
+            accountId: {
+              type: 'STRING',
+              enum: ['account1', 'account2', 'account3'],
+              description: 'The WhatsApp account to fetch contacts from.'
+            }
+          },
+          required: ['accountId']
+        }
+      },
+      {
+        name: 'get_whatsapp_messages',
+        description: 'Read the message history with a specific contact on a WhatsApp account. Requires the contact JID (e.g., 923001234567@s.whatsapp.net).',
+        parameters: {
+          type: 'OBJECT',
+          properties: {
+            accountId: {
+              type: 'STRING',
+              enum: ['account1', 'account2', 'account3'],
+              description: 'The WhatsApp account to read messages from.'
+            },
+            jid: {
+              type: 'STRING',
+              description: 'The contact JID in the format: <phone_number>@s.whatsapp.net. Get this from get_whatsapp_contacts if unknown.'
+            }
+          },
+          required: ['accountId', 'jid']
+        }
+      },
+      {
+        name: 'send_whatsapp_message',
+        description: 'Send a WhatsApp message to a phone number from a connected account.',
+        parameters: {
+          type: 'OBJECT',
+          properties: {
+            accountId: {
+              type: 'STRING',
+              enum: ['account1', 'account2', 'account3'],
+              description: 'The WhatsApp account to send from.'
+            },
+            phone: {
+              type: 'STRING',
+              description: 'The recipient phone number. Can be local (0312...) or international (923...). Digits only.'
+            },
+            message: {
+              type: 'STRING',
+              description: 'The text message content to send.'
+            }
+          },
+          required: ['accountId', 'phone', 'message']
+        }
+      },
+      {
+        name: 'delete_whatsapp_message',
+        description: 'Delete a WhatsApp message. Can delete just for yourself ("for me") or for everyone in the chat ("for everyone", only works for messages sent by you).',
+        parameters: {
+          type: 'OBJECT',
+          properties: {
+            accountId: {
+              type: 'STRING',
+              enum: ['account1', 'account2', 'account3'],
+              description: 'The WhatsApp account that owns the message.'
+            },
+            jid: {
+              type: 'STRING',
+              description: 'The chat JID where the message exists (e.g., 923001234567@s.whatsapp.net).'
+            },
+            messageId: {
+              type: 'STRING',
+              description: 'The unique message ID to delete. Get this from get_whatsapp_messages.'
+            },
+            fromMe: {
+              type: 'BOOLEAN',
+              description: 'Whether this message was sent by the user (true) or received (false).'
+            },
+            everyone: {
+              type: 'BOOLEAN',
+              description: 'If true, delete for everyone in the chat. If false, delete only for yourself. Deleting for everyone only works for messages sent by you.'
+            }
+          },
+          required: ['accountId', 'jid', 'messageId', 'fromMe', 'everyone']
+        }
       }
     ]
   }
@@ -565,7 +707,8 @@ export const sendToGemini = async (
   snapshot: FinancialSnapshot,
   currencyCode: string,
   currencySymbol: string,
-  apiKey?: string
+  apiKey?: string,
+  mode?: 'thinking' | 'fast'
 ): Promise<GeminiResponse> => {
   const systemInstruction = buildSystemInstruction(snapshot, currencyCode, currencySymbol);
   const modelChain = buildModelChain();
@@ -623,6 +766,9 @@ export const sendToGemini = async (
       if (!isGemma) {
         body.systemInstruction = { parts: [{ text: systemInstruction }] };
         body.tools = AGENT_TOOLS;
+        body.generationConfig.thinkingConfig = {
+          thinkingBudget: mode === 'fast' ? 0 : 2048
+        };
       }
 
       const response = await fetch(`${apiUrl}?key=${activeKey}`, {
@@ -644,22 +790,46 @@ export const sendToGemini = async (
       }
 
       const data = await response.json();
-      const candidatePart = data?.candidates?.[0]?.content?.parts?.[0];
+      const candidateParts = data?.candidates?.[0]?.content?.parts || [];
       
-      if (!candidatePart) {
+      let text = '';
+      let thought = '';
+      let functionCall: GeminiResponse['functionCall'] = undefined;
+
+      const textParts = candidateParts.filter((p: any) => p.text && !p.thought);
+      const thoughtParts = candidateParts.filter((p: any) => p.thought);
+
+      if (thoughtParts.length > 0) {
+        thought = thoughtParts.map((p: any) => p.text).join('');
+      }
+
+      if (textParts.length > 1 && thoughtParts.length === 0) {
+        const responsePart = textParts[textParts.length - 1];
+        text = responsePart.text || '';
+        const preceding = textParts.slice(0, textParts.length - 1);
+        thought = preceding.map((p: any) => p.text).join('\n');
+      } else {
+        text = textParts.map((p: any) => p.text).join('');
+      }
+
+      for (const part of candidateParts) {
+        if (part.functionCall) {
+          functionCall = {
+            name: part.functionCall.name,
+            args: part.functionCall.args,
+          };
+        }
+      }
+
+      if (functionCall) {
+        return { functionCall };
+      }
+
+      if (text.length === 0 && thought.length === 0) {
         throw new Error('No response generated from the AI model.');
       }
 
-      if (candidatePart.functionCall) {
-        return {
-          functionCall: {
-            name: candidatePart.functionCall.name,
-            args: candidatePart.functionCall.args,
-          }
-        };
-      }
-
-      return { text: candidatePart.text || '' };
+      return { text, thought: thought || undefined };
     } catch (error: any) {
       lastError.push(error);
     }
@@ -707,6 +877,27 @@ Instructions:
 - Missing Fields: If the user requests an action (like adding a transaction or loan) but fails to specify mandatory information (like the amount or which account to use), DO NOT attempt to call the tool. Instead, ask the user to clarify or provide the missing field(s).
 - Creating Loans: When recording a loan, both a loan entry and a corresponding transaction entry (to update the account balance) will be created. Always check if the account name is specified or clear.
 
+## WhatsApp Capabilities
+You also have access to the user's WhatsApp accounts. The system supports 3 accounts:
+- **account1** = Primary Account
+- **account2** = Secondary Account  
+- **account3** = Work Account
+
+You can:
+- **Check status**: Use get_whatsapp_status to see which accounts are connected/disconnected.
+- **Connect**: Use init_whatsapp to start linking an account (user scans QR in the WhatsApp page).
+- **Disconnect**: Use logout_whatsapp to unlink an account.
+- **Contacts**: Use get_whatsapp_contacts to list saved contacts for a connected account.
+- **Read messages**: Use get_whatsapp_messages with the contact's JID to retrieve chat history.
+- **Send messages**: Use send_whatsapp_message to send a text to any phone number.
+- **Delete messages**: Use delete_whatsapp_message to delete for yourself or for everyone (own messages only).
+
+WhatsApp Rules:
+- Always call get_whatsapp_status first if unsure whether an account is connected before attempting to send/read.
+- For get_whatsapp_messages, you need the contact JID. Use get_whatsapp_contacts first to find the right JID if the user provides a name.
+- When sending messages, confirm the recipient and message text with the user before sending.
+- Deleting "for everyone" is only possible for messages sent BY the user (fromMe: true).
+
 ${snapshotText}`;
 };
 
@@ -718,12 +909,12 @@ const buildModelChain = () => {
   return modelIds.map(id => resolveModel(id, 'chat')).filter(m => m.isAvailable);
 };
 
-/** Parse a Gemini SSE stream and yield each text delta */
+/** Parse a Gemini SSE stream and yield each text/thought delta */
 async function* streamGeminiResponse(
   apiUrl: string,
   apiKey: string,
   body: any
-): AsyncGenerator<{ textDelta?: string; functionCall?: { name: string; args: any } }, void, undefined> {
+): AsyncGenerator<{ textDelta?: string; thoughtDelta?: string; functionCall?: { name: string; args: any } }, void, undefined> {
   const response = await fetch(`${apiUrl}:streamGenerateContent?alt=sse&key=${apiKey}`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
@@ -757,13 +948,22 @@ async function* streamGeminiResponse(
 
       try {
         const data = JSON.parse(jsonStr);
-        const part = data?.candidates?.[0]?.content?.parts?.[0];
-        if (!part) continue;
+        const usage = data.usageMetadata;
+        const candidatesCount = usage?.candidatesTokenCount || 0;
+        const thoughtsCount = usage?.thoughtsTokenCount || 0;
 
-        if (part.functionCall) {
-          yield { functionCall: { name: part.functionCall.name, args: part.functionCall.args } };
-        } else if (part.text) {
-          yield { textDelta: part.text };
+        const parts = data?.candidates?.[0]?.content?.parts || [];
+        for (const part of parts) {
+          if (part.functionCall) {
+            yield { functionCall: { name: part.functionCall.name, args: part.functionCall.args } };
+          } else if (part.text) {
+            const isThought = part.thought === true || (candidatesCount === 0 && thoughtsCount > 0);
+            if (isThought) {
+              yield { thoughtDelta: part.text };
+            } else {
+              yield { textDelta: part.text };
+            }
+          }
         }
       } catch {
         // skip malformed SSE data
@@ -783,7 +983,9 @@ export const sendToGeminiStream = async (
   currencyCode: string,
   currencySymbol: string,
   onChunk: (text: string) => void,
-  apiKey?: string
+  apiKey?: string,
+  onThoughtChunk?: (text: string) => void,
+  mode?: 'thinking' | 'fast'
 ): Promise<GeminiResponse> => {
   const systemInstruction = buildSystemInstruction(snapshot, currencyCode, currencySymbol);
   const modelChain = buildModelChain();
@@ -806,6 +1008,7 @@ export const sendToGeminiStream = async (
         : GEMINI_BASE_URL;
       const apiUrl = `${baseUrl}/${model.apiName}`;
       let accumulatedText = '';
+      let accumulatedThought = '';
       let functionCallResult: GeminiResponse['functionCall'];
 
       let modelContents = apiContents;
@@ -843,6 +1046,9 @@ export const sendToGeminiStream = async (
       if (!isGemma) {
         body.systemInstruction = { parts: [{ text: systemInstruction }] };
         body.tools = AGENT_TOOLS;
+        body.generationConfig.thinkingConfig = {
+          thinkingBudget: mode === 'fast' ? 0 : 2048
+        };
       }
 
       const stream = streamGeminiResponse(apiUrl, activeKey, body);
@@ -851,6 +1057,10 @@ export const sendToGeminiStream = async (
         if (chunk.functionCall) {
           functionCallResult = chunk.functionCall;
           break;
+        }
+        if (chunk.thoughtDelta) {
+          accumulatedThought += chunk.thoughtDelta;
+          if (onThoughtChunk) onThoughtChunk(accumulatedThought);
         }
         if (chunk.textDelta) {
           accumulatedText += chunk.textDelta;
@@ -862,7 +1072,7 @@ export const sendToGeminiStream = async (
         return { functionCall: functionCallResult };
       }
 
-      return { text: accumulatedText };
+      return { text: accumulatedText, thought: accumulatedThought || undefined };
     } catch (error: any) {
       if (error.message?.includes('404') || error.message?.includes('403') || error.message?.includes('not found')) {
         markModelUnavailable(model.id);

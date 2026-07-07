@@ -2,7 +2,8 @@ import React, { useState, useEffect, useRef, useCallback } from 'react';
 import {
    Sparkles, Send, Trash2, ArrowLeft, Bot, User,
    HelpCircle, Loader2, RefreshCw, AlertTriangle, Mic, MicOff,
-   History, Plus, X, Paperclip, Menu, ChevronDown
+   History, Plus, X, Paperclip, Menu, ChevronDown,
+   Download, Camera, CheckSquare, Square, Zap, Brain
  } from 'lucide-react';
 import { useNavigate } from 'react-router-dom';
 import { useCurrency } from '../contexts/CurrencyContext';
@@ -18,6 +19,15 @@ import {
 } from '../services/aiChatService';
 import { getModelRegistry, getModelById } from '../services/ai/modelRegistry';
 import { uploadToCloudinary } from '../services/cloudinaryService';
+import {
+  getWhatsAppStatus,
+  initWhatsApp,
+  logoutWhatsApp,
+  getWhatsAppContacts,
+  getWhatsAppMessages,
+  sendWhatsAppMessage,
+  deleteWhatsAppMessage
+} from '../services/whatsappService';
 import {
   addTransaction,
   updateTransaction,
@@ -87,10 +97,27 @@ const MarkdownContent: React.FC<{ content: string }> = ({ content }) => {
 
 // ─── Message Bubble ──────────────────────────────────────────────────────────
 
-const MessageBubble: React.FC<{ msg: ChatMessage; isLatest: boolean }> = ({ msg }) => {
+const MessageBubble: React.FC<{
+  msg: ChatMessage;
+  isLatest: boolean;
+  isExportMode?: boolean;
+  isSelected?: boolean;
+  onToggle?: () => void;
+}> = ({ msg, isLatest: _isLatest, isExportMode = false, isSelected = false, onToggle }) => {
+  const [isThoughtExpanded, setIsThoughtExpanded] = useState(false);
+
   if (msg.functionCall) {
     return (
       <div className="flex justify-start pl-10 animate-in fade-in duration-200 w-full">
+        {isExportMode && (
+          <div data-html2canvas-ignore className="shrink-0 self-center mr-2">
+            {isSelected ? (
+              <CheckSquare size={16} className="text-primary cursor-pointer" onClick={onToggle} />
+            ) : (
+              <Square size={16} className="text-muted-foreground cursor-pointer" onClick={onToggle} />
+            )}
+          </div>
+        )}
         <div className="flex items-center gap-2 text-[11px] font-bold uppercase tracking-wider text-muted-foreground bg-muted/30 border border-border/50 rounded-xl px-3 py-1.5 my-1">
           <Loader2 size={11} className="text-primary animate-spin" />
           <span>AI Action: calling tool <code className="font-mono text-primary bg-primary/5 px-1 rounded">{msg.functionCall.name}</code></span>
@@ -103,6 +130,15 @@ const MessageBubble: React.FC<{ msg: ChatMessage; isLatest: boolean }> = ({ msg 
     const isSuccess = msg.functionResponse.response?.success !== false;
     return (
       <div className="flex justify-start pl-10 animate-in fade-in duration-200 w-full">
+        {isExportMode && (
+          <div data-html2canvas-ignore className="shrink-0 self-center mr-2">
+            {isSelected ? (
+              <CheckSquare size={16} className="text-primary cursor-pointer" onClick={onToggle} />
+            ) : (
+              <Square size={16} className="text-muted-foreground cursor-pointer" onClick={onToggle} />
+            )}
+          </div>
+        )}
         <div className={`flex items-center gap-2 text-[11px] font-bold uppercase tracking-wider rounded-xl px-3 py-1.5 my-1 border ${isSuccess
             ? 'bg-emerald-500/5 border-emerald-500/10 text-emerald-600 dark:text-emerald-400'
             : 'bg-destructive/5 border-destructive/10 text-destructive'
@@ -116,10 +152,24 @@ const MessageBubble: React.FC<{ msg: ChatMessage; isLatest: boolean }> = ({ msg 
 
   const isUser = msg.role === 'user';
   return (
-    <div className={`flex items-end gap-2.5 ${isUser ? 'justify-end' : 'justify-start'} 
-      animate-in fade-in slide-in-from-bottom-2 duration-300`}>
+    <div 
+      onClick={isExportMode && onToggle ? onToggle : undefined}
+      className={`flex items-end gap-2.5 ${isUser ? 'justify-end' : 'justify-start'} 
+        ${isExportMode ? 'hover:bg-muted/15 p-2 rounded-2xl transition-all cursor-pointer' : ''}
+        animate-in fade-in slide-in-from-bottom-2 duration-300`}
+    >
+      {isExportMode && (
+        <div data-html2canvas-ignore className="shrink-0 self-center mr-1">
+          {isSelected ? (
+            <CheckSquare size={18} className="text-primary" />
+          ) : (
+            <Square size={18} className="text-muted-foreground" />
+          )}
+        </div>
+      )}
+
       {!isUser && (
-        <div className="shrink-0 w-8 h-8 rounded-xl bg-primary/10 border border-primary/20 flex items-center justify-center text-primary">
+        <div className="shrink-0 w-8 h-8 rounded-xl bg-primary/10 border border-primary/20 flex items-center justify-center text-primary shadow-sm shadow-primary/5">
           <Bot size={15} />
         </div>
       )}
@@ -131,6 +181,29 @@ const MessageBubble: React.FC<{ msg: ChatMessage; isLatest: boolean }> = ({ msg 
         {msg.imageUrl && (
           <div className="mb-2 max-w-full overflow-hidden rounded-xl border border-border/30 bg-muted/20">
             <img src={msg.imageUrl} alt="Receipt attachment" className="max-h-60 w-auto object-contain rounded-lg" />
+          </div>
+        )}
+        {!isUser && msg.thought && (
+          <div className="mb-2 border-l-2 border-primary/30 pl-2 text-[10px] text-muted-foreground bg-muted/10 rounded-xl p-2 border border-border/30">
+            <button
+              type="button"
+              onClick={(e) => {
+                if (isExportMode) {
+                  e.stopPropagation();
+                }
+                setIsThoughtExpanded(!isThoughtExpanded);
+              }}
+              className="flex items-center gap-1 font-bold hover:text-foreground transition-colors py-0.5"
+            >
+              <Bot size={10} className={isThoughtExpanded ? "text-primary" : "text-muted-foreground animate-pulse"} />
+              <span>{isThoughtExpanded ? 'Hide thinking process' : 'View thinking process'}</span>
+              <ChevronDown size={10} className={`transform transition-transform duration-200 ${isThoughtExpanded ? 'rotate-180' : ''}`} />
+            </button>
+            {isThoughtExpanded && (
+              <div className="mt-1 font-mono text-[9px] leading-normal whitespace-pre-wrap max-h-36 overflow-y-auto border-t border-border/25 pt-1 text-muted-foreground/90">
+                {msg.thought}
+              </div>
+            )}
           </div>
         )}
         {isUser ? (
@@ -198,6 +271,22 @@ const AIChat: React.FC = () => {
   const [snapshotError, setSnapshotError] = useState(false);
   const [sessionLoading, setSessionLoading] = useState(true);
 
+  // Export & Selection states
+  const [isExportMode, setIsExportMode] = useState(false);
+  const [selectedMsgIndices, setSelectedMsgIndices] = useState<Set<number>>(new Set());
+  const [exportFormat, setExportFormat] = useState<'png' | 'pdf' | 'md'>('png');
+  const [pngQuality, setPngQuality] = useState<'hd' | '4k'>('hd');
+  const [isExporting, setIsExporting] = useState(false);
+
+  // Sync selected messages when Export Mode turns on
+  useEffect(() => {
+    if (isExportMode) {
+      setSelectedMsgIndices(new Set(messages.map((_, idx) => idx)));
+    } else {
+      setSelectedMsgIndices(new Set());
+    }
+  }, [isExportMode, messages.length]);
+
   // Chat History Sidebar States
   const [sessionsList, setSessionsList] = useState<{ sessionId: string; updatedAt: string; title: string }[]>([]);
   const [isHistoryOpen, setIsHistoryOpen] = useState(false);
@@ -227,6 +316,18 @@ const AIChat: React.FC = () => {
     toast.success(`Switched to ${getModelById(modelId)?.name || modelId}`);
   };
 
+  // Chat Mode Setting (Thinking vs Fast)
+  const [chatMode, setChatMode] = useState<'thinking' | 'fast'>(() => {
+    return (localStorage.getItem('ai_chat_mode') as 'thinking' | 'fast') || 'thinking';
+  });
+
+  const handleToggleChatMode = () => {
+    const nextMode = chatMode === 'thinking' ? 'fast' : 'thinking';
+    setChatMode(nextMode);
+    localStorage.setItem('ai_chat_mode', nextMode);
+    toast.success(`Switched to ${nextMode === 'thinking' ? 'Thinking' : 'Fast'} Mode`);
+  };
+
   // Close dropdown on outside click
   useEffect(() => {
     const handleClick = (e: MouseEvent) => {
@@ -240,6 +341,7 @@ const AIChat: React.FC = () => {
 
   // Streaming state
   const [streamingContent, setStreamingContent] = useState<string | null>(null);
+  const [streamingThought, setStreamingThought] = useState<string | null>(null);
 
   // Approval Settings & Pending Approval States
   const [pendingApproval, setPendingApproval] = useState<{
@@ -721,6 +823,47 @@ const AIChat: React.FC = () => {
         return { success: true, count: results.length, categories: results };
       }
 
+      case 'get_whatsapp_status': {
+        const result = await getWhatsAppStatus();
+        return { success: true, accounts: result.accounts };
+      }
+
+      case 'init_whatsapp': {
+        const { accountId } = args;
+        const result = await initWhatsApp(accountId);
+        return { success: result, message: result ? `Successfully initiated WhatsApp linking for ${accountId}.` : `Failed to initiate WhatsApp linking for ${accountId}.` };
+      }
+
+      case 'logout_whatsapp': {
+        const { accountId } = args;
+        const result = await logoutWhatsApp(accountId);
+        return { success: result, message: result ? `Successfully disconnected WhatsApp account ${accountId}.` : `Failed to disconnect WhatsApp account ${accountId}.` };
+      }
+
+      case 'get_whatsapp_contacts': {
+        const { accountId } = args;
+        const results = await getWhatsAppContacts(accountId);
+        return { success: true, count: results.length, contacts: results };
+      }
+
+      case 'get_whatsapp_messages': {
+        const { accountId, jid } = args;
+        const results = await getWhatsAppMessages(accountId, jid);
+        return { success: true, count: results.length, messages: results };
+      }
+
+      case 'send_whatsapp_message': {
+        const { accountId, phone, message } = args;
+        const result = await sendWhatsAppMessage(accountId, phone, message);
+        return result;
+      }
+
+      case 'delete_whatsapp_message': {
+        const { accountId, jid, messageId, fromMe, everyone } = args;
+        const result = await deleteWhatsAppMessage(accountId, jid, messageId, fromMe, everyone);
+        return result;
+      }
+
       default:
         throw new Error(`Tool "${name}" is not implemented.`);
     }
@@ -783,12 +926,13 @@ const AIChat: React.FC = () => {
       let keepLooping = true;
       let loopCount = 0;
       let lastTextResponse = '';
+      let lastGeminiRes: any = null;
 
       while (keepLooping && loopCount < 5) {
         loopCount++;
 
-        // Start streaming: create a placeholder message and begin receiving chunks
         setStreamingContent('');
+        setStreamingThought('');
 
         const geminiRes = await sendToGeminiStream(
           updatedMessages,
@@ -798,10 +942,16 @@ const AIChat: React.FC = () => {
           (chunk) => {
             setStreamingContent(chunk);
           },
-          apiKey
+          apiKey,
+          (thoughtChunk) => {
+            setStreamingThought(thoughtChunk);
+          },
+          chatMode
         );
+        lastGeminiRes = geminiRes;
 
         setStreamingContent(null);
+        setStreamingThought(null);
 
         if (geminiRes.functionCall) {
           const modelCallMsg: ChatMessage = {
@@ -883,6 +1033,7 @@ const AIChat: React.FC = () => {
         const finalModelMsg: ChatMessage = {
           role: 'model',
           content: lastTextResponse,
+          thought: lastGeminiRes?.thought,
           timestamp: new Date().toISOString(),
         };
 
@@ -893,6 +1044,7 @@ const AIChat: React.FC = () => {
       }
     } catch (err: any) {
       setStreamingContent(null);
+      setStreamingThought(null);
       const errorMsg: ChatMessage = {
         role: 'model',
         content: `⚠️ **Error:** ${err.message || 'Could not reach the AI model. Please check your connection and API key.'}`,
@@ -902,6 +1054,7 @@ const AIChat: React.FC = () => {
       toast.error('AI request failed. Check console for details.');
     } finally {
       setStreamingContent(null);
+      setStreamingThought(null);
       setIsLoading(false);
       setTimeout(() => inputRef.current?.focus(), 100);
     }
@@ -915,6 +1068,189 @@ const AIChat: React.FC = () => {
       await clearSession(user.uid, sessionId);
     }
     toast.success('Chat cleared');
+  };
+
+  // ── Chat Export & Screenshot Logic ────────────────────────────────────────
+  const handleExecuteExport = async () => {
+    if (selectedMsgIndices.size === 0) return;
+    setIsExporting(true);
+
+    try {
+      const selectedMsgs = messages.filter((_, idx) => selectedMsgIndices.has(idx));
+
+      if (exportFormat === 'md') {
+        let mdText = `# Ledger AI Chat Transcript\n\n`;
+        mdText += `*Generated on: ${new Date().toLocaleString()}*\n\n`;
+        mdText += `---\n\n`;
+
+        selectedMsgs.forEach(msg => {
+          const roleName = msg.role === 'user' ? 'User' : 'AI Assistant';
+          mdText += `### **${roleName}** *(${new Date(msg.timestamp).toLocaleTimeString()})*\n\n`;
+          if (msg.thought) {
+            mdText += `> **Thinking Process:**\n> ${msg.thought.replace(/\n/g, '\n> ')}\n\n`;
+          }
+          mdText += `${msg.content}\n\n`;
+          if (msg.imageUrl) {
+            mdText += `![Attachment](${msg.imageUrl})\n\n`;
+          }
+          mdText += `---\n\n`;
+        });
+
+        const blob = new Blob([mdText], { type: 'text/markdown;charset=utf-8;' });
+        const url = URL.createObjectURL(blob);
+        const link = document.createElement('a');
+        link.href = url;
+        link.download = `chat_export_${sessionId}.md`;
+        link.click();
+        URL.revokeObjectURL(url);
+        toast.success('Markdown transcript downloaded successfully!');
+        setIsExportMode(false);
+      } 
+      else if (exportFormat === 'pdf') {
+        const { jsPDF } = await import('jspdf');
+        const doc = new jsPDF({
+          orientation: 'portrait',
+          unit: 'mm',
+          format: 'a4'
+        });
+
+        let y = 20;
+        doc.setFont('helvetica', 'bold');
+        doc.setFontSize(16);
+        doc.text('Ledger AI Chat Transcript', 20, y);
+        y += 10;
+        
+        doc.setFontSize(9);
+        doc.setFont('helvetica', 'normal');
+        doc.text(`Exported on: ${new Date().toLocaleString()}`, 20, y);
+        y += 15;
+
+        selectedMsgs.forEach((msg) => {
+          if (y > 270) {
+            doc.addPage();
+            y = 20;
+          }
+
+          doc.setFont('helvetica', 'bold');
+          doc.setFontSize(10);
+          const roleName = msg.role === 'user' ? 'User' : 'AI Assistant';
+          const timeStr = new Date(msg.timestamp).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+          doc.text(`${roleName} (${timeStr})`, 20, y);
+          y += 6;
+
+          if (msg.thought) {
+            if (y > 270) {
+              doc.addPage();
+              y = 20;
+            }
+            doc.setFont('helvetica', 'italic');
+            doc.setFontSize(8.5);
+            doc.setTextColor(120, 120, 120);
+            
+            const thoughtText = `Thinking Process:\n${msg.thought}`;
+            const splitThought = doc.splitTextToSize(thoughtText, 170);
+            for (const line of splitThought) {
+              if (y > 270) {
+                doc.addPage();
+                y = 20;
+              }
+              doc.text(line, 20, y);
+              y += 4.5;
+            }
+            y += 4;
+            doc.setTextColor(0, 0, 0);
+          }
+
+          doc.setFont('helvetica', 'normal');
+          doc.setFontSize(9.5);
+          
+          const splitContent = doc.splitTextToSize(msg.content, 170);
+          for (const line of splitContent) {
+            if (y > 270) {
+              doc.addPage();
+              y = 20;
+            }
+            doc.text(line, 20, y);
+            y += 5.5;
+          }
+          
+          y += 8;
+        });
+
+        doc.save(`chat_export_${sessionId}.pdf`);
+        toast.success('PDF document downloaded successfully!');
+        setIsExportMode(false);
+      } 
+      else if (exportFormat === 'png') {
+        const container = document.getElementById('chat-messages-container');
+        if (!container) throw new Error('Chat messages container element not found.');
+
+        const html2canvas = (await import('html2canvas')).default;
+        const scale = pngQuality === '4k' ? 4 : 2;
+
+        const canvas = await html2canvas(container, {
+          scale,
+          useCORS: true,
+          logging: false,
+          scrollX: 0,
+          scrollY: -container.scrollTop,
+          height: container.scrollHeight,
+          windowHeight: container.scrollHeight,
+          backgroundColor: '#121212',
+          onclone: (clonedDoc) => {
+            const clonedContainer = clonedDoc.getElementById('chat-messages-container');
+            if (clonedContainer) {
+              clonedContainer.style.overflow = 'visible';
+              clonedContainer.style.height = 'auto';
+              clonedContainer.style.maxHeight = 'none';
+            }
+          }
+        });
+
+        const totalHeight = canvas.height;
+        const width = canvas.width;
+        const maxSliceHeight = 1800 * scale; 
+
+        if (totalHeight > maxSliceHeight) {
+          const numSlices = Math.ceil(totalHeight / maxSliceHeight);
+          toast.info(`Long chat detected! Saving as ${numSlices} separate images...`);
+
+          for (let i = 0; i < numSlices; i++) {
+            const sliceCanvas = document.createElement('canvas');
+            sliceCanvas.width = width;
+            sliceCanvas.height = Math.min(maxSliceHeight, totalHeight - i * maxSliceHeight);
+
+            const ctx = sliceCanvas.getContext('2d');
+            if (ctx) {
+              ctx.drawImage(
+                canvas,
+                0, i * maxSliceHeight, width, sliceCanvas.height,
+                0, 0, width, sliceCanvas.height
+              );
+
+              const link = document.createElement('a');
+              link.download = `chat_screenshot_${sessionId}_part_${i + 1}.png`;
+              link.href = sliceCanvas.toDataURL('image/png');
+              link.click();
+            }
+          }
+          toast.success(`Exported ${numSlices} screenshots!`);
+        } else {
+          const link = document.createElement('a');
+          link.download = `chat_screenshot_${sessionId}.png`;
+          link.href = canvas.toDataURL('image/png');
+          link.click();
+          toast.success('Screenshot downloaded successfully!');
+        }
+
+        setIsExportMode(false);
+      }
+    } catch (e: any) {
+      console.error('[Export Error]:', e);
+      toast.error(`Export failed: ${e.message || 'Unknown error'}`);
+    } finally {
+      setIsExporting(false);
+    }
   };
 
   // ── Refresh snapshot ─────────────────────────────────────────────────────
@@ -1071,6 +1407,19 @@ const AIChat: React.FC = () => {
           </div>
 
           <div className="flex items-center gap-1">
+            {messages.length > 0 && (
+              <button
+                onClick={() => setIsExportMode(prev => !prev)}
+                title="Export or screenshot conversation"
+                className={`p-2 rounded-xl transition-all ${
+                  isExportMode
+                    ? 'text-primary bg-primary/10'
+                    : 'text-muted-foreground hover:text-primary hover:bg-primary/10'
+                }`}
+              >
+                <Download size={16} />
+              </button>
+            )}
             <button
               onClick={handleRefreshSnapshot}
               disabled={snapshotLoading}
@@ -1091,8 +1440,84 @@ const AIChat: React.FC = () => {
           </div>
         </div>
 
+        {/* ── Export Controls Panel ── */}
+        {isExportMode && (
+          <div className="bg-primary/5 border-b border-border/80 p-3.5 flex flex-col md:flex-row md:items-center justify-between gap-3 animate-in slide-in-from-top duration-200 text-xs shrink-0">
+            <div className="flex flex-wrap items-center gap-4">
+              <div>
+                <span className="font-bold text-foreground">Export Chat:</span>
+                <span className="ml-1 text-muted-foreground">({selectedMsgIndices.size} of {messages.length} messages selected)</span>
+              </div>
+              <div className="flex items-center gap-1 bg-muted/60 p-0.5 rounded-lg border border-border/50">
+                {(['png', 'pdf', 'md'] as const).map(fmt => (
+                  <button
+                    key={fmt}
+                    onClick={() => setExportFormat(fmt)}
+                    className={`px-2.5 py-1 rounded-md font-bold uppercase text-[10px] tracking-wider transition-all ${
+                      exportFormat === fmt
+                        ? 'bg-card text-foreground shadow-sm'
+                        : 'text-muted-foreground hover:text-foreground'
+                    }`}
+                  >
+                    {fmt}
+                  </button>
+                ))}
+              </div>
+
+              {exportFormat === 'png' && (
+                <div className="flex items-center gap-1.5">
+                  <span className="text-[10px] font-bold text-muted-foreground uppercase tracking-wider">Quality:</span>
+                  <div className="flex items-center gap-1 bg-muted/60 p-0.5 rounded-lg border border-border/50">
+                    {(['hd', '4k'] as const).map(q => (
+                      <button
+                        key={q}
+                        onClick={() => setPngQuality(q)}
+                        className={`px-2 py-0.5 rounded-md font-bold uppercase text-[9px] tracking-wider transition-all ${
+                          pngQuality === q
+                            ? 'bg-card text-foreground shadow-sm'
+                            : 'text-muted-foreground hover:text-foreground'
+                        }`}
+                      >
+                        {q}
+                      </button>
+                    ))}
+                  </div>
+                </div>
+              )}
+            </div>
+
+            <div className="flex items-center gap-2 self-end md:self-auto">
+              <button
+                type="button"
+                onClick={() => setIsExportMode(false)}
+                className="px-3 py-1.5 hover:bg-muted text-muted-foreground rounded-xl transition-all font-bold"
+              >
+                Cancel
+              </button>
+              <button
+                type="button"
+                disabled={selectedMsgIndices.size === 0 || isExporting}
+                onClick={handleExecuteExport}
+                className="px-3 py-1.5 bg-primary text-primary-foreground hover:opacity-90 active:scale-95 rounded-xl transition-all font-bold flex items-center gap-1 animate-pulse"
+              >
+                {isExporting ? (
+                  <>
+                    <Loader2 size={12} className="animate-spin" />
+                    <span>Processing...</span>
+                  </>
+                ) : (
+                  <>
+                    <Camera size={12} />
+                    <span>Export</span>
+                  </>
+                )}
+              </button>
+            </div>
+          </div>
+        )}
+
         {/* ── Chat Body ── */}
-        <div className="flex-1 overflow-y-auto p-4 space-y-4">
+        <div id="chat-messages-container" className="flex-1 overflow-y-auto p-4 space-y-4">
 
           {/* Loading skeleton */}
           {!isReady && (
@@ -1160,18 +1585,44 @@ const AIChat: React.FC = () => {
               key={idx}
               msg={msg}
               isLatest={idx === messages.length - 1}
+              isExportMode={isExportMode}
+              isSelected={selectedMsgIndices.has(idx)}
+              onToggle={() => {
+                const next = new Set(selectedMsgIndices);
+                if (next.has(idx)) {
+                  next.delete(idx);
+                } else {
+                  next.add(idx);
+                }
+                setSelectedMsgIndices(next);
+              }}
             />
           ))}
 
           {/* Streaming message (live-updating response) */}
-          {isLoading && streamingContent !== null ? (
+          {isLoading && (streamingContent !== null || streamingThought !== null) ? (
             <div className={`flex items-end gap-2.5 justify-start animate-in fade-in duration-200`}>
               <div className="shrink-0 w-8 h-8 rounded-xl bg-primary/10 border border-primary/20 flex items-center justify-center text-primary">
                 <Bot size={15} />
               </div>
               <div className="max-w-[82%] rounded-2xl rounded-bl-sm px-4 py-3 shadow-sm border bg-card text-foreground border-border">
-                <MarkdownContent content={streamingContent} />
-                <span className="inline-block w-1.5 h-4 bg-primary ml-0.5 animate-pulse" />
+                {streamingThought && (
+                  <div className="mb-2 border-l-2 border-primary/30 pl-2 text-[10px] text-muted-foreground bg-muted/10 rounded-xl p-2 border border-border/30">
+                    <div className="flex items-center gap-1 font-bold py-0.5">
+                      <Bot size={10} className="animate-spin text-primary" />
+                      <span>Thinking...</span>
+                    </div>
+                    <div className="mt-1 font-mono text-[9px] leading-normal whitespace-pre-wrap max-h-24 overflow-y-auto">
+                      {streamingThought}
+                    </div>
+                  </div>
+                )}
+                {streamingContent !== null && (
+                  <>
+                    <MarkdownContent content={streamingContent} />
+                    <span className="inline-block w-1.5 h-4 bg-primary ml-0.5 animate-pulse" />
+                  </>
+                )}
               </div>
             </div>
           ) : isLoading && <TypingIndicator />}
@@ -1282,6 +1733,29 @@ const AIChat: React.FC = () => {
               title={isRecording ? 'Stop listening' : 'Record voice command'}
             >
               {isRecording ? <MicOff size={18} className="animate-bounce text-red-500" /> : <Mic size={18} />}
+            </button>
+            <button
+              type="button"
+              onClick={handleToggleChatMode}
+              disabled={isLoading || isUploadingImage || !apiKey || snapshotLoading}
+              title={`Switch to ${chatMode === 'thinking' ? 'Fast' : 'Thinking'} Mode`}
+              className={`px-3 py-3 border rounded-xl flex items-center justify-center gap-1.5 transition-all text-xs font-bold uppercase tracking-wider select-none ${
+                chatMode === 'thinking'
+                  ? 'bg-primary/10 border-primary/20 text-primary shadow-[0_0_10px_rgba(var(--primary-rgb),0.1)]'
+                  : 'bg-muted/40 hover:bg-muted text-muted-foreground border-border'
+              }`}
+            >
+              {chatMode === 'thinking' ? (
+                <>
+                  <Brain size={16} className="text-primary animate-bounce duration-1000" />
+                  <span className="hidden sm:inline">Thinking</span>
+                </>
+              ) : (
+                <>
+                  <Zap size={16} className="text-amber-500 fill-amber-500/20" />
+                  <span className="hidden sm:inline">Fast</span>
+                </>
+              )}
             </button>
             <button
               type="submit"

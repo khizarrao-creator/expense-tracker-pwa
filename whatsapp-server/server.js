@@ -592,6 +592,56 @@ app.post('/send', async (req, res) => {
   }
 });
 
+// Delete message
+app.post('/delete-message', async (req, res) => {
+  const { accountId, jid, messageId, fromMe, everyone } = req.body;
+
+  if (!accountId || !jid || !messageId) {
+    return res.status(400).json({ success: false, error: 'Missing accountId, jid, or messageId parameter' });
+  }
+
+  const session = sessions[accountId];
+  if (!session) {
+    return res.status(404).json({ success: false, error: `Session '${accountId}' not found` });
+  }
+
+  try {
+    if (everyone) {
+      if (session.status !== 'connected' || !session.sock) {
+        return res.status(400).json({ success: false, error: `WhatsApp account '${session.name}' is not connected` });
+      }
+
+      console.log(`[${accountId}] Deleting message ${messageId} for everyone in ${jid}...`);
+      await session.sock.sendMessage(jid, {
+        delete: {
+          remoteJid: jid,
+          fromMe: fromMe === undefined ? true : fromMe,
+          id: messageId
+        }
+      });
+    } else {
+      console.log(`[${accountId}] Deleting message ${messageId} locally for me...`);
+    }
+
+    // Always remove from local message history
+    if (messageStore[accountId] && messageStore[accountId][jid]) {
+      messageStore[accountId][jid] = messageStore[accountId][jid].filter(m => m.id !== messageId);
+      saveHistory(accountId);
+    }
+
+    // Broadcast deletion event via SSE
+    broadcastToClients({
+      event: 'delete-message',
+      data: { accountId, jid, messageId }
+    });
+
+    res.json({ success: true });
+  } catch (error) {
+    console.error(`[${accountId}] Failed to delete message:`, error);
+    res.status(500).json({ success: false, error: error.message || 'Failed to delete WhatsApp message' });
+  }
+});
+
 // 3. Logout / Unlink account
 app.post('/logout', async (req, res) => {
   const { accountId } = req.body;

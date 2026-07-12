@@ -26,7 +26,7 @@ interface GeminiResponseData {
   }[];
 }
 
-const buildGroundingTools = (modelId: string, tools: ToolInfo[]): any[] => {
+const buildGroundingTools = (_modelId: string, tools: ToolInfo[]): any[] => {
   const groundingTools: any[] = [];
 
   for (const tool of tools) {
@@ -60,28 +60,47 @@ const executeWithModel = async (
   availableTools: ToolInfo[]
 ): Promise<GeminiResponseData> => {
   const apiKey = getApiKey();
-  const apiUrl = `${GEMINI_BASE_URL}/${model.apiName}:generateContent`;
+  const isGemma = model.apiName.startsWith('gemma');
+  const baseUrl = isGemma
+    ? 'https://generativelanguage.googleapis.com/v1/models'
+    : GEMINI_BASE_URL;
+  const apiUrl = `${baseUrl}/${model.apiName}:generateContent`;
+
+  let adjustedContents = contents;
+  if (isGemma && systemInstruction) {
+    adjustedContents = contents.map((c, idx) => {
+      if (idx === 0 && c.role === 'user' && c.parts && c.parts.length > 0 && c.parts[0].text) {
+        return {
+          ...c,
+          parts: [{ ...c.parts[0], text: `${systemInstruction}\n\nUser Query:\n${c.parts[0].text}` }, ...c.parts.slice(1)]
+        };
+      }
+      return c;
+    });
+  }
 
   const body: GeminiRequestBody = {
-    contents,
+    contents: adjustedContents,
     generationConfig: {
       temperature: options.temperature ?? model.temperature ?? 0.4,
       maxOutputTokens: options.maxOutputTokens ?? model.maxOutputTokens ?? 2048,
     },
   };
 
-  if (systemInstruction) {
+  if (systemInstruction && !isGemma) {
     body.systemInstruction = { parts: [{ text: systemInstruction }] };
   }
 
-  const toolsPayload = buildToolsPayload(model.id, availableTools);
-  if (toolsPayload.length > 0) {
-    body.tools = toolsPayload;
-  }
+  if (!isGemma) {
+    const toolsPayload = buildToolsPayload(model.id, availableTools);
+    if (toolsPayload.length > 0) {
+      body.tools = toolsPayload;
+    }
 
-  if (functionDeclarations && functionDeclarations.length > 0) {
-    if (!body.tools) body.tools = [];
-    body.tools.push({ functionDeclarations });
+    if (functionDeclarations && functionDeclarations.length > 0) {
+      if (!body.tools) body.tools = [];
+      body.tools.push({ functionDeclarations });
+    }
   }
 
   try {

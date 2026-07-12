@@ -11,11 +11,20 @@ import { v4 as uuidv4 } from 'uuid';
 
 import { getCachedSnapshot, invalidateAICache, type FinancialSnapshot } from '../services/aiDataService';
 import {
-  loadSession, saveMessage, clearSession, sendToGemini, sendToGeminiStream,
+  loadSession, saveMessage, clearSession, sendToGeminiStream,
   type ChatMessage
 } from '../services/aiChatService';
 import { getModelRegistry, getModelById } from '../services/ai/modelRegistry';
 import { uploadToCloudinary } from '../services/cloudinaryService';
+import {
+  getWhatsAppStatus,
+  initWhatsApp,
+  logoutWhatsApp,
+  getWhatsAppContacts,
+  getWhatsAppMessages,
+  sendWhatsAppMessage,
+  deleteWhatsAppMessage
+} from '../services/whatsappService';
 import {
   addTransaction,
   updateTransaction,
@@ -64,6 +73,8 @@ const CompactMarkdown: React.FC<{ content: string }> = ({ content }) => {
 
 // ─── Message Item ───────────────────────────────────────────────────────────
 const MessageItem: React.FC<{ msg: ChatMessage }> = ({ msg }) => {
+  const [isThoughtExpanded, setIsThoughtExpanded] = useState(false);
+
   if (msg.functionCall) {
     return (
       <div className="flex justify-start pl-8 my-0.5 w-full">
@@ -106,6 +117,24 @@ const MessageItem: React.FC<{ msg: ChatMessage }> = ({ msg }) => {
         {msg.imageUrl && (
           <div className="mb-1.5 max-w-full overflow-hidden rounded-lg border border-border/30 bg-muted/20">
             <img src={msg.imageUrl} alt="Receipt attachment" className="max-h-40 w-auto object-contain rounded-md" />
+          </div>
+        )}
+        {!isUser && msg.thought && (
+          <div className="mb-2 border-l-2 border-primary/30 pl-2 text-[10px] text-muted-foreground bg-muted/10 rounded p-1.5 border border-border/30">
+            <button
+              type="button"
+              onClick={() => setIsThoughtExpanded(!isThoughtExpanded)}
+              className="flex items-center gap-1 font-bold hover:text-foreground transition-colors py-0.5"
+            >
+              <Bot size={10} className={isThoughtExpanded ? "text-primary" : "text-muted-foreground animate-pulse"} />
+              <span>{isThoughtExpanded ? 'Hide thinking process' : 'View thinking process'}</span>
+              <ChevronDown size={10} className={`transform transition-transform duration-200 ${isThoughtExpanded ? 'rotate-180' : ''}`} />
+            </button>
+            {isThoughtExpanded && (
+              <div className="mt-1 font-mono text-[9px] leading-normal whitespace-pre-wrap max-h-36 overflow-y-auto border-t border-border/25 pt-1 text-muted-foreground/90">
+                {msg.thought}
+              </div>
+            )}
           </div>
         )}
         {isUser ? (
@@ -157,6 +186,7 @@ export const GlobalAIAssistant: React.FC = () => {
 
   // Streaming state
   const [streamingContent, setStreamingContent] = useState<string | null>(null);
+  const [streamingThought, setStreamingThought] = useState<string | null>(null);
 
   // Model selector state
   const models = getModelRegistry().filter(m => m.capabilities.includes('chat'));
@@ -570,6 +600,47 @@ export const GlobalAIAssistant: React.FC = () => {
         return { success: true, count: results.length, categories: results };
       }
 
+      case 'get_whatsapp_status': {
+        const result = await getWhatsAppStatus();
+        return { success: true, accounts: result.accounts };
+      }
+
+      case 'init_whatsapp': {
+        const { accountId } = args;
+        const result = await initWhatsApp(accountId);
+        return { success: result, message: result ? `Successfully initiated WhatsApp linking for ${accountId}.` : `Failed to initiate WhatsApp linking for ${accountId}.` };
+      }
+
+      case 'logout_whatsapp': {
+        const { accountId } = args;
+        const result = await logoutWhatsApp(accountId);
+        return { success: result, message: result ? `Successfully disconnected WhatsApp account ${accountId}.` : `Failed to disconnect WhatsApp account ${accountId}.` };
+      }
+
+      case 'get_whatsapp_contacts': {
+        const { accountId } = args;
+        const results = await getWhatsAppContacts(accountId);
+        return { success: true, count: results.length, contacts: results };
+      }
+
+      case 'get_whatsapp_messages': {
+        const { accountId, jid } = args;
+        const results = await getWhatsAppMessages(accountId, jid);
+        return { success: true, count: results.length, messages: results };
+      }
+
+      case 'send_whatsapp_message': {
+        const { accountId, phone, message } = args;
+        const result = await sendWhatsAppMessage(accountId, phone, message);
+        return result;
+      }
+
+      case 'delete_whatsapp_message': {
+        const { accountId, jid, messageId, fromMe, everyone } = args;
+        const result = await deleteWhatsAppMessage(accountId, jid, messageId, fromMe, everyone);
+        return result;
+      }
+
       default:
         throw new Error(`Tool "${name}" is not implemented.`);
     }
@@ -630,12 +701,15 @@ export const GlobalAIAssistant: React.FC = () => {
       let keepLooping = true;
       let loopCount = 0;
       let lastTextResponse = '';
+      let lastGeminiRes: any = null;
 
       while (keepLooping && loopCount < 5) {
         loopCount++;
 
         setStreamingContent('');
-        let accumulatedText = '';
+        setStreamingThought('');
+
+        const chatMode = (localStorage.getItem('ai_chat_mode') as 'thinking' | 'fast') || 'thinking';
 
         const geminiRes = await sendToGeminiStream(
           updatedMessages,
@@ -643,13 +717,18 @@ export const GlobalAIAssistant: React.FC = () => {
           globalCurrency.code,
           globalCurrency.symbol,
           (chunk) => {
-            accumulatedText = chunk;
             setStreamingContent(chunk);
           },
-          apiKey
+          apiKey,
+          (thoughtChunk) => {
+            setStreamingThought(thoughtChunk);
+          },
+          chatMode
         );
+        lastGeminiRes = geminiRes;
 
         setStreamingContent(null);
+        setStreamingThought(null);
 
         if (geminiRes.functionCall) {
           const modelCallMsg: ChatMessage = {
@@ -731,6 +810,7 @@ export const GlobalAIAssistant: React.FC = () => {
         const finalModelMsg: ChatMessage = {
           role: 'model',
           content: lastTextResponse,
+          thought: lastGeminiRes?.thought,
           timestamp: new Date().toISOString(),
         };
 
@@ -741,6 +821,7 @@ export const GlobalAIAssistant: React.FC = () => {
       }
     } catch (err: any) {
       setStreamingContent(null);
+      setStreamingThought(null);
       const errorMsg: ChatMessage = {
         role: 'model',
         content: `⚠️ **Error:** ${err.message || 'AI error occurred.'}`,
@@ -907,14 +988,29 @@ export const GlobalAIAssistant: React.FC = () => {
               <MessageItem key={idx} msg={msg} />
             ))}
 
-            {isLoading && streamingContent !== null ? (
+            {isLoading && (streamingContent !== null || streamingThought !== null) ? (
               <div className="flex items-end gap-2 justify-start animate-in fade-in duration-200">
                 <div className="shrink-0 w-6 h-6 rounded-lg bg-primary/10 border border-primary/20 flex items-center justify-center text-primary">
                   <Bot size={12} />
                 </div>
                 <div className="max-w-[85%] rounded-xl rounded-bl-none px-3 py-2 shadow-sm border bg-card text-foreground border-border">
-                  <CompactMarkdown content={streamingContent} />
-                  <span className="inline-block w-1 h-3.5 bg-primary ml-0.5 animate-pulse" />
+                  {streamingThought && (
+                    <div className="mb-2 border-l-2 border-primary/30 pl-2 text-[10px] text-muted-foreground bg-muted/10 rounded p-1.5 border border-border/30">
+                      <div className="flex items-center gap-1 font-bold py-0.5">
+                        <Bot size={10} className="animate-spin text-primary" />
+                        <span>Thinking...</span>
+                      </div>
+                      <div className="mt-1 font-mono text-[9px] leading-normal whitespace-pre-wrap max-h-24 overflow-y-auto">
+                        {streamingThought}
+                      </div>
+                    </div>
+                  )}
+                  {streamingContent !== null && (
+                    <>
+                      <CompactMarkdown content={streamingContent} />
+                      <span className="inline-block w-1 h-3.5 bg-primary ml-0.5 animate-pulse" />
+                    </>
+                  )}
                 </div>
               </div>
             ) : isLoading && (

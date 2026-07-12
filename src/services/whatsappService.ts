@@ -205,3 +205,30 @@ export const syncAllWhatsAppStatuses = async (accountId: string): Promise<WhatsA
     return [];
   }
 };
+
+export const deleteWhatsAppMessage = async (
+  accountId: string,
+  jid: string,
+  messageId: string,
+  fromMe: boolean,
+  everyone: boolean
+): Promise<{ success: boolean; error?: string }> => {
+  try {
+    const response = await fetch('/whatsapp-api/delete-message', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json'
+      },
+      body: JSON.stringify({ accountId, jid, messageId, fromMe, everyone })
+    });
+    const data = await response.json();
+    if (!response.ok) {
+      throw new Error(data.error || 'Failed to delete message');
+    }
+    return data;
+  } catch (error) {
+    console.error('Failed to delete WhatsApp message:', error);
+    const errorMsg = error instanceof Error ? error.message : 'Network error';
+    return { success: false, error: errorMsg };
+  }
+};

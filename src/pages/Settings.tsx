@@ -182,7 +182,11 @@ const Settings: React.FC = () => {
   const handleTierChange = (tier: 'free' | 'pay_as_you_go') => {
     localStorage.setItem('ai_quota_tier', tier);
     setQuotaTier(tier);
-    toast.success(`Rate limit estimates configured for ${tier === 'free' ? 'Free Tier' : 'Pay-as-you-go'}`);
+    if (tier === 'pay_as_you_go') {
+      toast.info('Estimates set to Pay-As-You-Go. Note: These limits only apply if your API key is upgraded in Google AI Studio.');
+    } else {
+      toast.success('Estimates configured for Free Tier.');
+    }
   };
 
   React.useEffect(() => {
@@ -193,7 +197,7 @@ const Settings: React.FC = () => {
     window.addEventListener('ai_quota_updated', handleUpdate);
 
     // Periodically refresh to show cooling down of sliding window (RPM/TPM)
-    const interval = setInterval(handleUpdate, 5000);
+    const interval = setInterval(handleUpdate, 1000);
 
     return () => {
       window.removeEventListener('ai_quota_updated', handleUpdate);
@@ -929,29 +933,37 @@ const Settings: React.FC = () => {
         </p>
 
         {/* Tier Selector Buttons */}
-        <div className="flex gap-2 p-1 bg-muted/30 rounded-xl border border-border/50">
-          <button
-            type="button"
-            onClick={() => handleTierChange('free')}
-            className={`flex-1 py-2 text-xs font-bold rounded-lg transition-all ${
-              quotaTier === 'free'
-                ? 'bg-card text-foreground border border-border shadow-sm font-black'
-                : 'text-muted-foreground hover:text-foreground'
-            }`}
-          >
-            Free Tier
-          </button>
-          <button
-            type="button"
-            onClick={() => handleTierChange('pay_as_you_go')}
-            className={`flex-1 py-2 text-xs font-bold rounded-lg transition-all ${
-              quotaTier === 'pay_as_you_go'
-                ? 'bg-card text-foreground border border-border shadow-sm font-black'
-                : 'text-muted-foreground hover:text-foreground'
-            }`}
-          >
-            Pay-As-You-Go
-          </button>
+        <div className="space-y-2">
+          <div className="flex gap-2 p-1 bg-muted/30 rounded-xl border border-border/50">
+            <button
+              type="button"
+              onClick={() => handleTierChange('free')}
+              className={`flex-1 py-2 text-xs font-bold rounded-lg transition-all ${
+                quotaTier === 'free'
+                  ? 'bg-card text-foreground border border-border shadow-sm font-black'
+                  : 'text-muted-foreground hover:text-foreground'
+              }`}
+            >
+              Free Tier
+            </button>
+            <button
+              type="button"
+              onClick={() => handleTierChange('pay_as_you_go')}
+              className={`flex-1 py-2 text-xs font-bold rounded-lg transition-all ${
+                quotaTier === 'pay_as_you_go'
+                  ? 'bg-card text-foreground border border-border shadow-sm font-black'
+                  : 'text-muted-foreground hover:text-foreground'
+              }`}
+            >
+              Pay-As-You-Go
+            </button>
+          </div>
+          {quotaTier === 'pay_as_you_go' && (
+            <p className="text-[10px] text-amber-500 font-semibold px-1 leading-normal flex items-start gap-1">
+              <span>⚠️</span>
+              <span>These limits only apply if you have linked a billing account on Google AI Studio. Otherwise, your requests will still be capped at Free Tier limits.</span>
+            </p>
+          )}
         </div>
 
         {/* Limits Metrics progress bars */}

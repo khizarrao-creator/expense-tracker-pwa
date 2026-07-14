@@ -13,7 +13,7 @@ import { syncManager } from '../db/SyncManager';
 import ConfirmModal from '../components/ConfirmModal';
 import AdminTransitionOverlay from '../components/AdminTransitionOverlay';
 import { getWhatsAppStatus, logoutWhatsApp, initWhatsApp, type WhatsAppAccount } from '../services/whatsappService';
-import { saveCustomApiKey, clearCustomApiKey, getCustomApiKey } from '../services/ai';
+import { saveCustomApiKey, clearCustomApiKey, getCustomApiKey, getQuotaUsage, type QuotaStatus } from '../services/ai';
 
 const Settings: React.FC = () => {
   const { currency, setCurrency, currencies } = useCurrency();
@@ -40,6 +40,12 @@ const Settings: React.FC = () => {
   const [customApiKey, setCustomApiKey] = useState(() => getCustomApiKey());
   const [showCustomApiKey, setShowCustomApiKey] = useState(false);
   const [isSavingApiKey, setIsSavingApiKey] = useState(false);
+
+  // AI Quota & Rate Limit States
+  const [quotaUsage, setQuotaUsage] = useState<QuotaStatus>(() => getQuotaUsage());
+  const [quotaTier, setQuotaTier] = useState<'free' | 'pay_as_you_go'>(() => {
+    return (localStorage.getItem('ai_quota_tier') as 'free' | 'pay_as_you_go') || 'free';
+  });
 
   // Exchange Settings States
   const [isExchangeSettingsOpen, setIsExchangeSettingsOpen] = useState(false);
@@ -172,6 +178,28 @@ const Settings: React.FC = () => {
     setTheme(newTheme);
     toast.success(`${newTheme.charAt(0).toUpperCase() + newTheme.slice(1)} theme applied`);
   };
+
+  const handleTierChange = (tier: 'free' | 'pay_as_you_go') => {
+    localStorage.setItem('ai_quota_tier', tier);
+    setQuotaTier(tier);
+    toast.success(`Rate limit estimates configured for ${tier === 'free' ? 'Free Tier' : 'Pay-as-you-go'}`);
+  };
+
+  React.useEffect(() => {
+    const handleUpdate = () => {
+      setQuotaUsage(getQuotaUsage());
+    };
+
+    window.addEventListener('ai_quota_updated', handleUpdate);
+
+    // Periodically refresh to show cooling down of sliding window (RPM/TPM)
+    const interval = setInterval(handleUpdate, 5000);
+
+    return () => {
+      window.removeEventListener('ai_quota_updated', handleUpdate);
+      clearInterval(interval);
+    };
+  }, []);
 
   React.useEffect(() => {
     const loadData = async () => {
@@ -874,6 +902,168 @@ const Settings: React.FC = () => {
               </div>
               <ChevronRight size={18} className="text-muted-foreground group-hover:translate-x-1 transition-transform" />
             </button>
+          </div>
+        </div>
+      </div>
+
+      {/* AI Quota & Rate Limit Tracker Card */}
+      <div className="bg-card p-6 rounded-2xl shadow-sm border border-border space-y-6">
+        <div className="flex items-center justify-between border-b border-border pb-4">
+          <h2 className="text-lg font-semibold flex items-center gap-2">
+            <LayoutList size={20} className="text-primary" />
+            AI Quota & Rate Limit Tracker
+          </h2>
+          <a
+            href="https://aistudio.google.com/rate-limit"
+            target="_blank"
+            rel="noopener noreferrer"
+            className="text-xs text-primary font-bold hover:underline flex items-center gap-1 bg-primary/5 px-2.5 py-1.5 rounded-lg border border-primary/10 transition-all hover:bg-primary/10"
+          >
+            Google AI Studio Limits <ChevronRight size={12} />
+          </a>
+        </div>
+
+        {/* Custom description */}
+        <p className="text-xs text-muted-foreground leading-relaxed">
+          Google AI Studio limits are applied per API key. Below is an estimated real-time log of requests made from this browser. Toggle your tier to update the limit thresholds.
+        </p>
+
+        {/* Tier Selector Buttons */}
+        <div className="flex gap-2 p-1 bg-muted/30 rounded-xl border border-border/50">
+          <button
+            type="button"
+            onClick={() => handleTierChange('free')}
+            className={`flex-1 py-2 text-xs font-bold rounded-lg transition-all ${
+              quotaTier === 'free'
+                ? 'bg-card text-foreground border border-border shadow-sm font-black'
+                : 'text-muted-foreground hover:text-foreground'
+            }`}
+          >
+            Free Tier
+          </button>
+          <button
+            type="button"
+            onClick={() => handleTierChange('pay_as_you_go')}
+            className={`flex-1 py-2 text-xs font-bold rounded-lg transition-all ${
+              quotaTier === 'pay_as_you_go'
+                ? 'bg-card text-foreground border border-border shadow-sm font-black'
+                : 'text-muted-foreground hover:text-foreground'
+            }`}
+          >
+            Pay-As-You-Go
+          </button>
+        </div>
+
+        {/* Limits Metrics progress bars */}
+        <div className="space-y-4">
+          {/* Requests Per Minute (RPM) */}
+          <div className="space-y-1.5">
+            <div className="flex justify-between text-xs font-bold">
+              <span className="text-foreground">Requests Per Minute (RPM)</span>
+              <span className="text-muted-foreground">
+                {quotaUsage.rpm} / {quotaTier === 'free' ? 15 : 1000} requests
+              </span>
+            </div>
+            <div className="h-2 w-full bg-muted/60 rounded-full overflow-hidden border border-border/20">
+              <div
+                className={`h-full transition-all duration-500 rounded-full ${
+                  quotaUsage.rpm >= (quotaTier === 'free' ? 12 : 800)
+                    ? 'bg-red-500 shadow-[0_0_8px_rgba(239,68,68,0.4)]'
+                    : quotaUsage.rpm >= (quotaTier === 'free' ? 8 : 500)
+                    ? 'bg-amber-500 shadow-[0_0_8px_rgba(245,158,11,0.4)]'
+                    : 'bg-primary'
+                }`}
+                style={{
+                  width: `${Math.min(100, (quotaUsage.rpm / (quotaTier === 'free' ? 15 : 1000)) * 100)}%`
+                }}
+              />
+            </div>
+            <p className="text-[10px] text-muted-foreground/80">
+              Sliding 60-second window. Resets automatically.
+            </p>
+          </div>
+
+          {/* Tokens Per Minute (TPM) */}
+          <div className="space-y-1.5">
+            <div className="flex justify-between text-xs font-bold">
+              <span className="text-foreground">Estimated Tokens Per Minute (TPM)</span>
+              <span className="text-muted-foreground">
+                {quotaUsage.tpm.toLocaleString()} / {quotaTier === 'free' ? '1,000,000' : '4,000,000'} TPM
+              </span>
+            </div>
+            <div className="h-2 w-full bg-muted/60 rounded-full overflow-hidden border border-border/20">
+              <div
+                className={`h-full transition-all duration-500 rounded-full ${
+                  quotaUsage.tpm >= (quotaTier === 'free' ? 800000 : 3200000)
+                    ? 'bg-red-500 shadow-[0_0_8px_rgba(239,68,68,0.4)]'
+                    : quotaUsage.tpm >= (quotaTier === 'free' ? 500000 : 2000000)
+                    ? 'bg-amber-500 shadow-[0_0_8px_rgba(245,158,11,0.4)]'
+                    : 'bg-emerald-500'
+                }`}
+                style={{
+                  width: `${Math.min(100, (quotaUsage.tpm / (quotaTier === 'free' ? 1000000 : 4000000)) * 100)}%`
+                }}
+              />
+            </div>
+            <p className="text-[10px] text-muted-foreground/80">
+              Estimated tokens (1 token ≈ 4 characters).
+            </p>
+          </div>
+
+          {/* Requests Per Day (RPD) */}
+          <div className="space-y-1.5">
+            <div className="flex justify-between text-xs font-bold">
+              <span className="text-foreground">Requests Per Day (RPD)</span>
+              <span className="text-muted-foreground">
+                {quotaUsage.rpd} / {quotaTier === 'free' ? 1500 : 'Unlimited'} requests
+              </span>
+            </div>
+            {quotaTier === 'free' ? (
+              <div className="h-2 w-full bg-muted/60 rounded-full overflow-hidden border border-border/20">
+                <div
+                  className={`h-full transition-all duration-500 rounded-full ${
+                    quotaUsage.rpd >= 1200
+                      ? 'bg-red-500 shadow-[0_0_8px_rgba(239,68,68,0.4)]'
+                      : quotaUsage.rpd >= 800
+                      ? 'bg-amber-500 shadow-[0_0_8px_rgba(245,158,11,0.4)]'
+                      : 'bg-indigo-500'
+                  }`}
+                  style={{
+                    width: `${Math.min(100, (quotaUsage.rpd / 1500) * 100)}%`
+                  }}
+                />
+              </div>
+            ) : (
+              <div className="h-2 w-full bg-muted/30 border border-dashed border-border rounded-full flex items-center justify-center text-[9px] text-muted-foreground font-bold">
+                No Daily Cap on Pay-As-You-Go
+              </div>
+            )}
+            <p className="text-[10px] text-muted-foreground/80">
+              Resets at midnight local time.
+            </p>
+          </div>
+        </div>
+
+        {/* Reference Rates Table */}
+        <div className="bg-muted/20 border border-border rounded-xl p-4 space-y-3">
+          <h3 className="text-xs font-bold text-foreground">Standard AI Studio Rate Limits (Free Tier)</h3>
+          <div className="text-[11px] leading-relaxed space-y-2 text-muted-foreground">
+            <div className="flex justify-between border-b border-border/30 pb-1.5">
+              <span className="font-semibold text-foreground">Gemini 2.5 Flash</span>
+              <span>15 RPM / 1M TPM / 1,500 RPD</span>
+            </div>
+            <div className="flex justify-between border-b border-border/30 pb-1.5">
+              <span className="font-semibold text-foreground">Gemini 3.1 Flash Lite</span>
+              <span>30 RPM / 1M TPM / 1,500 RPD</span>
+            </div>
+            <div className="flex justify-between border-b border-border/30 pb-1.5">
+              <span className="font-semibold text-foreground">Gemini 3.5 Pro</span>
+              <span>2 RPM / 32K TPM / 50 RPD</span>
+            </div>
+            <div className="flex justify-between">
+              <span className="font-semibold text-foreground">Gemma 2 (All versions)</span>
+              <span>15 RPM / 1M TPM / 1,500 RPD</span>
+            </div>
           </div>
         </div>
       </div>

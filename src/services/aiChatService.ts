@@ -13,7 +13,7 @@ import {
 } from 'firebase/firestore';
 import type { FinancialSnapshot } from './aiDataService';
 import { formatSnapshotForAI } from './aiDataService';
-import { getApiKey, markModelUnavailable } from './ai';
+import { getApiKey, markModelUnavailable, recordApiRequest } from './ai';
 import { selectModelChain } from './ai/router';
 import { resolveModel } from './ai/modelRegistry';
 
@@ -1069,8 +1069,18 @@ export const sendToGeminiStream = async (
       }
 
       if (functionCallResult) {
+        const totalChars = systemInstruction.length + 
+          messages.reduce((acc, m) => acc + (m.content?.length || 0), 0) + 
+          JSON.stringify(functionCallResult).length;
+        recordApiRequest(Math.ceil(totalChars / 4));
         return { functionCall: functionCallResult };
       }
+
+      const totalChars = systemInstruction.length + 
+        messages.reduce((acc, m) => acc + (m.content?.length || 0), 0) + 
+        accumulatedText.length + 
+        accumulatedThought.length;
+      recordApiRequest(Math.ceil(totalChars / 4));
 
       return { text: accumulatedText, thought: accumulatedThought || undefined };
     } catch (error: any) {

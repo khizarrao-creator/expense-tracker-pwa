@@ -13,6 +13,7 @@ import { syncManager } from '../db/SyncManager';
 import ConfirmModal from '../components/ConfirmModal';
 import AdminTransitionOverlay from '../components/AdminTransitionOverlay';
 import { getWhatsAppStatus, logoutWhatsApp, initWhatsApp, type WhatsAppAccount } from '../services/whatsappService';
+import { saveCustomApiKey, clearCustomApiKey, getCustomApiKey } from '../services/ai';
 
 const Settings: React.FC = () => {
   const { currency, setCurrency, currencies } = useCurrency();
@@ -34,6 +35,11 @@ const Settings: React.FC = () => {
   const [isSavingUsername, setIsSavingUsername] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const [showAdminTransition, setShowAdminTransition] = useState(false);
+
+  // Custom API Key States
+  const [customApiKey, setCustomApiKey] = useState(() => getCustomApiKey());
+  const [showCustomApiKey, setShowCustomApiKey] = useState(false);
+  const [isSavingApiKey, setIsSavingApiKey] = useState(false);
 
   // Exchange Settings States
   const [isExchangeSettingsOpen, setIsExchangeSettingsOpen] = useState(false);
@@ -307,6 +313,32 @@ const Settings: React.FC = () => {
       toast.error('Failed to update username');
     } finally {
       setIsSavingUsername(false);
+    }
+  };
+
+  const handleSaveApiKey = () => {
+    setIsSavingApiKey(true);
+    try {
+      saveCustomApiKey(customApiKey.trim());
+      toast.success('Gemini API Key override updated');
+    } catch (e) {
+      toast.error('Failed to update API Key');
+    } finally {
+      setIsSavingApiKey(false);
+    }
+  };
+
+  const handleClearApiKey = () => {
+    if (!confirm('Are you sure you want to remove the API Key override?')) return;
+    setIsSavingApiKey(true);
+    try {
+      clearCustomApiKey();
+      setCustomApiKey('');
+      toast.success('API Key override removed. Falling back to default system key.');
+    } catch (e) {
+      toast.error('Failed to remove API Key override');
+    } finally {
+      setIsSavingApiKey(false);
     }
   };
 
@@ -772,6 +804,55 @@ const Settings: React.FC = () => {
               <span className="text-xs font-bold uppercase tracking-wider">Always Auto-Approve</span>
               <span className="text-[10px] opacity-80 mt-0.5 text-center leading-tight">Execute updates and deletes instantly</span>
             </button>
+          </div>
+
+          {/* Client-Side API Key Override */}
+          <div className="pt-4 border-t border-border/50 space-y-3">
+            <div>
+              <label className="block text-xs font-bold uppercase tracking-widest text-muted-foreground mb-2 ml-1">
+                Gemini API Key Client-Side Override
+              </label>
+              <p className="text-xs text-muted-foreground mb-3 leading-relaxed">
+                Provide your own Gemini API Key to run AI features directly in your browser. This overrides any default host key and is stored locally on this device.
+              </p>
+              <div className="flex gap-2">
+                <div className="relative flex-1">
+                  <div className="absolute left-3.5 top-1/2 -translate-y-1/2 text-muted-foreground">
+                    <Key size={16} />
+                  </div>
+                  <input
+                    type={showCustomApiKey ? 'text' : 'password'}
+                    value={customApiKey}
+                    onChange={(e) => setCustomApiKey(e.target.value)}
+                    placeholder="Enter your Gemini API Key..."
+                    className="w-full pl-11 pr-10 py-2.5 bg-background/50 border border-border rounded-xl focus:outline-none focus:ring-2 focus:ring-primary outline-none transition-all text-sm font-mono text-foreground"
+                  />
+                  <button
+                    type="button"
+                    onClick={() => setShowCustomApiKey(!showCustomApiKey)}
+                    className="absolute right-3.5 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground transition-colors"
+                  >
+                    {showCustomApiKey ? <EyeOff size={16} /> : <Eye size={16} />}
+                  </button>
+                </div>
+                <button
+                  onClick={handleSaveApiKey}
+                  disabled={isSavingApiKey}
+                  className="px-5 py-2.5 bg-primary text-primary-foreground rounded-xl font-bold hover:shadow-lg hover:opacity-95 transition-all disabled:opacity-50 text-xs shadow-md shrink-0"
+                >
+                  Save
+                </button>
+                {localStorage.getItem('user_gemini_api_key') && (
+                  <button
+                    onClick={handleClearApiKey}
+                    disabled={isSavingApiKey}
+                    className="px-4 py-2.5 bg-destructive/10 text-destructive rounded-xl font-bold hover:bg-destructive/20 transition-all disabled:opacity-50 text-xs shrink-0"
+                  >
+                    Clear
+                  </button>
+                )}
+              </div>
+            </div>
           </div>
 
           <div className="pt-4 border-t border-border/50">

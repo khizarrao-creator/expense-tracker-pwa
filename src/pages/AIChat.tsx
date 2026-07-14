@@ -17,7 +17,7 @@ import {
   listSessions, deleteSession,
   type ChatMessage
 } from '../services/aiChatService';
-import { getModelRegistry, getModelById } from '../services/ai/modelRegistry';
+import { getModelRegistry, getModelById, getApiKey } from '../services/ai';
 import { uploadToCloudinary } from '../services/cloudinaryService';
 import {
   getWhatsAppStatus,
@@ -251,7 +251,7 @@ const AIChat: React.FC = () => {
   const { currency: globalCurrency } = useCurrency();
   const { user } = useAuth();
 
-  const apiKey = import.meta.env.VITE_GEMINI_API_KEY as string | undefined;
+  const apiKey = getApiKey() || undefined;
 
   // Session
   const [sessionId, setSessionId] = useState<string>(() => {
@@ -1633,9 +1633,18 @@ const AIChat: React.FC = () => {
         {/* ── Input Area ── */}
         <div className="p-4 border-t border-border shrink-0 bg-card">
           {!apiKey && (
-            <div className="mb-3 p-3 bg-destructive/10 border border-destructive/20 text-destructive rounded-xl text-xs font-semibold flex items-center gap-2">
-              <AlertTriangle size={14} />
-              Gemini API Key is missing. Add <code className="font-mono bg-destructive/10 px-1 rounded">VITE_GEMINI_API_KEY</code> to your <code className="font-mono">.env</code> file.
+            <div className="mb-3 p-3 bg-destructive/10 border border-destructive/20 text-destructive rounded-xl text-xs font-semibold flex flex-col sm:flex-row sm:items-center justify-between gap-2">
+              <div className="flex items-center gap-2">
+                <AlertTriangle size={14} className="shrink-0" />
+                <span>Gemini API Key is missing. Add <code className="font-mono bg-destructive/10 px-1 rounded">VITE_GEMINI_API_KEY</code> to your <code className="font-mono">.env</code> file or configure a client-side override in Settings.</span>
+              </div>
+              <button
+                type="button"
+                onClick={() => navigate('/settings')}
+                className="text-xs bg-destructive/20 hover:bg-destructive/30 text-destructive-foreground px-3 py-1 rounded-lg transition-all font-bold self-start sm:self-auto shrink-0"
+              >
+                Go to Settings
+              </button>
             </div>
           )}
 

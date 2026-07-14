@@ -9,12 +9,33 @@ let providerConfig: ProviderConfig | null = null;
 const FALLBACK_API_KEYS: string[] = [];
 
 export const getApiKey = (): string => {
+  const customKey = localStorage.getItem('user_gemini_api_key');
+  if (customKey) return customKey;
+
   const envKey = import.meta.env.VITE_GEMINI_API_KEY as string | undefined;
   if (envKey) return envKey;
   for (const key of FALLBACK_API_KEYS) {
     if (key) return key;
   }
   return '';
+};
+
+export const saveCustomApiKey = (key: string): void => {
+  if (key) {
+    localStorage.setItem('user_gemini_api_key', key);
+  } else {
+    localStorage.removeItem('user_gemini_api_key');
+  }
+  refreshProviderConfig();
+};
+
+export const clearCustomApiKey = (): void => {
+  localStorage.removeItem('user_gemini_api_key');
+  refreshProviderConfig();
+};
+
+export const getCustomApiKey = (): string => {
+  return localStorage.getItem('user_gemini_api_key') || '';
 };
 
 export const hasApiKey = (): boolean => {

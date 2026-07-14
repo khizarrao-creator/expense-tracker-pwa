@@ -14,7 +14,7 @@ import {
   loadSession, saveMessage, clearSession, sendToGeminiStream,
   type ChatMessage
 } from '../services/aiChatService';
-import { getModelRegistry, getModelById } from '../services/ai/modelRegistry';
+import { getModelRegistry, getModelById, getApiKey } from '../services/ai';
 import { uploadToCloudinary } from '../services/cloudinaryService';
 import {
   getWhatsAppStatus,
@@ -152,7 +152,7 @@ export const GlobalAIAssistant: React.FC = () => {
   const { currency: globalCurrency } = useCurrency();
   const { user } = useAuth();
 
-  const apiKey = import.meta.env.VITE_GEMINI_API_KEY as string | undefined;
+  const apiKey = getApiKey() || undefined;
 
   // Toggle open state
   const [isOpen, setIsOpen] = useState(false);

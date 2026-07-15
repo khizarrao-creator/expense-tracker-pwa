@@ -582,7 +582,7 @@ const AIChat: React.FC = () => {
 
     switch (name) {
       case 'add_transaction': {
-        const { type, amount, category, description, date, payment_method, account_name, to_account_name, subcategory } = args;
+        const { type, amount, category, description, date, payment_method, account_name, to_account_name, subcategory, transfer_fee } = args;
 
         // Match accounts
         const allAccounts = await getAccounts();
@@ -611,7 +611,12 @@ const AIChat: React.FC = () => {
           payment_method || 'Debit Card',
           fromAcc.id,
           toAccId,
-          subcategory || null
+          subcategory || null,
+          undefined,
+          null,
+          null,
+          null,
+          transfer_fee ? parseFloat(transfer_fee) : 0
         );
 
         invalidateAICache();

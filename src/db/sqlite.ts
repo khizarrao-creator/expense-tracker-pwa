@@ -175,6 +175,7 @@ const initializeSchema = async () => {
       event_id TEXT,
       to_amount REAL,
       exchange_rate REAL,
+      transfer_fee REAL DEFAULT 0,
       FOREIGN KEY (account_id) REFERENCES accounts(id),
       FOREIGN KEY (to_account_id) REFERENCES accounts(id)
     );
@@ -525,7 +526,8 @@ const initializeSchema = async () => {
     "ALTER TABLE investments ADD COLUMN trade_avg_buy_price REAL DEFAULT 0;",
     "ALTER TABLE asset_transactions ADD COLUMN funding_account_id TEXT;",
     "CREATE TABLE IF NOT EXISTS task_logs (id TEXT PRIMARY KEY, task_id TEXT NOT NULL, type TEXT NOT NULL, timestamp TEXT NOT NULL, notes TEXT, duration INTEGER DEFAULT 0, created_at TEXT NOT NULL DEFAULT '', updated_at TEXT NOT NULL DEFAULT '', deviceId TEXT, synced INTEGER DEFAULT 0, FOREIGN KEY (task_id) REFERENCES tasks(id) ON DELETE CASCADE);",
-    "CREATE TABLE IF NOT EXISTS vehicles (id TEXT PRIMARY KEY, name TEXT NOT NULL, type TEXT NOT NULL, custom_type TEXT, created_at TEXT NOT NULL, updated_at TEXT NOT NULL, deviceId TEXT, synced INTEGER DEFAULT 0);"
+    "CREATE TABLE IF NOT EXISTS vehicles (id TEXT PRIMARY KEY, name TEXT NOT NULL, type TEXT NOT NULL, custom_type TEXT, created_at TEXT NOT NULL, updated_at TEXT NOT NULL, deviceId TEXT, synced INTEGER DEFAULT 0);",
+    "ALTER TABLE transactions ADD COLUMN transfer_fee REAL DEFAULT 0;"
   ];
 
   const addColumn = (table: string, column: string, type: string) => {
@@ -535,6 +537,7 @@ const initializeSchema = async () => {
   };
 
   addColumn('transactions', 'event_id', 'TEXT');
+  addColumn('transactions', 'transfer_fee', 'REAL DEFAULT 0');
   addColumn('loans', 'event_id', 'TEXT');
   addColumn('events', 'total_cost', 'REAL DEFAULT 0');
   addColumn('config', 'deviceId', 'TEXT');
@@ -654,10 +657,11 @@ const initializeSchema = async () => {
         subcategory TEXT,
         event_id TEXT,
         to_amount REAL,
-        exchange_rate REAL
+        exchange_rate REAL,
+        transfer_fee REAL DEFAULT 0
       );
-      INSERT INTO transactions_new (id, type, amount, category, description, date, payment_method, account_id, to_account_id, created_at, updated_at, deviceId, synced, subcategory, event_id, to_amount, exchange_rate)
-      SELECT id, type, amount, category, description, date, payment_method, account_id, to_account_id, created_at, COALESCE(updated_at, created_at), deviceId, 0, subcategory, NULL, amount, 1 FROM transactions;
+      INSERT INTO transactions_new (id, type, amount, category, description, date, payment_method, account_id, to_account_id, created_at, updated_at, deviceId, synced, subcategory, event_id, to_amount, exchange_rate, transfer_fee)
+      SELECT id, type, amount, category, description, date, payment_method, account_id, to_account_id, created_at, COALESCE(updated_at, created_at), deviceId, 0, subcategory, NULL, amount, 1, 0 FROM transactions;
       DROP TABLE transactions;
       ALTER TABLE transactions_new RENAME TO transactions;
       COMMIT;

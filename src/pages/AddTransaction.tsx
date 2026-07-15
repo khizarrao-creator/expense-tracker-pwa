@@ -113,6 +113,7 @@ const AddTransaction: React.FC = () => {
   const [toAmount, setToAmount] = useState<string>('');
   const [useCustomRate, setUseCustomRate] = useState(false);
   const [fetchingRates, setFetchingRates] = useState(false);
+  const [transferFee, setTransferFee] = useState<string>('0');
 
   // MEXC Integration
   const [mexcBalances, setMexcBalances] = useState<Record<string, string>>({});
@@ -181,6 +182,7 @@ const AddTransaction: React.FC = () => {
           if (trx.type === 'transfer') {
             setExchangeRate(trx.exchange_rate?.toString() || '1');
             setToAmount(trx.to_amount?.toString() || trx.amount.toString());
+            setTransferFee(trx.transfer_fee?.toString() || '0');
             // If the rate stored is not 1, assume custom or at least show it
             if (trx.exchange_rate && trx.exchange_rate !== 1) {
               setUseCustomRate(true);
@@ -363,7 +365,8 @@ const AddTransaction: React.FC = () => {
         deviceId,
         subcategory: type === 'transfer' ? null : subcategory || null,
         to_amount: type === 'transfer' ? Number(toAmount || amount) : null,
-        exchange_rate: type === 'transfer' ? Number(exchangeRate || 1) : 1
+        exchange_rate: type === 'transfer' ? Number(exchangeRate || 1) : 1,
+        transfer_fee: type === 'transfer' ? Number(transferFee || 0) : 0
       };
 
       if (id) {
@@ -409,7 +412,8 @@ const AddTransaction: React.FC = () => {
           trxData.id,
           undefined,
           trxData.to_amount,
-          trxData.exchange_rate
+          trxData.exchange_rate,
+          trxData.transfer_fee
         );
 
         if (isVehicleExpense && type === 'expense') {
@@ -494,6 +498,28 @@ const AddTransaction: React.FC = () => {
               )}
             </div>
           </div>
+
+          {type === 'transfer' && (
+            <div className="animate-in fade-in slide-in-from-top-1 duration-200">
+              <label className="block text-sm font-medium text-muted-foreground mb-1">Transfer Fee</label>
+              <div className="relative">
+                <span className="absolute left-4 top-1/2 -translate-y-1/2 text-muted-foreground font-medium">
+                  {fromAccount ? fromAccount.currency : currency.symbol}
+                </span>
+                <input
+                  type="number"
+                  step="0.01"
+                  placeholder="0.00"
+                  value={transferFee}
+                  onChange={(e) => setTransferFee(e.target.value)}
+                  className="w-full pl-12 pr-4 py-3 bg-background border border-border rounded-xl focus:outline-none focus:ring-2 focus:ring-primary text-base font-medium"
+                />
+              </div>
+              <p className="text-[10px] text-muted-foreground mt-1 ml-1">
+                The fee is deducted from the source account {fromAccount ? `(${fromAccount.name})` : ''}.
+              </p>
+            </div>
+          )}
 
           {isCrossCurrency && (
             <div className="space-y-4 animate-in fade-in slide-in-from-top-2 duration-300">

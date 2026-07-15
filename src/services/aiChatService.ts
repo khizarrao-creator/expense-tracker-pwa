@@ -193,6 +193,10 @@ const AGENT_TOOLS = [
             subcategory: {
               type: 'STRING',
               description: 'Optional subcategory name.'
+            },
+            transfer_fee: {
+              type: 'NUMBER',
+              description: 'Optional transfer or transaction fee.'
             }
           },
           required: ['type', 'amount', 'category', 'account_name']
@@ -241,6 +245,10 @@ const AGENT_TOOLS = [
                 },
                 subcategory: {
                   type: 'STRING'
+                },
+                transfer_fee: {
+                  type: 'NUMBER',
+                  description: 'Optional transfer or transaction fee.'
                 }
               },
               description: 'The fields to update (only specify fields that should be changed).'

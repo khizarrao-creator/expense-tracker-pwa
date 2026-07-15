@@ -388,6 +388,12 @@ const Transactions: React.FC = () => {
                   </div>
                 )}
                 
+                {selectedTrx.type === 'transfer' && selectedTrx.transfer_fee !== undefined && selectedTrx.transfer_fee !== null && selectedTrx.transfer_fee > 0 && (
+                  <div className="text-xs text-red-500 font-semibold mt-1">
+                    (Fee: {formatAmount(selectedTrx.transfer_fee, currencies.find(c => c.code === selectedTrx.account_currency)?.symbol)})
+                  </div>
+                )}
+                
                 {selectedTrx.type === 'transfer' && selectedTrx.exchange_rate && selectedTrx.exchange_rate !== 1 && (
                   <div className="text-xs text-muted-foreground/80 mt-1">
                     Exchange Rate: 1 {selectedTrx.account_currency} = {selectedTrx.exchange_rate} {selectedTrx.to_account_currency}
@@ -455,6 +461,18 @@ const Transactions: React.FC = () => {
                       <span className="text-[10px] text-muted-foreground uppercase tracking-wider block font-semibold">Payment Method</span>
                       <span className="text-sm font-bold text-foreground">
                         {selectedTrx.payment_method}
+                      </span>
+                    </div>
+                  </div>
+                )}
+                {/* Transfer Fee */}
+                {selectedTrx.type === 'transfer' && selectedTrx.transfer_fee !== undefined && selectedTrx.transfer_fee !== null && selectedTrx.transfer_fee > 0 && (
+                  <div className="flex items-center gap-3 p-3 bg-muted/10 border border-border/30 rounded-xl">
+                    <TrendingDown size={18} className="text-red-500 shrink-0" />
+                    <div>
+                      <span className="text-[10px] text-muted-foreground uppercase tracking-wider block font-semibold">Transfer Fee</span>
+                      <span className="text-sm font-bold text-red-500">
+                        {formatAmount(selectedTrx.transfer_fee, currencies.find(c => c.code === selectedTrx.account_currency)?.symbol)}
                       </span>
                     </div>
                   </div>

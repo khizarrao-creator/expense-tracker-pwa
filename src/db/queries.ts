@@ -20,6 +20,7 @@ export interface Transaction {
   event_id: string | null;
   to_amount: number | null;
   exchange_rate: number | null;
+  transfer_fee?: number | null;
 }
 
 export interface Account {
@@ -139,7 +140,8 @@ export const addTransaction = async (
   providedId?: string,
   event_id: string | null = null,
   to_amount: number | null = null,
-  exchange_rate: number | null = null
+  exchange_rate: number | null = null,
+  transfer_fee: number | null = 0
 ) => {
   const id = providedId || uuidv4();
   const now = new Date().toISOString();
@@ -151,14 +153,15 @@ export const addTransaction = async (
     to_account_id: to_account_id ?? null, created_at: now, updated_at: now, deviceId,
     subcategory: subcategory ?? null, event_id: event_id ?? null,
     to_amount: to_amount ?? (type === 'transfer' ? amount : null),
-    exchange_rate: exchange_rate ?? (type === 'transfer' ? 1 : null)
+    exchange_rate: exchange_rate ?? (type === 'transfer' ? 1 : null),
+    transfer_fee: transfer_fee ?? 0
   };
 
   await syncManager.performOperation('transaction_add', trxData, () =>
     runWithBindings(
-      `INSERT INTO transactions (id, type, amount, category, description, date, payment_method, account_id, to_account_id, created_at, updated_at, deviceId, synced, subcategory, event_id, to_amount, exchange_rate) 
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 0, ?, ?, ?, ?)`,
-      [id, type, amount, category, description ?? null, date, payment_method ?? '', account_id ?? null, to_account_id ?? null, now, now, deviceId, subcategory ?? null, event_id ?? null, trxData.to_amount, trxData.exchange_rate]
+      `INSERT INTO transactions (id, type, amount, category, description, date, payment_method, account_id, to_account_id, created_at, updated_at, deviceId, synced, subcategory, event_id, to_amount, exchange_rate, transfer_fee) 
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 0, ?, ?, ?, ?, ?)`,
+      [id, type, amount, category, description ?? null, date, payment_method ?? '', account_id ?? null, to_account_id ?? null, now, now, deviceId, subcategory ?? null, event_id ?? null, trxData.to_amount, trxData.exchange_rate, trxData.transfer_fee]
     )
   );
   return id;
@@ -166,7 +169,7 @@ export const addTransaction = async (
 
 const TRANSACTION_UPDATABLE_FIELDS = new Set([
   'type', 'amount', 'category', 'description', 'date',
-  'payment_method', 'account_id', 'to_account_id', 'updated_at', 'deviceId', 'subcategory', 'event_id', 'to_amount', 'exchange_rate'
+  'payment_method', 'account_id', 'to_account_id', 'updated_at', 'deviceId', 'subcategory', 'event_id', 'to_amount', 'exchange_rate', 'transfer_fee'
 ]);
 
 export const updateTransaction = async (
@@ -627,7 +630,7 @@ export const getSummaryByAccount = async () => {
       a.currency,
       (SELECT COALESCE(SUM(amount), 0) FROM transactions WHERE type = 'income' AND account_id = a.id) as income,
       (SELECT COALESCE(SUM(amount), 0) FROM transactions WHERE type = 'expense' AND account_id = a.id) as expense,
-      (SELECT COALESCE(SUM(amount), 0) FROM transactions WHERE type = 'transfer' AND account_id = a.id) as transfer_out,
+      (SELECT COALESCE(SUM(amount + COALESCE(transfer_fee, 0)), 0) FROM transactions WHERE type = 'transfer' AND account_id = a.id) as transfer_out,
       (SELECT COALESCE(SUM(to_amount), SUM(amount), 0) FROM transactions WHERE type = 'transfer' AND to_account_id = a.id) as transfer_in
     FROM accounts a
   `);
@@ -924,8 +927,8 @@ export const importAllData = async (data: any) => {
   if (transactions) {
     for (const t of transactions) {
       await runWithBindings(
-        `INSERT OR REPLACE INTO transactions (id, type, amount, category, description, date, payment_method, account_id, to_account_id, created_at, updated_at, deviceId, synced, subcategory, event_id) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 0, ?, ?)`,
-        [t.id, t.type, t.amount, t.category, t.description, t.date, t.payment_method, t.account_id, t.to_account_id, t.created_at, t.updated_at, t.deviceId, t.subcategory ?? null, t.event_id ?? null]
+        `INSERT OR REPLACE INTO transactions (id, type, amount, category, description, date, payment_method, account_id, to_account_id, created_at, updated_at, deviceId, synced, subcategory, event_id, to_amount, exchange_rate, transfer_fee) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 0, ?, ?, ?, ?, ?)`,
+        [t.id, t.type, t.amount, t.category, t.description, t.date, t.payment_method, t.account_id, t.to_account_id, t.created_at, t.updated_at, t.deviceId, t.subcategory ?? null, t.event_id ?? null, t.to_amount ?? null, t.exchange_rate ?? 1, t.transfer_fee ?? 0]
       );
       await addToSyncQueue('transaction_add', t);
     }

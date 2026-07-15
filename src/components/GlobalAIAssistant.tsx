@@ -399,7 +399,7 @@ export const GlobalAIAssistant: React.FC = () => {
 
     switch (name) {
       case 'add_transaction': {
-        const { type, amount, category, description, date, payment_method, account_name, to_account_name, subcategory } = args;
+        const { type, amount, category, description, date, payment_method, account_name, to_account_name, subcategory, transfer_fee } = args;
         const allAccounts = await getAccounts();
         const fromAcc = allAccounts.find(a => a.name.trim().toLowerCase() === account_name.trim().toLowerCase());
         if (!fromAcc) {
@@ -416,7 +416,8 @@ export const GlobalAIAssistant: React.FC = () => {
         const dateStr = date || new Date().toISOString().split('T')[0];
         const id = await addTransaction(
           type, parseFloat(amount), category, description || '', dateStr,
-          payment_method || 'Debit Card', fromAcc.id, toAccId, subcategory || null
+          payment_method || 'Debit Card', fromAcc.id, toAccId, subcategory || null,
+          undefined, null, null, null, transfer_fee ? parseFloat(transfer_fee) : 0
         );
 
         invalidateAICache();

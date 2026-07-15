@@ -34,7 +34,7 @@ export const SQLiteProvider: React.FC<{ children: ReactNode }> = ({ children }) 
 
   if (error) {
     return (
-      <div className="flex items-center justify-center min-h-screen p-4 text-center">
+      <div className="flex items-center justify-center min-h-screen p-4 text-center bg-background text-foreground">
         <div className="bg-destructive/10 text-destructive p-4 rounded-lg max-w-md w-full">
           <h2 className="text-lg font-semibold mb-2">Database Error</h2>
           <p>{error.message}</p>
@@ -45,7 +45,7 @@ export const SQLiteProvider: React.FC<{ children: ReactNode }> = ({ children }) 
 
   if (!isReady) {
     return (
-      <div className="flex items-center justify-center min-h-screen">
+      <div className="flex items-center justify-center min-h-screen bg-background text-foreground">
         <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-primary"></div>
       </div>
     );

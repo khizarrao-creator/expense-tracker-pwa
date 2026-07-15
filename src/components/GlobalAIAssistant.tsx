@@ -869,14 +869,10 @@ export const GlobalAIAssistant: React.FC = () => {
         <div className="fixed bottom-20 md:bottom-6 right-6 z-[100] animate-in zoom-in duration-200">
           <button
             onClick={() => setIsOpen(true)}
-            className="w-14 h-14 rounded-full bg-primary hover:bg-primary/90 text-primary-foreground flex items-center justify-center shadow-lg hover:shadow-xl hover:scale-105 active:scale-95 transition-all relative border border-primary/20 group"
+            className="w-14 h-14 rounded-full bg-primary hover:bg-primary/95 text-primary-foreground flex items-center justify-center shadow-lg hover:shadow-xl hover:scale-105 active:scale-95 transition-all duration-200 border border-primary/10 relative group"
             title="Open AI Assistant"
           >
-            <Sparkles className="h-6 w-6 group-hover:rotate-12 transition-transform animate-pulse" />
-            <span className="absolute -top-1 -right-1 flex h-3.5 w-3.5">
-              <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-primary opacity-75"></span>
-              <span className="relative inline-flex rounded-full h-3.5 w-3.5 bg-primary"></span>
-            </span>
+            <Bot className="h-6 w-6 transition-transform duration-200 group-hover:scale-110" />
           </button>
         </div>
       )}

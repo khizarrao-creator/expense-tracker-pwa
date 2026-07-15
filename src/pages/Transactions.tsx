@@ -280,6 +280,14 @@ const Transactions: React.FC = () => {
                         </span>
                       </>
                     )}
+                    {trx.type === 'transfer' && trx.transfer_fee !== undefined && trx.transfer_fee !== null && trx.transfer_fee > 0 && (
+                      <>
+                        <span className="hidden xs:inline">•</span>
+                        <span className="flex items-center gap-1 bg-red-500/10 text-red-500 border border-red-500/20 px-1.5 py-0.5 rounded text-[10px] font-bold shrink-0">
+                          Fee: {formatAmount(trx.transfer_fee, currencies.find(c => c.code === trx.account_currency)?.symbol)}
+                        </span>
+                      </>
+                    )}
                   </div>
                 </div>
               </div>

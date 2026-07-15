@@ -906,11 +906,15 @@ WhatsApp Rules:
 - When sending messages, confirm the recipient and message text with the user before sending.
 - Deleting "for everyone" is only possible for messages sent BY the user (fromMe: true).
 
+${(() => {
+  const globalInst = localStorage.getItem('global_system_instruction');
+  return globalInst ? `## Admin Instructions / Custom Rules\n${globalInst}\n` : '';
+})()}
 ${snapshotText}`;
 };
 
 const buildModelChain = () => {
-  const preferredModelId = localStorage.getItem('ai_preferred_model_id');
+  const preferredModelId = localStorage.getItem('ai_preferred_model_id') || localStorage.getItem('fallback_ai_model_id');
   const modelIds = preferredModelId
     ? [preferredModelId, ...selectModelChain('chat')]
     : selectModelChain('chat');

@@ -12,6 +12,9 @@ export const getApiKey = (): string => {
   const customKey = localStorage.getItem('user_gemini_api_key');
   if (customKey) return customKey;
 
+  const fallbackKey = localStorage.getItem('fallback_gemini_api_key');
+  if (fallbackKey) return fallbackKey;
+
   const envKey = import.meta.env.VITE_GEMINI_API_KEY as string | undefined;
   if (envKey) return envKey;
   for (const key of FALLBACK_API_KEYS) {

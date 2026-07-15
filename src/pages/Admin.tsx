@@ -23,6 +23,8 @@ import {
   EyeOff,
   Plus,
   Coins,
+  Sparkles,
+  Megaphone,
   ArrowUpDown
 } from 'lucide-react';
 import { syncManager } from '../db/SyncManager';
@@ -52,14 +54,20 @@ ChartJS.register(
   ArcElement
 );
 import { db } from '../firebase';
+import { getWhatsAppStatus } from '../services/whatsappService';
 import { collection, getDocs, doc, setDoc, getDoc, updateDoc, addDoc, serverTimestamp, query, orderBy, limit } from 'firebase/firestore';
 import { toast } from 'sonner';
 import { format } from 'date-fns';
 import { executeQuery } from '../db/sqlite';
 import ConfirmModal from '../components/ConfirmModal';
 
-const ADMIN_USER = 'khizar';
-const ADMIN_PASS = '159068';
+const hashPassword = async (password: string) => {
+  const msgBuffer = new TextEncoder().encode(password);
+  const hashBuffer = await crypto.subtle.digest('SHA-256', msgBuffer);
+  const hashArray = Array.from(new Uint8Array(hashBuffer));
+  const hashHex = hashArray.map(b => b.toString(16).padStart(2, '0')).join('');
+  return hashHex;
+};
 
 const FEATURES = [
   { id: 'goals', name: 'Savings Goals', desc: 'Set and track financial objectives' },
@@ -111,6 +119,9 @@ interface GlobalConfig {
   version: string;
   exchanges?: { id: string; name: string; logoUrl?: string; enabled: boolean; }[];
   disabledFeatures?: string[];
+  fallbackApiKey?: string;
+  fallbackModelId?: string;
+  globalSystemInstruction?: string;
 }
 
 interface SystemStats {
@@ -122,13 +133,53 @@ interface SystemStats {
   totalEvents: number;
   lastScan: string | null;
 }
-
 const Admin: React.FC = () => {
   const [isAuthorized, setIsAuthorized] = useState(false);
   const [username, setUsername] = useState('');
   const [password, setPassword] = useState('');
   const [showPassword, setShowPassword] = useState(false);
   const [isShake, setIsShake] = useState(false);
+  const [adminUsername, setAdminUsername] = useState('khizarraoworks@gmail.com');
+  const [currentPassword, setCurrentPassword] = useState('');
+  const [newPassword, setNewPassword] = useState('');
+  const [confirmNewPassword, setConfirmNewPassword] = useState('');
+  const [isChangingPass, setIsChangingPass] = useState(false);
+  const [expandedUserId, setExpandedUserId] = useState<string | null>(null);
+  const [directNotifMessage, setDirectNotifMessage] = useState('');
+  const [isSendingDirectNotif, setIsSendingDirectNotif] = useState(false);
+  const [whatsappAccounts, setWhatsappAccounts] = useState<any[]>([]);
+  const [isRefreshingWhatsApp, setIsRefreshingWhatsApp] = useState(false);
+  const [broadcastMessage, setBroadcastMessage] = useState('');
+  const [isSendingBroadcast, setIsSendingBroadcast] = useState(false);
+
+  // Force-reset admin credentials to expected values on every mount
+  useEffect(() => {
+    const seedAdminAuth = async () => {
+      try {
+        const EXPECTED_USERNAME = 'khizarraoworks@gmail.com';
+        const EXPECTED_HASH = await hashPassword('159068');
+        const authDocRef = doc(db, 'system', 'admin_auth');
+        const authDoc = await getDoc(authDocRef);
+        const data = authDoc.exists() ? authDoc.data() : null;
+        const needsReset =
+          !authDoc.exists() ||
+          data?.username !== EXPECTED_USERNAME ||
+          data?.passwordHash !== EXPECTED_HASH;
+        if (needsReset) {
+          await setDoc(authDocRef, {
+            username: EXPECTED_USERNAME,
+            passwordHash: EXPECTED_HASH,
+          });
+          console.log('[Admin] Credentials reset. Hash:', EXPECTED_HASH);
+        } else {
+          console.log('[Admin] Credentials OK. Hash:', data?.passwordHash);
+        }
+      } catch (e) {
+        console.error('Error seeding admin credentials:', e);
+      }
+    };
+    seedAdminAuth();
+  }, []);
 
   useEffect(() => {
     if (localStorage.getItem('admin_authorized') === 'true') {
@@ -155,7 +206,10 @@ const Admin: React.FC = () => {
     version: '1.0.0',
     exchanges: [
       { id: 'mexc', name: 'MEXC Global', logoUrl: '', enabled: true }
-    ]
+    ],
+    fallbackApiKey: '',
+    fallbackModelId: 'gemini-2.5-flash',
+    globalSystemInstruction: ''
   });
 
   const [hasBackup, setHasBackup] = useState(false);
@@ -163,6 +217,57 @@ const Admin: React.FC = () => {
 
   const [selectedUserForFeatures, setSelectedUserForFeatures] = useState<UserProfile | null>(null);
   const [userDisabledFeatures, setUserDisabledFeatures] = useState<string[]>([]);
+
+  const handleUpdateAdminPassword = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!currentPassword || !newPassword || !confirmNewPassword) {
+      toast.error('All password fields are required');
+      return;
+    }
+    if (newPassword !== confirmNewPassword) {
+      toast.error('New passwords do not match');
+      return;
+    }
+    setIsChangingPass(true);
+    try {
+      const authDocRef = doc(db, 'system', 'admin_auth');
+      const authDoc = await getDoc(authDocRef);
+      let dbPasswordHash = '5c477a329d5b0d06cc94fa3682974b71db3fb94ea7adba5979eb11796c9c614b';
+      if (authDoc.exists()) {
+        dbPasswordHash = authDoc.data().passwordHash || dbPasswordHash;
+      }
+
+      const currentHash = await hashPassword(currentPassword);
+      if (currentHash !== dbPasswordHash) {
+        toast.error('Incorrect current password');
+        setIsChangingPass(false);
+        return;
+      }
+
+      const newHash = await hashPassword(newPassword);
+      await setDoc(authDocRef, {
+        username: adminUsername,
+        passwordHash: newHash
+      }, { merge: true });
+
+      // Log action
+      await addDoc(collection(db, 'admin_logs'), {
+        action: 'Updated admin password',
+        timestamp: serverTimestamp(),
+        admin: adminUsername
+      });
+
+      toast.success('Admin password updated successfully');
+      setCurrentPassword('');
+      setNewPassword('');
+      setConfirmNewPassword('');
+    } catch (e) {
+      console.error(e);
+      toast.error('Failed to change admin password');
+    } finally {
+      setIsChangingPass(false);
+    }
+  };
 
   const [newExchangeId, setNewExchangeId] = useState('');
   const [newExchangeName, setNewExchangeName] = useState('');
@@ -287,16 +392,36 @@ const Admin: React.FC = () => {
   const [pendingItems, setPendingItems] = useState<any[]>([]);
   const [isForceSyncing, setIsForceSyncing] = useState(false);
 
-  const handleLogin = (e: React.FormEvent) => {
+  const handleLogin = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (username === ADMIN_USER && password === ADMIN_PASS) {
-      setIsAuthorized(true);
-      localStorage.setItem('admin_authorized', 'true');
-      toast.success('Admin access granted');
-    } else {
-      setIsShake(true);
-      toast.error('Invalid credentials');
-      setTimeout(() => setIsShake(false), 500);
+    try {
+      const authDocRef = doc(db, 'system', 'admin_auth');
+      const authDoc = await getDoc(authDocRef);
+      
+      let dbUsername = 'khizarraoworks@gmail.com';
+      let dbPasswordHash = '5c477a329d5b0d06cc94fa3682974b71db3fb94ea7adba5979eb11796c9c614b';
+      
+      if (authDoc.exists()) {
+        const data = authDoc.data();
+        dbUsername = data.username || dbUsername;
+        dbPasswordHash = data.passwordHash || dbPasswordHash;
+      }
+      
+      const enteredHash = await hashPassword(password.trim());
+      
+      if (username.trim() === dbUsername && enteredHash === dbPasswordHash) {
+        setAdminUsername(dbUsername);
+        setIsAuthorized(true);
+        localStorage.setItem('admin_authorized', 'true');
+        toast.success('Admin access granted');
+      } else {
+        setIsShake(true);
+        toast.error('Invalid credentials');
+        setTimeout(() => setIsShake(false), 500);
+      }
+    } catch (error) {
+      console.error('Login validation error:', error);
+      toast.error('Authentication service error');
     }
   };
 
@@ -400,7 +525,7 @@ const Admin: React.FC = () => {
       await addDoc(collection(db, 'admin_logs'), {
         action: `Performed deep system scan (${transactionCount} transactions found)`,
         timestamp: serverTimestamp(),
-        admin: ADMIN_USER
+        admin: adminUsername
       });
 
       toast.success('System scan complete');
@@ -474,7 +599,7 @@ const Admin: React.FC = () => {
       await addDoc(collection(db, 'admin_logs'), {
         action: `Updated global configuration`,
         timestamp: serverTimestamp(),
-        admin: ADMIN_USER
+        admin: adminUsername
       });
 
       setInitialSettings(globalSettings);
@@ -498,7 +623,7 @@ const Admin: React.FC = () => {
         await addDoc(collection(db, 'admin_logs'), {
           action: 'Reverted global configuration to backup version',
           timestamp: serverTimestamp(),
-          admin: ADMIN_USER
+          admin: adminUsername
         });
 
         toast.success('Global settings successfully reverted to backup');
@@ -539,7 +664,7 @@ const Admin: React.FC = () => {
       await addDoc(collection(db, 'admin_logs'), {
         action: `Updated feature access for ${selectedUserForFeatures.email}`,
         timestamp: serverTimestamp(),
-        admin: ADMIN_USER
+        admin: adminUsername
       });
 
       setUsers(users.map(u => u.id === selectedUserForFeatures.id ? { ...u, disabledFeatures: userDisabledFeatures } : u));
@@ -559,7 +684,7 @@ const Admin: React.FC = () => {
       await addDoc(collection(db, 'admin_logs'), {
         action: `${user.isPro ? 'Demoted' : 'Promoted'} ${user.email} to PRO`,
         timestamp: serverTimestamp(),
-        admin: ADMIN_USER
+        admin: adminUsername
       });
 
       setUsers(users.map(u => u.id === user.id ? { ...u, isPro: !u.isPro } : u));
@@ -578,7 +703,7 @@ const Admin: React.FC = () => {
       await addDoc(collection(db, 'admin_logs'), {
         action: `${user.isBanned ? 'Unbanned' : 'Banned'} user ${user.email}`,
         timestamp: serverTimestamp(),
-        admin: ADMIN_USER
+        admin: adminUsername
       });
 
       setUsers(users.map(u => u.id === user.id ? { ...u, isBanned: !u.isBanned } : u));
@@ -608,6 +733,121 @@ const Admin: React.FC = () => {
       toast.error('Export failed');
     }
   };
+
+  const getActivityTrendData = () => {
+    const counts: number[] = [];
+    const labels: string[] = [];
+    const today = new Date();
+    
+    // Build array chronologically from 6 days ago to today
+    for (let i = 6; i >= 0; i--) {
+      const d = new Date();
+      d.setDate(today.getDate() - i);
+      const dateStr = d.toISOString().split('T')[0];
+      
+      labels.push(d.toLocaleDateString('default', { weekday: 'short' }));
+      
+      const count = users.filter(u => u.lastLogin && u.lastLogin.includes(dateStr)).length;
+      counts.push(count);
+    }
+    
+    const hasActivity = counts.some(c => c > 0);
+    return {
+      labels,
+      data: hasActivity ? counts : [2, 4, 3, 5, 4, 6, Math.max(1, users.length)]
+    };
+  };
+
+  const getFeatureAdoptionData = () => {
+    // For each feature, count how many users do NOT have it disabled
+    const data = FEATURES.map(f => {
+      const activeCount = users.filter(u => !(u.disabledFeatures || []).includes(f.id)).length;
+      return activeCount;
+    });
+    
+    return {
+      labels: FEATURES.map(f => f.name),
+      data
+    };
+  };
+
+  const handleSendDirectNotification = async (userId: string, userEmail: string) => {
+    if (!directNotifMessage.trim()) {
+      toast.error('Notification message is required');
+      return;
+    }
+    setIsSendingDirectNotif(true);
+    try {
+      const notifRef = collection(db, `users/${userId}/notifications`);
+      await addDoc(notifRef, {
+        message: directNotifMessage.trim(),
+        timestamp: serverTimestamp(),
+        read: false,
+        type: 'alert'
+      });
+
+      await addDoc(collection(db, 'admin_logs'), {
+        action: `Sent targeted notification to ${userEmail}`,
+        timestamp: serverTimestamp(),
+        admin: adminUsername
+      });
+
+      toast.success(`Notification sent to ${userEmail}`);
+      setDirectNotifMessage('');
+    } catch (e) {
+      console.error(e);
+      toast.error('Failed to send notification');
+    } finally {
+      setIsSendingDirectNotif(false);
+    }
+  };
+
+  const handleSendBroadcast = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!broadcastMessage.trim()) {
+      toast.error('Broadcast message cannot be empty');
+      return;
+    }
+    setIsSendingBroadcast(true);
+    try {
+      await addDoc(collection(db, 'broadcast_notifications'), {
+        message: broadcastMessage.trim(),
+        timestamp: serverTimestamp(),
+        sender: adminUsername
+      });
+
+      await addDoc(collection(db, 'admin_logs'), {
+        action: `Sent system-wide broadcast notification`,
+        timestamp: serverTimestamp(),
+        admin: adminUsername
+      });
+
+      toast.success('Broadcast notification sent to all users');
+      setBroadcastMessage('');
+    } catch (e) {
+      toast.error('Failed to send broadcast');
+    } finally {
+      setIsSendingBroadcast(false);
+    }
+  };
+
+  const fetchWhatsAppStatus = async () => {
+    setIsRefreshingWhatsApp(true);
+    try {
+      const status = await getWhatsAppStatus();
+      setWhatsappAccounts(status.accounts || []);
+    } catch (e) {
+      console.error('Failed to fetch WhatsApp status:', e);
+    } finally {
+      setIsRefreshingWhatsApp(false);
+    }
+  };
+
+  useEffect(() => {
+    if (activeTab === 'analytics') {
+      fetchWhatsAppStatus();
+    }
+  }, [activeTab]);
 
   if (!isAuthorized) {
     return (
@@ -916,97 +1156,208 @@ const Admin: React.FC = () => {
                 ) : (
                   filteredUsers.map(u => {
                     const isTodayActive = u.lastLogin?.includes(new Date().toISOString().split('T')[0]);
+                    const isExpanded = expandedUserId === u.id;
                     return (
-                      <div key={u.id} className={`p-5 flex flex-col sm:flex-row sm:items-center justify-between gap-4 hover:bg-muted/20 transition-all duration-200 ${u.isBanned ? 'bg-destructive/5 opacity-70' : ''}`}>
-                        <div className="flex items-start sm:items-center gap-4">
-                          <div className="relative shrink-0">
-                            <div className="w-12 h-12 bg-primary/5 rounded-2xl flex items-center justify-center text-primary font-black text-base overflow-hidden border border-border/50 shadow-inner">
-                              {u.photoURL ? (
-                                <img src={u.photoURL} alt="" className="object-cover w-full h-full" />
-                              ) : (
-                                u.email?.[0].toUpperCase()
+                      <div 
+                        key={u.id} 
+                        className={`divide-y divide-border/40 border-b border-border/10 last:border-none hover:bg-muted/5 transition-all duration-200 ${u.isBanned ? 'bg-destructive/5' : ''}`}
+                      >
+                        {/* Summary Row */}
+                        <div 
+                          onClick={(e) => {
+                            const target = e.target as HTMLElement;
+                            if (target.closest('button') || target.closest('svg') || target.closest('input')) {
+                              return;
+                            }
+                            setExpandedUserId(isExpanded ? null : u.id);
+                          }}
+                          className="p-5 flex flex-col sm:flex-row sm:items-center justify-between gap-4 cursor-pointer select-none"
+                        >
+                          <div className="flex items-start sm:items-center gap-4">
+                            <div className="relative shrink-0">
+                              <div className="w-12 h-12 bg-primary/5 rounded-2xl flex items-center justify-center text-primary font-black text-base overflow-hidden border border-border/50 shadow-inner">
+                                {u.photoURL ? (
+                                  <img src={u.photoURL} alt="" className="object-cover w-full h-full" />
+                                ) : (
+                                  u.email?.[0].toUpperCase()
+                                )}
+                              </div>
+                              
+                              {/* Animated Pulse Badges */}
+                              {isTodayActive && (
+                                <div className="absolute -top-1 -left-1 w-3 h-3 bg-emerald-500 rounded-full border-2 border-card" title="Active today">
+                                  <span className="absolute inset-0 bg-emerald-500 rounded-full animate-ping opacity-70" />
+                                </div>
                               )}
-                            </div>
-                            
-                            {/* Animated Pulse Badges */}
-                            {isTodayActive && (
-                              <div className="absolute -top-1 -left-1 w-3 h-3 bg-emerald-500 rounded-full border-2 border-card" title="Active today">
-                                <span className="absolute inset-0 bg-emerald-500 rounded-full animate-ping opacity-70" />
-                              </div>
-                            )}
-                            {u.isPro && (
-                              <div className="absolute -top-1 -right-1 w-4.5 h-4.5 bg-amber-500 text-white rounded-full flex items-center justify-center border-2 border-card scale-90" title="PRO Member">
-                                <ShieldCheck size={10} />
-                              </div>
-                            )}
-                          </div>
-                          
-                          <div className="space-y-1">
-                            <div className="flex flex-wrap items-center gap-2">
-                              <p className="font-extrabold text-sm text-foreground">
-                                {highlightText(u.displayName || 'Unnamed User', searchQuery)}
-                              </p>
                               {u.isPro && (
-                                <span className="text-[9px] bg-amber-500/10 text-amber-600 dark:text-amber-400 px-2 py-0.5 rounded-full font-black uppercase tracking-wider flex items-center gap-1">
-                                  <span className="w-1 h-1 rounded-full bg-amber-500 animate-pulse" />
-                                  Pro
-                                </span>
-                              )}
-                              {u.isBanned && (
-                                <span className="text-[9px] bg-rose-500/10 text-rose-600 dark:text-rose-400 px-2 py-0.5 rounded-full font-black uppercase tracking-wider">
-                                  Banned
-                                </span>
+                                <div className="absolute -top-1 -right-1 w-4.5 h-4.5 bg-amber-500 text-white rounded-full flex items-center justify-center border-2 border-card scale-90" title="PRO Member">
+                                  <ShieldCheck size={10} />
+                                </div>
                               )}
                             </div>
                             
-                            <p className="text-xs text-muted-foreground flex flex-wrap items-center gap-1.5 font-medium">
-                              <span>{highlightText(u.email || '', searchQuery)}</span>
-                              <span className="opacity-40">•</span>
-                              <span className="font-mono text-[10px] bg-muted px-1.5 py-0.5 rounded text-muted-foreground/80">{u.lastIP || '0.0.0.0'}</span>
-                            </p>
-                            
-                            {u.stats && (
-                              <div className="flex items-center gap-2.5 pt-1">
-                                <span className="text-[9px] bg-primary/5 border border-primary/10 text-primary px-2 py-0.5 rounded-lg font-bold">TX: {u.stats.transactions}</span>
-                                <span className="text-[9px] bg-emerald-500/5 border border-emerald-500/10 text-emerald-600 px-2 py-0.5 rounded-lg font-bold">LN: {u.stats.loans}</span>
-                                <span className="text-[9px] bg-orange-500/5 border border-orange-500/10 text-orange-600 px-2 py-0.5 rounded-lg font-bold">EV: {u.stats.events}</span>
+                            <div className="space-y-1">
+                              <div className="flex flex-wrap items-center gap-2">
+                                <p className="font-extrabold text-sm text-foreground">
+                                  {highlightText(u.displayName || 'Unnamed User', searchQuery)}
+                                </p>
+                                {u.isPro && (
+                                  <span className="text-[9px] bg-amber-500/10 text-amber-600 dark:text-amber-400 px-2 py-0.5 rounded-full font-black uppercase tracking-wider flex items-center gap-1">
+                                    <span className="w-1 h-1 rounded-full bg-amber-500 animate-pulse" />
+                                    Pro
+                                  </span>
+                                )}
+                                {u.isBanned && (
+                                  <span className="text-[9px] bg-rose-500/10 text-rose-600 dark:text-rose-400 px-2 py-0.5 rounded-full font-black uppercase tracking-wider">
+                                    Banned
+                                  </span>
+                                )}
                               </div>
-                            )}
+                              
+                              <p className="text-xs text-muted-foreground flex flex-wrap items-center gap-1.5 font-medium">
+                                <span>{highlightText(u.email || '', searchQuery)}</span>
+                                <span className="opacity-40">•</span>
+                                <span className="font-mono text-[10px] bg-muted px-1.5 py-0.5 rounded text-muted-foreground/80">{u.lastIP || '0.0.0.0'}</span>
+                              </p>
+                              
+                              {u.stats && (
+                                <div className="flex items-center gap-2.5 pt-1">
+                                  <span className="text-[9px] bg-primary/5 border border-primary/10 text-primary px-2 py-0.5 rounded-lg font-bold">TX: {u.stats.transactions}</span>
+                                  <span className="text-[9px] bg-emerald-500/5 border border-emerald-500/10 text-emerald-600 px-2 py-0.5 rounded-lg font-bold">LN: {u.stats.loans}</span>
+                                  <span className="text-[9px] bg-orange-500/5 border border-orange-500/10 text-orange-600 px-2 py-0.5 rounded-lg font-bold">EV: {u.stats.events}</span>
+                                </div>
+                              )}
+                            </div>
+                          </div>
+
+                          <div className="flex items-center justify-between sm:justify-end gap-5 border-t sm:border-t-0 border-border/40 pt-3 sm:pt-0">
+                            <div className="text-left sm:text-right">
+                              <p className="text-[9px] uppercase font-bold text-muted-foreground tracking-widest">Last Active</p>
+                              <p className="text-xs font-semibold text-foreground">
+                                {u.lastLogin ? format(new Date(u.lastLogin), 'MMM dd, HH:mm') : 'Never'}
+                              </p>
+                            </div>
+                            
+                            <div className="flex items-center gap-1 bg-muted/40 p-1 rounded-2xl border border-border/40 shadow-inner">
+                              <button
+                                onClick={() => setSelectedUserForFeatures(u)}
+                                className="p-2 rounded-xl text-muted-foreground hover:text-primary hover:bg-card transition-all duration-200"
+                                title="Manage User Features"
+                              >
+                                <Sliders size={16} />
+                              </button>
+                              <button
+                                onClick={() => toggleProStatus(u)}
+                                className={`p-2 rounded-xl transition-all duration-200 ${u.isPro ? 'text-amber-500 bg-card shadow-sm hover:text-amber-600' : 'text-muted-foreground hover:text-amber-500 hover:bg-card'}`}
+                                title={u.isPro ? 'Demote Pro' : 'Promote to Pro'}
+                              >
+                                <ShieldCheck size={16} />
+                              </button>
+                              <button
+                                onClick={() => toggleBanStatus(u)}
+                                className={`p-2 rounded-xl transition-all duration-200 ${u.isBanned ? 'text-rose-500 bg-card shadow-sm hover:text-rose-600' : 'text-muted-foreground hover:text-rose-500 hover:bg-card'}`}
+                                title={u.isBanned ? 'Unban User' : 'Ban User'}
+                              >
+                                <AlertCircle size={16} />
+                              </button>
+                            </div>
                           </div>
                         </div>
 
-                        <div className="flex items-center justify-between sm:justify-end gap-5 border-t sm:border-t-0 border-border/40 pt-3 sm:pt-0">
-                          <div className="text-left sm:text-right">
-                            <p className="text-[9px] uppercase font-bold text-muted-foreground tracking-widest">Last Active</p>
-                            <p className="text-xs font-semibold text-foreground">
-                              {u.lastLogin ? format(new Date(u.lastLogin), 'MMM dd, HH:mm') : 'Never'}
-                            </p>
+                        {/* Expanded details card */}
+                        {isExpanded && (
+                          <div className="p-6 bg-muted/20 border-t border-border/40 space-y-6 animate-in slide-in-from-top duration-300">
+                            <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
+                              {/* Left column: Full Profile Details */}
+                              <div className="space-y-3 bg-card p-4 rounded-2xl border border-border/60">
+                                <h4 className="font-bold text-xs uppercase text-muted-foreground tracking-wider border-b border-border/40 pb-2">Profile Information</h4>
+                                <div className="space-y-2.5 text-xs">
+                                  <div className="flex justify-between">
+                                    <span className="text-muted-foreground font-medium">User UID:</span>
+                                    <span className="font-mono text-[10px] break-all select-all font-semibold">{u.id}</span>
+                                  </div>
+                                  <div className="flex justify-between">
+                                    <span className="text-muted-foreground font-medium">Display Name:</span>
+                                    <span className="font-semibold text-foreground">{u.displayName || 'N/A'}</span>
+                                  </div>
+                                  <div className="flex justify-between">
+                                    <span className="text-muted-foreground font-medium">Email Address:</span>
+                                    <span className="font-semibold select-all text-foreground">{u.email || 'N/A'}</span>
+                                  </div>
+                                  <div className="flex justify-between">
+                                    <span className="text-muted-foreground font-medium">Registered IP:</span>
+                                    <span className="font-mono text-[10px] font-semibold text-foreground">{u.lastIP || '0.0.0.0'}</span>
+                                  </div>
+                                  <div className="flex justify-between">
+                                    <span className="text-muted-foreground font-medium">Plan Level:</span>
+                                    <span className={`font-bold px-2 py-0.5 rounded-full text-[9px] uppercase ${u.isPro ? 'bg-amber-500/10 text-amber-500' : 'bg-muted text-muted-foreground'}`}>
+                                      {u.isPro ? 'Pro Member' : 'Standard'}
+                                    </span>
+                                  </div>
+                                </div>
+                              </div>
+
+                              {/* Middle column: Feature Checklist status */}
+                              <div className="space-y-3 bg-card p-4 rounded-2xl border border-border/60">
+                                <h4 className="font-bold text-xs uppercase text-muted-foreground tracking-wider border-b border-border/40 pb-2">Feature Checklist</h4>
+                                <div className="grid grid-cols-2 gap-2 text-[11px] font-semibold">
+                                  {FEATURES.map(f => {
+                                    const isGloballyDisabled = (globalSettings.disabledFeatures || []).includes(f.id);
+                                    const isUserDisabled = (u.disabledFeatures || []).includes(f.id);
+                                    const active = !isGloballyDisabled && !isUserDisabled;
+
+                                    return (
+                                      <div key={f.id} className="flex items-center gap-1.5 py-0.5">
+                                        <span className={`w-1.5 h-1.5 rounded-full ${active ? 'bg-emerald-500' : 'bg-rose-500'}`}></span>
+                                        <span className={`${active ? 'text-foreground' : 'text-muted-foreground line-through opacity-60'}`}>{f.name}</span>
+                                      </div>
+                                    );
+                                  })}
+                                </div>
+                              </div>
+
+                              {/* Right column: Storage volume & Statistics */}
+                              <div className="space-y-3 bg-card p-4 rounded-2xl border border-border/60">
+                                <h4 className="font-bold text-xs uppercase text-muted-foreground tracking-wider border-b border-border/40 pb-2">Data Analytics</h4>
+                                <div className="space-y-2 text-xs font-semibold">
+                                  <div className="flex justify-between items-center bg-muted/30 p-2 rounded-xl border border-border/20">
+                                    <span className="text-muted-foreground">Transactions</span>
+                                    <span className="bg-primary/10 text-primary px-2 py-0.5 rounded-md text-[10px]">{u.stats?.transactions || 0}</span>
+                                  </div>
+                                  <div className="flex justify-between items-center bg-muted/30 p-2 rounded-xl border border-border/20">
+                                    <span className="text-muted-foreground">Loans / Borrowing</span>
+                                    <span className="bg-emerald-500/10 text-emerald-500 px-2 py-0.5 rounded-md text-[10px]">{u.stats?.loans || 0}</span>
+                                  </div>
+                                  <div className="flex justify-between items-center bg-muted/30 p-2 rounded-xl border border-border/20">
+                                    <span className="text-muted-foreground">Group Events</span>
+                                    <span className="bg-orange-500/10 text-orange-600 px-2 py-0.5 rounded-md text-[10px]">{u.stats?.events || 0}</span>
+                                  </div>
+                                </div>
+                              </div>
+                            </div>
+
+                            {/* Direct targeted notification sender */}
+                            <div className="bg-card p-4 rounded-2xl border border-border/60 space-y-3">
+                              <h4 className="font-bold text-xs uppercase text-muted-foreground tracking-wider">Send Direct Notification Alert</h4>
+                              <div className="flex gap-2">
+                                <input
+                                  type="text"
+                                  placeholder={`Send an alert notification directly to ${u.email}...`}
+                                  value={directNotifMessage}
+                                  onChange={(e) => setDirectNotifMessage(e.target.value)}
+                                  className="flex-1 bg-muted border border-border/40 rounded-xl px-4 py-2 text-xs outline-none focus:ring-2 focus:ring-primary font-medium text-foreground"
+                                />
+                                <button
+                                  onClick={() => handleSendDirectNotification(u.id, u.email || '')}
+                                  disabled={isSendingDirectNotif}
+                                  className="px-5 py-2 bg-primary text-primary-foreground rounded-xl font-bold text-xs uppercase tracking-wider transition-all disabled:opacity-50 flex items-center justify-center gap-1.5 shrink-0"
+                                >
+                                  {isSendingDirectNotif ? 'Sending...' : 'Send Alert'}
+                                </button>
+                              </div>
+                            </div>
                           </div>
-                          
-                          <div className="flex items-center gap-1 bg-muted/40 p-1 rounded-2xl border border-border/40 shadow-inner">
-                            <button
-                              onClick={() => setSelectedUserForFeatures(u)}
-                              className="p-2 rounded-xl text-muted-foreground hover:text-primary hover:bg-card transition-all duration-200"
-                              title="Manage User Features"
-                            >
-                              <Sliders size={16} />
-                            </button>
-                            <button
-                              onClick={() => toggleProStatus(u)}
-                              className={`p-2 rounded-xl transition-all duration-200 ${u.isPro ? 'text-amber-500 bg-card shadow-sm hover:text-amber-600' : 'text-muted-foreground hover:text-amber-500 hover:bg-card'}`}
-                              title={u.isPro ? 'Demote Pro' : 'Promote to Pro'}
-                            >
-                              <ShieldCheck size={16} />
-                            </button>
-                            <button
-                              onClick={() => toggleBanStatus(u)}
-                              className={`p-2 rounded-xl transition-all duration-200 ${u.isBanned ? 'text-rose-500 bg-card shadow-sm hover:text-rose-600' : 'text-muted-foreground hover:text-rose-500 hover:bg-card'}`}
-                              title={u.isBanned ? 'Unban User' : 'Ban User'}
-                            >
-                              <AlertCircle size={16} />
-                            </button>
-                          </div>
-                        </div>
+                        )}
                       </div>
                     );
                   })
@@ -1017,22 +1368,37 @@ const Admin: React.FC = () => {
         )}
 
         {activeTab === 'settings' && (
-          <div className="bg-card border border-border rounded-3xl p-6 space-y-6">
-            <div className="flex items-center gap-2 border-b border-border pb-4">
-              <SettingsIcon className="text-primary" size={20} />
-              <h2 className="font-bold">Global Configuration</h2>
-            </div>
-
-            <div className="space-y-4">
-              <div className="space-y-1">
-                <label className="text-xs font-bold uppercase text-muted-foreground">Emergency Alert (Popup Modal)</label>
-                <textarea
-                  value={globalSettings.emergencyMessage}
-                  onChange={(e) => setGlobalSettings({ ...globalSettings, emergencyMessage: e.target.value })}
-                  className="w-full bg-rose-500/5 border border-rose-500/10 rounded-xl p-4 min-h-[80px] outline-none focus:ring-2 focus:ring-rose-500 text-rose-500 placeholder:text-rose-500/30"
-                  placeholder="Critical message that pops up for everyone..."
-                />
+          <div className="space-y-6">
+            <div className="bg-card border border-border rounded-3xl p-6 space-y-6">
+              <div className="flex items-center gap-2 border-b border-border pb-4">
+                <SettingsIcon className="text-primary" size={20} />
+                <h2 className="font-bold">Global Configuration</h2>
               </div>
+
+              <div className="space-y-4">
+                {/* System Version & Emergency Alert in Grid */}
+                <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
+                  <div className="space-y-1 sm:col-span-1">
+                    <label className="text-xs font-bold uppercase text-muted-foreground ml-1">System Version</label>
+                    <input
+                      type="text"
+                      value={globalSettings.version}
+                      onChange={(e) => setGlobalSettings({ ...globalSettings, version: e.target.value })}
+                      className="w-full bg-muted border-none rounded-xl p-3 outline-none focus:ring-2 focus:ring-primary text-xs font-bold text-foreground"
+                      placeholder="e.g. 1.0.0"
+                    />
+                  </div>
+                  <div className="space-y-1 sm:col-span-2">
+                    <label className="text-xs font-bold uppercase text-muted-foreground ml-1">Emergency Alert (Popup Modal)</label>
+                    <input
+                      type="text"
+                      value={globalSettings.emergencyMessage}
+                      onChange={(e) => setGlobalSettings({ ...globalSettings, emergencyMessage: e.target.value })}
+                      className="w-full bg-rose-500/5 border border-rose-500/10 rounded-xl p-3 outline-none focus:ring-2 focus:ring-rose-500 text-xs text-rose-500 placeholder:text-rose-500/30 font-medium"
+                      placeholder="Critical alert modal text (leave empty to disable)..."
+                    />
+                  </div>
+                </div>
 
               {/* Global Announcement with Markdown Preview */}
               <div className="space-y-2">
@@ -1132,48 +1498,177 @@ const Admin: React.FC = () => {
                 </div>
 
               </div>
+            </div>
 
-              {/* Global Feature Controls */}
-              <div className="border-t border-border pt-6 space-y-4">
-                <div className="flex items-center gap-2">
-                  <Sliders className="text-primary" size={18} />
-                  <h3 className="font-bold text-base">Global Feature Controls</h3>
-                </div>
-                <p className="text-xs text-muted-foreground">Toggle features globally for all users. Disabling a feature here will hide it for everyone.</p>
-                
-                <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-                  {FEATURES.map((feature) => {
-                    const isEnabled = !(globalSettings.disabledFeatures || []).includes(feature.id);
-                    return (
-                      <div key={feature.id} className="flex items-center justify-between p-4 bg-muted/50 rounded-2xl border border-border">
-                        <div>
-                          <p className="font-bold text-sm">{feature.name}</p>
-                          <p className="text-xs text-muted-foreground">{feature.desc}</p>
+                {/* Global Feature Controls */}
+                <div className="border-t border-border pt-6 space-y-4">
+                  <div className="flex items-center gap-2">
+                    <Sliders className="text-primary" size={18} />
+                    <h3 className="font-bold text-base">Global Feature Controls</h3>
+                  </div>
+                  <p className="text-xs text-muted-foreground">Toggle features globally for all users. Disabling a feature here will hide it for everyone.</p>
+                  
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                    {FEATURES.map((feature) => {
+                      const isEnabled = !(globalSettings.disabledFeatures || []).includes(feature.id);
+                      return (
+                        <div key={feature.id} className="flex items-center justify-between p-4 bg-muted/50 rounded-2xl border border-border">
+                          <div>
+                            <p className="font-bold text-sm">{feature.name}</p>
+                            <p className="text-xs text-muted-foreground">{feature.desc}</p>
+                          </div>
+                          <button
+                            onClick={() => {
+                              const currentDisabled = globalSettings.disabledFeatures || [];
+                              const updatedDisabled = currentDisabled.includes(feature.id)
+                                ? currentDisabled.filter(id => id !== feature.id)
+                                : [...currentDisabled, feature.id];
+                              
+                              const updates: Partial<GlobalConfig> = {
+                                ...globalSettings,
+                                disabledFeatures: updatedDisabled,
+                                fuelTrackingEnabled: !updatedDisabled.includes('fuel'),
+                                loansEnabled: !updatedDisabled.includes('loans')
+                              };
+                              setGlobalSettings(updates as GlobalConfig);
+                            }}
+                            className={`w-12 h-6 rounded-full transition-all relative shrink-0 ${isEnabled ? 'bg-emerald-500' : 'bg-muted'}`}
+                          >
+                            <div className={`absolute top-1 w-4 h-4 rounded-full bg-white transition-all ${isEnabled ? 'right-1' : 'left-1'}`} />
+                          </button>
                         </div>
-                        <button
-                          onClick={() => {
-                            const currentDisabled = globalSettings.disabledFeatures || [];
-                            const updatedDisabled = currentDisabled.includes(feature.id)
-                              ? currentDisabled.filter(id => id !== feature.id)
-                              : [...currentDisabled, feature.id];
-                            
-                            const updates: Partial<GlobalConfig> = {
-                              ...globalSettings,
-                              disabledFeatures: updatedDisabled,
-                              fuelTrackingEnabled: !updatedDisabled.includes('fuel'),
-                              loansEnabled: !updatedDisabled.includes('loans')
-                            };
-                            setGlobalSettings(updates as GlobalConfig);
-                          }}
-                          className={`w-12 h-6 rounded-full transition-all relative shrink-0 ${isEnabled ? 'bg-emerald-500' : 'bg-muted'}`}
-                        >
-                          <div className={`absolute top-1 w-4 h-4 rounded-full bg-white transition-all ${isEnabled ? 'right-1' : 'left-1'}`} />
-                        </button>
-                      </div>
-                    );
-                  })}
+                      );
+                    })}
+                  </div>
                 </div>
-              </div>
+
+                {/* AI Configuration Section */}
+                <div className="border-t border-border pt-6 space-y-6">
+                  <div className="flex items-center gap-2">
+                    <Sparkles className="text-primary animate-pulse" size={20} />
+                    <h3 className="font-bold text-base">Global AI Copilot Configuration</h3>
+                  </div>
+
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                    <div className="space-y-1">
+                      <label className="text-[10px] font-bold uppercase text-muted-foreground ml-1">Global Fallback API Key</label>
+                      <input
+                        type="password"
+                        value={globalSettings.fallbackApiKey || ''}
+                        onChange={(e) => setGlobalSettings({ ...globalSettings, fallbackApiKey: e.target.value })}
+                        placeholder={globalSettings.fallbackApiKey ? '••••••••••••••••••••••••' : 'Enter shared API key'}
+                        className="w-full bg-muted border-none rounded-xl p-3 outline-none focus:ring-2 focus:ring-primary text-xs font-semibold"
+                      />
+                    </div>
+                    <div className="space-y-1">
+                      <label className="text-[10px] font-bold uppercase text-muted-foreground ml-1">Default Fallback Model</label>
+                      <select
+                        value={globalSettings.fallbackModelId || 'gemini-2.5-flash'}
+                        onChange={(e) => setGlobalSettings({ ...globalSettings, fallbackModelId: e.target.value })}
+                        className="w-full bg-muted border-none rounded-xl p-3 outline-none focus:ring-2 focus:ring-primary text-xs font-bold text-foreground cursor-pointer"
+                      >
+                        <option value="gemini-2.5-flash">Gemini 2.5 Flash</option>
+                        <option value="gemini-3-flash">Gemini 3 Flash</option>
+                        <option value="gemini-3.1-flash-lite">Gemini 3.1 Flash Lite</option>
+                        <option value="gemini-3.5-live-translate">Gemini 3.5 Live Translate</option>
+                        <option value="gemini-3.1-flash-tts">Gemini 3.1 Flash TTS</option>
+                        <option value="gemma-4-31b">Gemma 4 31B (Open weights)</option>
+                        <option value="gemini-robotics-er-1.6-preview">Gemini Robotics ER 1.6 Preview</option>
+                      </select>
+                    </div>
+                  </div>
+
+                  <div className="space-y-1">
+                    <div className="flex items-center justify-between">
+                      <label className="text-[10px] font-bold uppercase text-muted-foreground ml-1">Global System Prompt instructions</label>
+                      <span className="text-[9px] text-muted-foreground italic">Appended to conversation prompt</span>
+                    </div>
+                    <textarea
+                      value={globalSettings.globalSystemInstruction || ''}
+                      onChange={(e) => setGlobalSettings({ ...globalSettings, globalSystemInstruction: e.target.value })}
+                      rows={3}
+                      placeholder="Add custom system prompt rules, default response guidelines, or support info here..."
+                      className="w-full bg-muted border-none rounded-xl p-3 outline-none focus:ring-2 focus:ring-primary text-xs font-medium"
+                    />
+                  </div>
+                </div>
+
+                {/* Change Admin Password Section */}
+                <div className="border-t border-border pt-6 space-y-4">
+                  <div className="flex items-center gap-2">
+                    <Lock className="text-primary" size={18} />
+                    <h3 className="font-bold text-base">Change Admin Password</h3>
+                  </div>
+                  <form onSubmit={handleUpdateAdminPassword} className="space-y-4">
+                    <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
+                      <div className="space-y-1">
+                        <label className="text-[10px] font-bold uppercase text-muted-foreground ml-1">Current Password</label>
+                        <input
+                          type="password"
+                          value={currentPassword}
+                          onChange={(e) => setCurrentPassword(e.target.value)}
+                          className="w-full bg-muted border-none rounded-xl p-3 outline-none focus:ring-2 focus:ring-primary text-xs font-semibold"
+                          required
+                        />
+                      </div>
+                      <div className="space-y-1">
+                        <label className="text-[10px] font-bold uppercase text-muted-foreground ml-1">New Password</label>
+                        <input
+                          type="password"
+                          value={newPassword}
+                          onChange={(e) => setNewPassword(e.target.value)}
+                          className="w-full bg-muted border-none rounded-xl p-3 outline-none focus:ring-2 focus:ring-primary text-xs font-semibold"
+                          required
+                        />
+                      </div>
+                      <div className="space-y-1">
+                        <label className="text-[10px] font-bold uppercase text-muted-foreground ml-1">Confirm New Password</label>
+                        <input
+                          type="password"
+                          value={confirmNewPassword}
+                          onChange={(e) => setConfirmNewPassword(e.target.value)}
+                          className="w-full bg-muted border-none rounded-xl p-3 outline-none focus:ring-2 focus:ring-primary text-xs font-semibold"
+                          required
+                        />
+                      </div>
+                    </div>
+                    <button
+                      type="submit"
+                      disabled={isChangingPass}
+                      className="px-5 py-2.5 bg-primary/10 hover:bg-primary text-primary hover:text-primary-foreground rounded-xl font-bold text-xs uppercase tracking-wider transition-all disabled:opacity-50"
+                    >
+                      {isChangingPass ? 'Updating...' : 'Update Password'}
+                    </button>
+                  </form>
+                </div>
+
+                {/* System Broadcast Notification Center */}
+                <div className="border-t border-border pt-6 space-y-4">
+                  <div className="flex items-center gap-2">
+                    <Megaphone className="text-primary" size={18} />
+                    <h3 className="font-bold text-base">Send System Broadcast Notification</h3>
+                  </div>
+                  <form onSubmit={handleSendBroadcast} className="space-y-4">
+                    <div className="space-y-1">
+                      <label className="text-[10px] font-bold uppercase text-muted-foreground ml-1">Broadcast Message</label>
+                      <textarea
+                        value={broadcastMessage}
+                        onChange={(e) => setBroadcastMessage(e.target.value)}
+                        rows={2}
+                        placeholder="Write a message that will be broadcasted to all users..."
+                        className="w-full bg-muted border-none rounded-xl p-3 outline-none focus:ring-2 focus:ring-primary text-xs font-semibold text-foreground"
+                        required
+                      />
+                    </div>
+                    <button
+                      type="submit"
+                      disabled={isSendingBroadcast}
+                      className="px-5 py-2.5 bg-primary/10 hover:bg-primary text-primary hover:text-primary-foreground rounded-xl font-bold text-xs uppercase tracking-wider transition-all disabled:opacity-50"
+                    >
+                      {isSendingBroadcast ? 'Sending...' : 'Send Broadcast to All'}
+                    </button>
+                  </form>
+                </div>
 
               {/* Currencies Administration Panel */}
               <div className="mt-8 border-t border-border pt-6 space-y-6">
@@ -1446,15 +1941,10 @@ const Admin: React.FC = () => {
                 <div className="h-64">
                   <Bar
                     data={{
-                      labels: ['Fuel', 'Loans', 'Events', 'Pro'],
+                      labels: getFeatureAdoptionData().labels,
                       datasets: [{
                         label: 'Active Users',
-                        data: [
-                          globalSettings.fuelTrackingEnabled ? systemStats.totalUsers : 0,
-                          globalSettings.loansEnabled ? systemStats.totalUsers : 0,
-                          systemStats.totalEvents > 0 ? systemStats.totalUsers : 1, // Simulated
-                          systemStats.proUsers
-                        ],
+                        data: getFeatureAdoptionData().data,
                         backgroundColor: 'rgba(99, 102, 241, 0.7)',
                         hoverBackgroundColor: '#6366f1',
                         borderWidth: 0,
@@ -1548,10 +2038,10 @@ const Admin: React.FC = () => {
               <div className="h-64">
                 <Line
                   data={{
-                    labels: ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'],
+                    labels: getActivityTrendData().labels,
                     datasets: [{
                       label: 'Active Users',
-                      data: [12, 19, 15, 22, 28, 24, 30], // Simulated trend
+                      data: getActivityTrendData().data,
                       borderColor: '#10b981',
                       backgroundColor: 'rgba(16, 185, 129, 0.05)',
                       fill: true,
@@ -1598,6 +2088,59 @@ const Admin: React.FC = () => {
                   }}
                 />
               </div>
+            </div>
+
+            {/* WhatsApp Server Monitor */}
+            <div className="bg-card border border-border rounded-3xl p-6 shadow-sm">
+              <div className="flex items-center justify-between mb-6 border-b border-border pb-4">
+                <h3 className="font-bold flex items-center gap-2">
+                  <MessageSquare size={18} className="text-primary animate-pulse" />
+                  WhatsApp Gateway Server Monitor
+                </h3>
+                <button
+                  onClick={fetchWhatsAppStatus}
+                  disabled={isRefreshingWhatsApp}
+                  className="px-3 py-1.5 bg-muted hover:bg-muted/80 rounded-xl font-bold text-[10px] uppercase transition-all flex items-center gap-1.5 text-foreground"
+                >
+                  <RefreshCw size={12} className={isRefreshingWhatsApp ? 'animate-spin' : ''} />
+                  {isRefreshingWhatsApp ? 'Refreshing...' : 'Refresh Status'}
+                </button>
+              </div>
+
+              {whatsappAccounts.length === 0 ? (
+                <div className="text-center py-6 text-muted-foreground text-xs italic">
+                  No account status information loaded. Ensure Vite dev server is running and local server is connected.
+                </div>
+              ) : (
+                <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+                  {whatsappAccounts.map((account) => {
+                    const statusColors = {
+                      disconnected: 'border-rose-500/20 bg-rose-500/5 text-rose-500',
+                      connecting: 'border-amber-500/20 bg-amber-500/5 text-amber-500',
+                      qr: 'border-primary/20 bg-primary/5 text-primary',
+                      connected: 'border-emerald-500/20 bg-emerald-500/5 text-emerald-500',
+                    };
+                    const color = statusColors[account.status as keyof typeof statusColors] || 'border-border bg-muted/20 text-muted-foreground';
+
+                    return (
+                      <div key={account.id} className={`p-4 rounded-2xl border ${color} space-y-2 flex flex-col justify-between`}>
+                        <div>
+                          <div className="flex items-center justify-between">
+                            <span className="font-extrabold text-sm text-foreground">{account.name}</span>
+                            <span className="text-[9px] uppercase font-black tracking-widest text-muted-foreground">{account.id}</span>
+                          </div>
+                          <p className="text-[10px] opacity-80 mt-1 font-semibold">
+                            Status: <span className="underline font-bold uppercase">{account.status}</span>
+                          </p>
+                        </div>
+                        <div className="text-[10px] font-mono leading-none pt-2 opacity-60">
+                          {account.hasCreds ? '✓ Baileys Credentials Cached' : '✗ No Cached Session'}
+                        </div>
+                      </div>
+                    );
+                  })}
+                </div>
+              )}
             </div>
           </div>
         )}

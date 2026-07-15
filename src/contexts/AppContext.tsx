@@ -1,6 +1,7 @@
 import React, { createContext, useContext, useEffect, useState } from 'react';
 import { db } from '../firebase';
-import { doc, onSnapshot } from 'firebase/firestore';
+import { doc, onSnapshot, collection, query, orderBy, limit, updateDoc } from 'firebase/firestore';
+import { toast } from 'sonner';
 import { ShieldAlert, Info, X, AlertTriangle } from 'lucide-react';
 import { useAuth } from './AuthContext';
 import { useLocation } from 'react-router-dom';
@@ -16,6 +17,9 @@ interface GlobalConfig {
   version: string;
   exchanges?: { id: string; name: string; logoUrl?: string; enabled: boolean; }[];
   disabledFeatures?: string[];
+  fallbackApiKey?: string;
+  fallbackModelId?: string;
+  globalSystemInstruction?: string;
 }
 
 interface AppContextType {
@@ -78,7 +82,63 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       }
     });
 
-    return () => unsubUser();
+    const startTimestamp = Date.now();
+
+    // 1. User-Specific notifications listener
+    const qUser = query(
+      collection(db, `users/${user.uid}/notifications`),
+      orderBy('timestamp', 'desc'),
+      limit(5)
+    );
+    const unsubUserNotifs = onSnapshot(qUser, (snapshot) => {
+      snapshot.docChanges().forEach((change) => {
+        if (change.type === 'added') {
+          const data = change.doc.data();
+          const msgTime = data.timestamp?.seconds ? data.timestamp.seconds * 1000 : Date.now();
+          if (msgTime > startTimestamp && !data.read) {
+            toast.info(data.message || 'New notification', {
+              duration: 8000,
+              action: {
+                label: 'Dismiss',
+                onClick: () => {
+                  try {
+                    updateDoc(doc(db, `users/${user.uid}/notifications`, change.doc.id), { read: true });
+                  } catch (e) {
+                    console.error(e);
+                  }
+                }
+              }
+            });
+          }
+        }
+      });
+    }, (err) => console.error('Error listening to user notifications:', err));
+
+    // 2. Global Broadcast notifications listener
+    const qGlobal = query(
+      collection(db, 'broadcast_notifications'),
+      orderBy('timestamp', 'desc'),
+      limit(5)
+    );
+    const unsubGlobal = onSnapshot(qGlobal, (snapshot) => {
+      snapshot.docChanges().forEach((change) => {
+        if (change.type === 'added') {
+          const data = change.doc.data();
+          const msgTime = data.timestamp?.seconds ? data.timestamp.seconds * 1000 : Date.now();
+          if (msgTime > startTimestamp) {
+            toast.success(`📢 BROADCAST: ${data.message}`, {
+              duration: 10000,
+            });
+          }
+        }
+      });
+    }, (err) => console.error('Error listening to global broadcasts:', err));
+
+    return () => {
+      unsubUser();
+      unsubUserNotifs();
+      unsubGlobal();
+    };
   }, [user]);
 
   useEffect(() => {
@@ -90,6 +150,24 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
             { id: 'mexc', name: 'MEXC Global', logoUrl: '', enabled: true }
           ];
         }
+        
+        // Sync Fallback AI Configuration variables to localStorage
+        if (newConfig.fallbackApiKey) {
+          localStorage.setItem('fallback_gemini_api_key', newConfig.fallbackApiKey);
+        } else {
+          localStorage.removeItem('fallback_gemini_api_key');
+        }
+        if (newConfig.fallbackModelId) {
+          localStorage.setItem('fallback_ai_model_id', newConfig.fallbackModelId);
+        } else {
+          localStorage.removeItem('fallback_ai_model_id');
+        }
+        if (newConfig.globalSystemInstruction) {
+          localStorage.setItem('global_system_instruction', newConfig.globalSystemInstruction);
+        } else {
+          localStorage.removeItem('global_system_instruction');
+        }
+
         setConfig(newConfig);
         setShowAnnouncement(true);
       }

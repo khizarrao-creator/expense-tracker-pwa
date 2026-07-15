@@ -56,13 +56,13 @@ const Layout: React.FC = () => {
               <Link
                 key={item.name}
                 to={item.path}
-                className={`flex items-center gap-3 px-4 py-3 rounded-lg transition-colors ${isActive
-                  ? 'bg-primary text-primary-foreground'
+                className={`flex items-center gap-3 px-4 py-3 rounded-xl transition-all duration-200 ${isActive
+                  ? 'bg-primary text-primary-foreground font-semibold shadow-sm scale-[1.02]'
                   : 'text-muted-foreground hover:bg-muted hover:text-foreground'
                   }`}
               >
                 <Icon size={20} />
-                <span className="font-medium">{item.name}</span>
+                <span>{item.name}</span>
               </Link>
             );
           })}
@@ -86,7 +86,7 @@ const Layout: React.FC = () => {
       {/* Main Content Area */}
       <main className="flex-1 flex flex-col h-screen overflow-hidden">
         {/* Mobile Header */}
-        <header className="md:hidden bg-card border-b border-border p-4 flex items-center justify-between z-10">
+        <header className="md:hidden bg-card/90 backdrop-blur-md border-b border-border/80 p-4 flex items-center justify-between z-10 sticky top-0 shadow-[0_1px_3px_rgba(0,0,0,0.02)]">
           <div className="flex flex-col">
             <h1 className="text-xl font-bold tracking-tight text-primary">Ledger</h1>
             {!isOnline && (
@@ -107,7 +107,7 @@ const Layout: React.FC = () => {
       </main>
 
       {/* Mobile Bottom Navigation */}
-      <nav className="md:hidden fixed bottom-0 w-full bg-card border-t border-border flex justify-around p-2 pb-safe z-20">
+      <nav className="md:hidden fixed bottom-0 w-full bg-card/85 backdrop-blur-md border-t border-border/70 flex justify-around p-2 pb-safe z-20 shadow-[0_-4px_12px_rgba(0,0,0,0.03)]">
         {navItems.map((item) => {
           const Icon = item.icon;
           const isActive = location.pathname === item.path ||
@@ -117,11 +117,11 @@ const Layout: React.FC = () => {
             <Link
               key={item.name}
               to={item.path}
-              className={`flex flex-col items-center p-2 rounded-lg ${isActive ? 'text-primary' : 'text-muted-foreground'
+              className={`flex flex-col items-center p-2 rounded-xl transition-all duration-200 ${isActive ? 'text-primary scale-105' : 'text-muted-foreground hover:text-foreground'
                 }`}
             >
               <Icon size={24} className={isActive ? 'mb-1' : 'mb-1 opacity-70'} />
-              <span className="text-[10px] font-medium">{item.name}</span>
+              <span className="text-[10px] font-semibold">{item.name}</span>
             </Link>
           );
         })}

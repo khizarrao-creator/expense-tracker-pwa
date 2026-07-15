@@ -1,6 +1,6 @@
 import React, { createContext, useContext, useState, useEffect } from 'react';
 
-type Theme = 'light' | 'dark' | 'system';
+type Theme = 'light' | 'dark' | 'eye-comfort' | 'system' | 'system-comfort';
 
 interface ThemeContextType {
   theme: Theme;
@@ -20,12 +20,17 @@ export const ThemeProvider: React.FC<{ children: React.ReactNode }> = ({ childre
     let effectiveTheme = currentTheme;
     if (currentTheme === 'system') {
       effectiveTheme = window.matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light';
+    } else if (currentTheme === 'system-comfort') {
+      effectiveTheme = window.matchMedia('(prefers-color-scheme: dark)').matches ? 'eye-comfort' : 'light';
     }
+
+    // Reset classes
+    root.classList.remove('dark', 'eye-comfort');
 
     if (effectiveTheme === 'dark') {
       root.classList.add('dark');
-    } else {
-      root.classList.remove('dark');
+    } else if (effectiveTheme === 'eye-comfort') {
+      root.classList.add('eye-comfort');
     }
   };
 
@@ -33,10 +38,10 @@ export const ThemeProvider: React.FC<{ children: React.ReactNode }> = ({ childre
     applyTheme(theme);
     localStorage.setItem('theme', theme);
 
-    // Listen for system theme changes if set to system
-    if (theme === 'system') {
+    // Listen for system theme changes if set to system or system-comfort
+    if (theme === 'system' || theme === 'system-comfort') {
       const mediaQuery = window.matchMedia('(prefers-color-scheme: dark)');
-      const handleChange = () => applyTheme('system');
+      const handleChange = () => applyTheme(theme);
       mediaQuery.addEventListener('change', handleChange);
       return () => mediaQuery.removeEventListener('change', handleChange);
     }

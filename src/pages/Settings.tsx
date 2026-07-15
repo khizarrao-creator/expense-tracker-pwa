@@ -1,7 +1,7 @@
 import React, { useState, useRef } from 'react';
 import * as XLSX from 'xlsx';
 import { getTransactions, exportAllData, importAllData, clearAllData, vacuumDB, normalizeCategories, getDBSizeMB, getConfig, setConfig, getAiAgentLogs } from '../db/queries';
-import { Download, Moon, Sun, Monitor, CloudSync, FileJson, Upload, AlertTriangle, LayoutList, ChevronRight, User as UserIcon, Mail, Shield, LogOut, CheckCircle2, X, Eye, EyeOff, Key, MessageSquare, Sparkles, ShieldCheck, Zap, Loader2 } from 'lucide-react';
+import { Download, CloudSync, FileJson, Upload, AlertTriangle, LayoutList, ChevronRight, User as UserIcon, Mail, Shield, LogOut, CheckCircle2, X, Eye, EyeOff, Key, MessageSquare, Sparkles, ShieldCheck, Zap, Loader2 } from 'lucide-react';
 import { useNavigate } from 'react-router-dom';
 import { useCurrency } from '../contexts/CurrencyContext';
 import { useTheme } from '../contexts/ThemeContext';
@@ -174,9 +174,16 @@ const Settings: React.FC = () => {
     setInitializingWaId(null);
   };
 
-  const handleThemeChange = (newTheme: 'light' | 'dark' | 'system') => {
+  const handleThemeChange = (newTheme: 'light' | 'dark' | 'eye-comfort' | 'system' | 'system-comfort') => {
     setTheme(newTheme);
-    toast.success(`${newTheme.charAt(0).toUpperCase() + newTheme.slice(1)} theme applied`);
+    const names = {
+      'light': 'Light',
+      'dark': 'iOS Black',
+      'eye-comfort': 'Eye Comfort',
+      'system': 'System Light/Dark',
+      'system-comfort': 'System Light/Comfort'
+    };
+    toast.success(`${names[newTheme]} theme applied`);
   };
 
   const handleTierChange = (tier: 'free' | 'pay_as_you_go') => {
@@ -1082,20 +1089,89 @@ const Settings: React.FC = () => {
 
       <div className="bg-card p-6 rounded-2xl shadow-sm border border-border">
         <h2 className="text-lg font-semibold mb-4 border-b border-border pb-4">Appearance</h2>
-        <div className="grid grid-cols-3 gap-3">
-          {(['light', 'dark', 'system'] as const).map((t) => (
-            <button
-              key={t}
-              onClick={() => handleThemeChange(t)}
-              className={`flex flex-col items-center justify-center p-4 rounded-xl border-2 transition-all ${theme === t ? 'border-primary bg-primary/5 text-primary' : 'border-border text-muted-foreground hover:bg-muted'
+        <div className="grid grid-cols-2 sm:grid-cols-5 gap-3">
+          {(['light', 'dark', 'eye-comfort', 'system', 'system-comfort'] as const).map((t) => {
+            const label = {
+              'light': 'Light',
+              'dark': 'iOS Black',
+              'eye-comfort': 'Eye Comfort',
+              'system': 'System',
+              'system-comfort': 'System + Comfort'
+            }[t];
+            const desc = {
+              'light': 'Classic view',
+              'dark': 'True black OLED',
+              'eye-comfort': 'Warm & warm-tinted',
+              'system': 'Auto Light/Black',
+              'system-comfort': 'Auto Light/Comfort'
+            }[t];
+
+            return (
+              <button
+                key={t}
+                onClick={() => handleThemeChange(t)}
+                className={`flex flex-col items-center p-3 rounded-2xl border-2 text-center transition-all duration-300 relative overflow-hidden group ${
+                  theme === t
+                    ? 'border-primary bg-primary/[0.02] ring-1 ring-primary/20 shadow-sm scale-[1.02]'
+                    : 'border-border/60 hover:border-muted-foreground/30 hover:bg-muted/15'
                 }`}
-            >
-              {t === 'light' && <Sun size={24} className="mb-2" />}
-              {t === 'dark' && <Moon size={24} className="mb-2" />}
-              {t === 'system' && <Monitor size={24} className="mb-2" />}
-              <span className="font-medium capitalize">{t}</span>
-            </button>
-          ))}
+              >
+                {/* Visual Mini-Preview */}
+                <div className="w-full h-14 rounded-lg mb-3 border border-border/40 relative overflow-hidden shadow-inner flex items-center justify-center bg-muted/30">
+                  {t === 'light' && (
+                    <div className="absolute inset-0 bg-[#fbfbfb] flex flex-col p-1.5 gap-1">
+                      <div className="h-1.5 w-8 bg-primary/20 rounded"></div>
+                      <div className="h-4 w-full bg-white border border-black/5 rounded shadow-sm"></div>
+                    </div>
+                  )}
+                  {t === 'dark' && (
+                    <div className="absolute inset-0 bg-[#000000] flex flex-col p-1.5 gap-1">
+                      <div className="h-1.5 w-8 bg-white/20 rounded"></div>
+                      <div className="h-4 w-full bg-[#0d0d0d] border border-white/5 rounded shadow-sm"></div>
+                    </div>
+                  )}
+                  {t === 'eye-comfort' && (
+                    <div className="absolute inset-0 bg-[#f7f3eb] flex flex-col p-1.5 gap-1">
+                      <div className="h-1.5 w-8 bg-[#473f33]/20 rounded"></div>
+                      <div className="h-4 w-full bg-[#fefdfb] border border-[#e6e1d5] rounded shadow-sm"></div>
+                    </div>
+                  )}
+                  {t === 'system' && (
+                    <div className="absolute inset-0 flex">
+                      <div className="w-1/2 bg-[#fbfbfb] p-1.5 gap-1 flex flex-col">
+                        <div className="h-1.5 w-full bg-primary/20 rounded"></div>
+                        <div className="h-4 w-full bg-white border border-black/5 rounded"></div>
+                      </div>
+                      <div className="w-1/2 bg-[#000000] p-1.5 gap-1 flex flex-col">
+                        <div className="h-1.5 w-full bg-white/20 rounded"></div>
+                        <div className="h-4 w-full bg-[#0d0d0d] border border-white/5 rounded"></div>
+                      </div>
+                    </div>
+                  )}
+                  {t === 'system-comfort' && (
+                    <div className="absolute inset-0 flex">
+                      <div className="w-1/2 bg-[#fbfbfb] p-1.5 gap-1 flex flex-col">
+                        <div className="h-1.5 w-full bg-primary/20 rounded"></div>
+                        <div className="h-4 w-full bg-white border border-black/5 rounded"></div>
+                      </div>
+                      <div className="w-1/2 bg-[#f7f3eb] p-1.5 gap-1 flex flex-col">
+                        <div className="h-1.5 w-full bg-[#473f33]/20 rounded"></div>
+                        <div className="h-4 w-full bg-[#fefdfb] border border-[#e6e1d5] rounded"></div>
+                      </div>
+                    </div>
+                  )}
+                  
+                  {/* Select indicator dot */}
+                  {theme === t && (
+                    <div className="absolute top-1 right-1 w-1.5 h-1.5 rounded-full bg-primary animate-pulse"></div>
+                  )}
+                </div>
+
+                <span className="font-semibold text-xs text-foreground mb-0.5">{label}</span>
+                <span className="text-[9px] text-muted-foreground leading-tight">{desc}</span>
+              </button>
+            );
+          })}
         </div>
       </div>
 

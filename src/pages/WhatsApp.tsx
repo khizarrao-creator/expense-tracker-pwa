@@ -31,6 +31,7 @@ import {
   syncWhatsAppStatus, 
   syncAllWhatsAppStatuses, 
   sendWhatsAppMessage, 
+  getApiUrl,
   type WhatsAppAccount, 
   type WhatsAppContact, 
   type WhatsAppMessage, 
@@ -126,7 +127,7 @@ const WhatsApp: React.FC = () => {
     fetchLedgerParties();
     
     // Setup SSE listener
-    const eventSource = new EventSource('/whatsapp-api/events');
+    const eventSource = new EventSource(getApiUrl('/events'));
     
     eventSource.onmessage = (event) => {
       try {
@@ -798,7 +799,7 @@ const WhatsApp: React.FC = () => {
               ) : (
                 <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-4 pb-6">
                   {statuses.map(status => {
-                    const localUrl = `/whatsapp-api/local-media/${activeAccountId}/${status.filename}`;
+                    const localUrl = getApiUrl(`/local-media/${activeAccountId}/${status.filename}`);
                     const displayUrl = status.cloudinaryUrl || localUrl;
 
                     return (

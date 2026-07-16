@@ -16,9 +16,19 @@ export interface SendMessageResponse {
   error?: string;
 }
 
+export const getApiUrl = (path: string): string => {
+  const gatewayUrl = import.meta.env.VITE_WHATSAPP_GATEWAY_URL || '';
+  if (gatewayUrl) {
+    const base = gatewayUrl.replace(/\/$/, '');
+    const cleanPath = path.replace(/^\//, '');
+    return `${base}/${cleanPath}`;
+  }
+  return `/whatsapp-api/${path.replace(/^\//, '')}`;
+};
+
 export const getWhatsAppStatus = async (): Promise<WhatsAppStatusResponse> => {
   try {
-    const response = await fetch('/whatsapp-api/status');
+    const response = await fetch(getApiUrl('/status'));
     if (!response.ok) {
       throw new Error(`HTTP error! status: ${response.status}`);
     }
@@ -42,7 +52,7 @@ export const sendWhatsAppMessage = async (
   message: string
 ): Promise<SendMessageResponse> => {
   try {
-    const response = await fetch('/whatsapp-api/send', {
+    const response = await fetch(getApiUrl('/send'), {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json'
@@ -63,7 +73,7 @@ export const sendWhatsAppMessage = async (
 
 export const logoutWhatsApp = async (accountId: string): Promise<boolean> => {
   try {
-    const response = await fetch('/whatsapp-api/logout', {
+    const response = await fetch(getApiUrl('/logout'), {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json'
@@ -83,7 +93,7 @@ export const logoutWhatsApp = async (accountId: string): Promise<boolean> => {
 
 export const initWhatsApp = async (accountId: string): Promise<boolean> => {
   try {
-    const response = await fetch('/whatsapp-api/init', {
+    const response = await fetch(getApiUrl('/init'), {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json'
@@ -126,7 +136,7 @@ export interface WhatsAppStatus {
 
 export const getWhatsAppContacts = async (accountId: string): Promise<WhatsAppContact[]> => {
   try {
-    const response = await fetch(`/whatsapp-api/contacts?accountId=${accountId}`);
+    const response = await fetch(getApiUrl(`/contacts?accountId=${accountId}`));
     if (!response.ok) {
       throw new Error(`HTTP error! status: ${response.status}`);
     }
@@ -140,7 +150,7 @@ export const getWhatsAppContacts = async (accountId: string): Promise<WhatsAppCo
 
 export const getWhatsAppMessages = async (accountId: string, jid: string): Promise<WhatsAppMessage[]> => {
   try {
-    const response = await fetch(`/whatsapp-api/messages?accountId=${accountId}&jid=${encodeURIComponent(jid)}`);
+    const response = await fetch(getApiUrl(`/messages?accountId=${accountId}&jid=${encodeURIComponent(jid)}`));
     if (!response.ok) {
       throw new Error(`HTTP error! status: ${response.status}`);
     }
@@ -154,7 +164,7 @@ export const getWhatsAppMessages = async (accountId: string, jid: string): Promi
 
 export const getWhatsAppStatuses = async (accountId: string): Promise<WhatsAppStatus[]> => {
   try {
-    const response = await fetch(`/whatsapp-api/statuses?accountId=${accountId}`);
+    const response = await fetch(getApiUrl(`/statuses?accountId=${accountId}`));
     if (!response.ok) {
       throw new Error(`HTTP error! status: ${response.status}`);
     }
@@ -168,7 +178,7 @@ export const getWhatsAppStatuses = async (accountId: string): Promise<WhatsAppSt
 
 export const syncWhatsAppStatus = async (accountId: string, filename: string): Promise<WhatsAppStatus | null> => {
   try {
-    const response = await fetch('/whatsapp-api/sync-status', {
+    const response = await fetch(getApiUrl('/sync-status'), {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json'
@@ -188,7 +198,7 @@ export const syncWhatsAppStatus = async (accountId: string, filename: string): P
 
 export const syncAllWhatsAppStatuses = async (accountId: string): Promise<WhatsAppStatus[]> => {
   try {
-    const response = await fetch('/whatsapp-api/sync-all-statuses', {
+    const response = await fetch(getApiUrl('/sync-all-statuses'), {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json'
@@ -214,7 +224,7 @@ export const deleteWhatsAppMessage = async (
   everyone: boolean
 ): Promise<{ success: boolean; error?: string }> => {
   try {
-    const response = await fetch('/whatsapp-api/delete-message', {
+    const response = await fetch(getApiUrl('/delete-message'), {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json'

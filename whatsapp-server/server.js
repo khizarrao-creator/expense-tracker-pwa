@@ -8,8 +8,171 @@ const pino = require('pino');
 const cloudinary = require('cloudinary').v2;
 const { default: makeWASocket, useMultiFileAuthState, DisconnectReason, fetchLatestBaileysVersion, downloadMediaMessage } = require('@whiskeysockets/baileys');
 
+const { initializeApp } = require('firebase/app');
+const { getFirestore, doc, getDoc, setDoc, deleteDoc, collection, getDocs } = require('firebase/firestore');
+
 const app = express();
-const PORT = 3001;
+const PORT = process.env.PORT || 3001;
+
+// Initialize Firebase client SDK
+const firebaseConfig = {
+  apiKey: process.env.VITE_FIREBASE_API_KEY,
+  authDomain: process.env.VITE_FIREBASE_AUTH_DOMAIN,
+  projectId: process.env.VITE_FIREBASE_PROJECT_ID,
+  storageBucket: process.env.VITE_FIREBASE_STORAGE_BUCKET,
+  messagingSenderId: process.env.VITE_FIREBASE_MESSAGING_SENDER_ID,
+  appId: process.env.VITE_FIREBASE_APP_ID
+};
+
+let db = null;
+try {
+  const firebaseApp = initializeApp(firebaseConfig);
+  db = getFirestore(firebaseApp);
+  console.log('[Firebase] Connected to Firestore successfully');
+} catch (e) {
+  console.error('[Firebase] Initialization error:', e.message);
+}
+
+// Active watchers dictionary
+const activeWatchers = {};
+
+// Helper to pull session files from Firestore
+async function downloadSessionFromFirestore(sessionId) {
+  const folderPath = path.join(__dirname, 'auth_info_baileys', sessionId);
+  if (!fs.existsSync(folderPath)) {
+    fs.mkdirSync(folderPath, { recursive: true });
+  }
+
+  if (!db) {
+    console.warn(`[${sessionId}] Firestore not initialized. Skipping session restore.`);
+    return;
+  }
+
+  try {
+    console.log(`[${sessionId}] Checking Firestore for existing session credentials...`);
+    const filesColRef = collection(db, 'whatsapp_sessions', sessionId, 'files');
+    const querySnapshot = await getDocs(filesColRef);
+    let fileCount = 0;
+
+    querySnapshot.forEach((docSnap) => {
+      const filename = docSnap.id;
+      const data = docSnap.data();
+      if (data && data.content) {
+        const filePath = path.join(folderPath, filename);
+        fs.writeFileSync(filePath, data.content, 'utf-8');
+        fileCount++;
+      }
+    });
+
+    if (fileCount > 0) {
+      console.log(`[${sessionId}] Firestore pull complete. Restored ${fileCount} session files.`);
+    } else {
+      console.log(`[${sessionId}] No credentials found in Firestore for this account.`);
+    }
+  } catch (err) {
+    console.error(`[${sessionId}] Failed to pull credentials from Firestore:`, err.message);
+  }
+}
+
+// Helper to monitor local folder and sync to Firestore
+function watchSessionFolder(sessionId) {
+  if (activeWatchers[sessionId]) return; // already watching
+
+  const folderPath = path.join(__dirname, 'auth_info_baileys', sessionId);
+  if (!fs.existsSync(folderPath)) {
+    fs.mkdirSync(folderPath, { recursive: true });
+  }
+
+  console.log(`[${sessionId}] Initiated real-time Firestore sync watcher.`);
+  const writeQueue = {};
+
+  const watcher = fs.watch(folderPath, async (eventType, filename) => {
+    if (!filename) return;
+    if (filename.startsWith('.') || filename.endsWith('.tmp')) return;
+
+    const filePath = path.join(folderPath, filename);
+    const docId = filename;
+
+    if (eventType === 'rename') {
+      if (fs.existsSync(filePath)) {
+        // File created/modified
+        if (writeQueue[filename]) clearTimeout(writeQueue[filename]);
+        writeQueue[filename] = setTimeout(async () => {
+          try {
+            const content = fs.readFileSync(filePath, 'utf-8');
+            if (db) {
+              await setDoc(doc(db, 'whatsapp_sessions', sessionId, 'files', docId), {
+                content,
+                updatedAt: Date.now()
+              });
+              console.log(`[Firestore Sync] Saved: ${filename} (${sessionId})`);
+            }
+          } catch (e) {
+            console.error(`[Firestore Sync] Save failed for ${filename}:`, e.message);
+          }
+        }, 500);
+      } else {
+        // File deleted
+        try {
+          if (db) {
+            await deleteDoc(doc(db, 'whatsapp_sessions', sessionId, 'files', docId));
+            console.log(`[Firestore Sync] Deleted: ${filename} (${sessionId})`);
+          }
+        } catch (e) {
+          console.error(`[Firestore Sync] Delete failed for ${filename}:`, e.message);
+        }
+      }
+    } else if (eventType === 'change') {
+      if (fs.existsSync(filePath)) {
+        if (writeQueue[filename]) clearTimeout(writeQueue[filename]);
+        writeQueue[filename] = setTimeout(async () => {
+          try {
+            const content = fs.readFileSync(filePath, 'utf-8');
+            if (db) {
+              await setDoc(doc(db, 'whatsapp_sessions', sessionId, 'files', docId), {
+                content,
+                updatedAt: Date.now()
+              });
+              console.log(`[Firestore Sync] Updated: ${filename} (${sessionId})`);
+            }
+          } catch (e) {
+            console.error(`[Firestore Sync] Update failed for ${filename}:`, e.message);
+          }
+        }, 500);
+      }
+    }
+  });
+
+  activeWatchers[sessionId] = watcher;
+}
+
+// Helper to clear Firestore files on logout
+async function clearSessionInFirestore(sessionId) {
+  // Close active watcher if running
+  if (activeWatchers[sessionId]) {
+    try {
+      activeWatchers[sessionId].close();
+    } catch (e) {}
+    delete activeWatchers[sessionId];
+    console.log(`[${sessionId}] Session watcher closed.`);
+  }
+
+  if (!db) return;
+
+  try {
+    console.log(`[${sessionId}] Deleting session files in Firestore...`);
+    const filesColRef = collection(db, 'whatsapp_sessions', sessionId, 'files');
+    const querySnapshot = await getDocs(filesColRef);
+    const deletePromises = [];
+    querySnapshot.forEach((docSnap) => {
+      deletePromises.push(deleteDoc(doc(db, 'whatsapp_sessions', sessionId, 'files', docSnap.id)));
+    });
+    await Promise.all(deletePromises);
+    console.log(`[${sessionId}] Session files in Firestore cleared.`);
+  } catch (err) {
+    console.error(`[${sessionId}] Failed to clear session files in Firestore:`, err.message);
+  }
+}
 
 // Setup silent logger for Baileys
 const pinoLogger = pino({ level: 'silent' });
@@ -133,6 +296,9 @@ async function initSession(sessionId) {
   const session = sessions[sessionId];
   if (!session) return;
 
+  // Restore session credentials from Firestore
+  await downloadSessionFromFirestore(sessionId);
+
   loadContacts(sessionId);
   loadHistory(sessionId);
 
@@ -156,6 +322,9 @@ async function initSession(sessionId) {
   try {
     const authDir = path.join(__dirname, 'auth_info_baileys', sessionId);
     const { state, saveCreds } = await useMultiFileAuthState(authDir);
+
+    // Setup watcher to sync any file writes/updates to Firestore
+    watchSessionFolder(sessionId);
 
     // Fetch latest WhatsApp version to avoid 405 protocol mismatch blocks
     let version = [2, 3000, 1035194821]; // Fallback version
@@ -231,6 +400,7 @@ async function initSession(sessionId) {
           } catch (err) {
             console.error(`[${sessionId}] Error clearing auth folder:`, err);
           }
+          clearSessionInFirestore(sessionId);
           session.sock = null;
         }
       } else if (connection === 'open') {
@@ -462,32 +632,39 @@ async function initSession(sessionId) {
   }
 }
 
-// Initialize only sessions with existing authenticated credentials on startup
-Object.keys(sessions).forEach(sessionId => {
-  const credsFile = path.join(__dirname, 'auth_info_baileys', sessionId, 'creds.json');
-  if (fs.existsSync(credsFile)) {
-    let isLinked = false;
-    try {
-      const creds = JSON.parse(fs.readFileSync(credsFile, 'utf-8'));
-      if (creds && creds.me && creds.me.id) {
-        isLinked = true;
+// Initialize sessions on startup
+async function startSessionManager() {
+  // Wait a short delay to ensure db is initialized
+  await new Promise(resolve => setTimeout(resolve, 1000));
+
+  for (const sessionId of Object.keys(sessions)) {
+    const credsFile = path.join(__dirname, 'auth_info_baileys', sessionId, 'creds.json');
+    let hasCredentials = fs.existsSync(credsFile);
+
+    if (!hasCredentials && db) {
+      try {
+        const credsDocRef = doc(db, 'whatsapp_sessions', sessionId, 'files', 'creds.json');
+        const credsDoc = await getDoc(credsDocRef);
+        if (credsDoc.exists()) {
+          hasCredentials = true;
+        }
+      } catch (err) {
+        console.error(`[${sessionId}] Failed to check Firestore credentials on startup:`, err.message);
       }
-    } catch (e) {
-      console.error(`[${sessionId}] Failed to parse credentials file on startup:`, e);
     }
 
-    if (isLinked) {
-      initSession(sessionId);
+    if (hasCredentials) {
+      console.log(`[${sessionId}] Credentials found. Restoring WhatsApp session...`);
+      initSession(sessionId).catch(err => {
+        console.error(`[${sessionId}] Session startup failed:`, err);
+      });
     } else {
-      console.log(`[${sessionId}] Credentials exist but not linked. Clearing auth folder and staying idle.`);
-      try {
-        fs.rmSync(path.join(__dirname, 'auth_info_baileys', sessionId), { recursive: true, force: true });
-      } catch (e) {}
+      console.log(`[${sessionId}] No credentials found (local or Firestore). Standing by.`);
     }
-  } else {
-    console.log(`[${sessionId}] No credentials found. Idle until user links.`);
   }
-});
+}
+
+startSessionManager();
 
 // REST API Endpoints
 
@@ -674,6 +851,9 @@ app.post('/logout', async (req, res) => {
     try {
       fs.rmSync(authDir, { recursive: true, force: true });
     } catch (e) {}
+
+    // Clear session in Firestore
+    await clearSessionInFirestore(accountId);
 
     session.status = 'disconnected';
     session.qrCodeUrl = null;

@@ -938,6 +938,29 @@ const Admin: React.FC = () => {
     }
 
     try {
+      // Resolve recipients on the client (already authenticated) to avoid
+      // server-side Firestore permission errors.
+      let resolvedRecipients: string[] = [];
+      if (bodyFilter === 'custom' || isTestOnly) {
+        resolvedRecipients = customRecipientsList;
+      } else {
+        const { getDocs: gd, collection: col } = await import('firebase/firestore');
+        const usersSnap = await gd(col(db, 'registered_users'));
+        usersSnap.forEach(docSnap => {
+          const { email, isPro } = (docSnap.data() ?? {}) as any;
+          if (!email) return;
+          if (bodyFilter === 'all') resolvedRecipients.push(email);
+          else if (bodyFilter === 'pro' && isPro) resolvedRecipients.push(email);
+          else if (bodyFilter === 'free' && !isPro) resolvedRecipients.push(email);
+        });
+      }
+
+      if (resolvedRecipients.length === 0 && !isTestOnly) {
+        toast.error('No matching recipients found for the selected filter.');
+        setIsSendingEmail(false);
+        return;
+      }
+
       const gatewayUrl = getGatewayUrl('/api/admin/send-emails');
       const response = await fetch(gatewayUrl, {
         method: 'POST',
@@ -949,7 +972,7 @@ const Admin: React.FC = () => {
           subject: emailSubject,
           html: emailBody,
           filter: bodyFilter,
-          customRecipients: customRecipientsList.length > 0 ? customRecipientsList : undefined
+          recipients: resolvedRecipients
         })
       });
 

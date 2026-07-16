@@ -1023,7 +1023,7 @@ app.post('/api/admin/send-emails', async (req, res) => {
     return res.status(401).json({ success: false, error: 'Unauthorized: Invalid admin secret key.' });
   }
 
-  const { subject, html, filter, customRecipients } = req.body;
+  const { subject, html, filter, customRecipients, recipients } = req.body;
   if (!subject || !html) {
     return res.status(400).json({ success: false, error: 'Bad Request: Subject and HTML body are required.' });
   }
@@ -1043,12 +1043,19 @@ app.post('/api/admin/send-emails', async (req, res) => {
   // Resolve target email list
   let targetEmails = [];
   try {
-    if (filter === 'custom') {
+    // ① Client already resolved the list — use it directly (preferred path)
+    if (Array.isArray(recipients) && recipients.length > 0) {
+      targetEmails = recipients.map(e => e.trim()).filter(Boolean);
+    }
+    // ② Custom list supplied directly
+    else if (filter === 'custom') {
       if (!Array.isArray(customRecipients) || customRecipients.length === 0) {
         return res.status(400).json({ success: false, error: 'Bad Request: customRecipients must be a non-empty array when filter is custom.' });
       }
       targetEmails = customRecipients.map(e => e.trim()).filter(Boolean);
-    } else {
+    }
+    // ③ Fallback: query Firestore on the server (requires proper service-account credentials)
+    else {
       if (!db) {
         return res.status(500).json({ success: false, error: 'Database is not initialized on the server.' });
       }

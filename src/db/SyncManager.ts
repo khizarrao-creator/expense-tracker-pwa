@@ -281,13 +281,13 @@ class SyncManager {
         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 1)
       `, [
         data.id,
-        data.name,
-        data.type,
+        data.name ?? 'Unnamed Investment',
+        data.type ?? 'Crypto',
         data.units ?? 0,
         data.average_buy_price ?? 0,
         data.current_price ?? 0,
-        data.created_at,
-        data.updated_at,
+        data.created_at ?? new Date().toISOString(),
+        data.updated_at ?? new Date().toISOString(),
         data.deviceId ?? null
       ]);
     } else if (collection === 'reminders') {

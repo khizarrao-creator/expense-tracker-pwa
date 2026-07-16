@@ -1,32 +1,34 @@
-# Card-Free Hosting Guide — WhatsApp Gateway Server
+# Card-Free Cloud Hosting Guide — WhatsApp Gateway Server
 
-If you want to host the WhatsApp gateway server without entering a credit card, you can use **Hugging Face Spaces** (100% free, runs 24/7, no card required) or **Koyeb**.
+Many popular cloud hosting providers (like Render or Railway) and even Hugging Face Spaces (for Docker compute) now require a credit card or a paid plan to verify accounts. 
 
-This folder contains a `Dockerfile` that makes deploying to these platforms extremely simple.
+To host the WhatsApp gateway server completely for free without entering a credit card, you can use **Zeabur** (recommended - no sleeping limitations) or **Glitch** (sleeps on idle but wakes up instantly).
 
 ---
 
-## Option A: Deploy to Hugging Face Spaces (Recommended - No Card Required)
+## Option A: Deploy to Zeabur (Recommended - Card-Free, Runs 24/7)
 
-Hugging Face allows you to host Docker containers for free in "Spaces". It runs continuously.
+Zeabur is a modern developer platform that offers a free tier (Developer Plan) with free credits each month. It supports deploying raw Docker containers and **does not require a credit card** to get started.
 
-### Step 1: Create a Hugging Face Account
-1. Sign up for free at [huggingface.co](https://huggingface.co) (no credit card needed).
+### Step 1: Sign Up
+1. Go to [zeabur.com](https://zeabur.com).
+2. Sign up using your **GitHub account** (no credit card required).
 
-### Step 2: Create a New Space
-1. Go to your Hugging Face home screen and click **New** -> **Space** (or go to [huggingface.co/new-space](https://huggingface.co/new-space)).
-2. Configure the Space settings:
-   - **Space Name**: `whatsapp-bridge` (or any name)
-   - **License**: Choose `mit` or leave blank
-   - **SDK**: Select **Docker** (⚠️ **CRITICAL**)
-   - **Docker Template**: Select **Blank**
-   - **Space Hardware**: Select **CPU basic • 2 vCPU • 16 GB • Free**
-   - **Visibility**: Select **Public** or **Private** (Private is fine, but you'll need to append your access token when accessing. Public is recommended for ease of connection since no sensitive auth is hardcoded - it uses Firestore keys).
+### Step 2: Create a Project
+1. In your Zeabur Dashboard, click **Create Project**.
+2. Choose a region closest to you.
 
-### Step 3: Add Environment Variables
-1. Once the Space is created, go to the **Settings** tab of your Space.
-2. Scroll down to the **Variables and secrets** section.
-3. Click **New secret** to add your Firebase & Cloudinary credentials from your `.env` file:
+### Step 3: Deploy the Repository
+1. Click **Deploy Service** and choose **GitHub**.
+2. Select your Expense Tracker repository.
+3. In the deployment settings card:
+   - Click on the service -> **Settings** tab.
+   - Set the **Root Directory** to `whatsapp-server` (⚠️ **CRITICAL**: This tells Zeabur to look inside the `whatsapp-server` subfolder).
+   - Zeabur will automatically find our `Dockerfile` inside that folder and use it to build.
+
+### Step 4: Add Environment Variables
+1. Go to the **Variables** tab of your deployed service.
+2. Click **Raw Edit** or add variables one by one. Copy the keys and values from your local `.env` file:
    - `VITE_FIREBASE_API_KEY`
    - `VITE_FIREBASE_AUTH_DOMAIN`
    - `VITE_FIREBASE_PROJECT_ID`
@@ -36,72 +38,44 @@ Hugging Face allows you to host Docker containers for free in "Spaces". It runs 
    - `VITE_CLOUDINARY_CLOUD_NAME`
    - `VITE_CLOUDINARY_API_KEY`
    - `VITE_CLOUDINARY_API_SECRET`
+3. Click **Redeploy** to apply variables.
 
-### Step 4: Upload Code files
-You can upload files directly through the Hugging Face website:
-1. Go to the **Files** tab of your Space.
-2. Click **Add file** -> **Upload files**.
-3. Drag and drop all files from your local `whatsapp-server/` folder:
-   - `server.js`
-   - `package.json`
-   - `package-lock.json`
-   - `Dockerfile`
-4. Commit changes. Hugging Face will automatically detect the `Dockerfile`, build it, and launch your server.
-5. Once building is complete, your app status will show **Running**.
-
-### Step 5: Get Your URL
-1. At the top of your Space page next to the title, click the **three dots (...)** and click **Embed this Space**.
-2. Copy the **Direct URL** (e.g. `https://username-space-name.hf.space`). This is your public cloud gateway URL!
+### Step 5: Generate a Domain
+1. In the service settings page, scroll down to the **Networking** section.
+2. Click **Generate Domain** (you'll get a free `zeabur.app` subdomain).
+3. Copy this generated URL (e.g. `https://whatsapp-bridge.zeabur.app`).
 
 ---
 
-## Option B: Deploy to Koyeb (Free tier, sign up with GitHub)
+## Option B: Deploy to Glitch (Card-Free, Sleeps on Inactivity)
 
-Koyeb is a modern developer platform that offers a free tier without card verification if you sign up using your GitHub account.
+Glitch is a collaborative coding platform that allows running Node.js servers for free without credit cards. Free projects sleep after 5 minutes of inactivity, but wake up automatically when a request arrives. Since the server stores WhatsApp credentials in Firestore, sleeping is perfectly fine—it will restore instantly on wake up!
 
-1. Go to [koyeb.com](https://www.koyeb.com) and sign up with GitHub.
-2. Click **Create Service**.
-3. Select **GitHub** as the deployment method.
-4. Select your Expense Tracker repository.
-5. In settings:
-   - Set **Root Directory** to `whatsapp-server`.
-   - Set **Buildpack** to `Docker` (Koyeb will automatically build the `Dockerfile` inside the root directory).
-   - Under **Environment Variables**, add the variables from your `.env` file.
-6. Click **Deploy**. Koyeb will build the image and give you a public URL (e.g. `https://app-name-username.koyeb.app`).
+### Step 1: Sign Up
+1. Go to [glitch.com](https://glitch.com).
+2. Sign up using your GitHub or Google account (no card required).
 
----
-
-## Option C: Deploy to Railway (Requires Card/Verification)
-
-If you already have a verified Railway account, or don't mind adding a card (Railway requires verification to prevent crypto mining abuse), Railway is an excellent and extremely fast platform.
-
-### Step 1: Create a Railway Project
-1. Log in to [railway.app](https://railway.app).
-2. Click **New Project** -> **Deploy from GitHub repo**.
-3. Select your Expense Tracker repository.
-
-### Step 2: Configure Service Settings
-1. Once the repo card appears on your canvas, click on it.
-2. Go to the **Settings** tab.
-3. Scroll down to **Root Directory** and set it to `whatsapp-server` (⚠️ **CRITICAL**).
-4. Railway will automatically detect the `Dockerfile` inside that directory and trigger a build.
+### Step 2: Import Repository
+1. Click **New Project** in the top right.
+2. Select **Import from GitHub**.
+3. Paste the URL of your GitHub repository.
+4. Glitch will clone the monorepo and run `npm start`. (We added a `"start"` script to the root `package.json` that redirects to run `whatsapp-server/server.js` directly).
 
 ### Step 3: Add Variables
-1. Go to the **Variables** tab of the service.
-2. Click **Raw Editor** or add variables one by one. Paste the keys and values from your local `.env` file.
+1. In the Glitch editor, find and open the `.env` file in the sidebar.
+2. Add all variables from your local `.env` file there.
 
-### Step 4: Expose the Service
-1. Go to the **Settings** tab of the service.
-2. Under **Networking**, click **Generate Domain** (or set up a custom domain). This will expose your container publicly.
-3. Copy your generated URL (e.g. `https://whatsapp-bridge-production.up.railway.app`).
+### Step 4: Get Your URL
+1. Click the **Share** button in the top menu.
+2. Under **Live App**, copy the link (e.g., `https://project-name.glitch.me`).
 
 ---
 
 ## Step 6: Configure PWA Frontend
 
-Once you have your cloud gateway URL from Hugging Face, Koyeb, or Railway, update the environment variable in your local `.env` or Netlify deployment configurations:
+Once you have your cloud gateway URL from Zeabur or Glitch, update the environment variable in your local `.env` or Netlify deployment configurations:
 
 ```env
-VITE_WHATSAPP_GATEWAY_URL="https://username-space-name.hf.space"
+VITE_WHATSAPP_GATEWAY_URL="https://whatsapp-bridge.zeabur.app"
 ```
-*(Replace with your actual URL, e.g. `https://whatsapp-bridge-production.up.railway.app` if using Railway)*
+*(Replace with your actual domain URL, e.g. `https://project-name.glitch.me` if using Glitch)*

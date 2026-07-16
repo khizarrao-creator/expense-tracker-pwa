@@ -241,7 +241,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
             </div>
             <div className="space-y-2">
               <h2 className="text-2xl font-bold text-rose-500">Emergency Alert</h2>
-              <p className="text-muted-foreground leading-relaxed">
+              <p className="text-muted-foreground leading-relaxed whitespace-pre-wrap">
                 {config.emergencyMessage}
               </p>
             </div>
@@ -260,7 +260,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         <div className="bg-primary text-primary-foreground px-4 py-2.5 relative z-[100] animate-in slide-in-from-top duration-300">
           <div className="max-w-4xl mx-auto flex items-center gap-3 pr-8">
             <Info size={18} className="shrink-0" />
-            <p className="text-xs font-medium leading-tight">
+            <p className="text-xs font-medium leading-tight whitespace-pre-wrap">
               {(() => {
                 const text = config.announcement;
                 const parts = text.split(/(\*\*.*?\*\*|\[.*?\]\(.*?\))/g);

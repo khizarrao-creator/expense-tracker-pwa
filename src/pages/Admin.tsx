@@ -1436,7 +1436,7 @@ const Admin: React.FC = () => {
                   </div>
                 ) : (
                   <div className="w-full min-h-[100px] bg-muted/20 border border-dashed border-border rounded-xl p-4 flex items-start">
-                    <p className="text-sm font-medium leading-relaxed text-foreground">
+                    <p className="text-sm font-medium leading-relaxed text-foreground whitespace-pre-wrap">
                       {globalSettings.announcement ? (
                         (() => {
                           const text = globalSettings.announcement;

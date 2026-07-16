@@ -257,16 +257,16 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
 
       {/* Global Announcement Banner */}
       {config.announcement && showAnnouncement && !config.maintenanceMode && (
-        <div className="bg-primary text-primary-foreground px-4 py-2.5 relative z-[100] animate-in slide-in-from-top duration-300">
-          <div className="max-w-4xl mx-auto flex items-center gap-3 pr-8">
-            <Info size={18} className="shrink-0" />
-            <p className="text-xs font-medium leading-tight whitespace-pre-wrap">
+        <div className="bg-amber-500/10 dark:bg-amber-950/30 text-amber-800 dark:text-amber-200 border-b border-amber-500/20 dark:border-amber-500/10 px-4 py-3 relative z-[100] animate-in slide-in-from-top duration-300">
+          <div className="max-w-4xl mx-auto flex items-start gap-3 pr-8">
+            <Info size={18} className="shrink-0 mt-0.5 text-amber-600 dark:text-amber-400" />
+            <p className="text-xs font-medium leading-relaxed whitespace-pre-wrap">
               {(() => {
                 const text = config.announcement;
                 const parts = text.split(/(\*\*.*?\*\*|\[.*?\]\(.*?\))/g);
                 return parts.map((part, index) => {
                   if (part.startsWith('**') && part.endsWith('**')) {
-                    return <strong key={index} className="font-extrabold text-white">{part.slice(2, -2)}</strong>;
+                    return <strong key={index} className="font-extrabold text-amber-950 dark:text-amber-100">{part.slice(2, -2)}</strong>;
                   }
                   const linkMatch = part.match(/^\[(.*?)\]\((.*?)\)$/);
                   if (linkMatch) {
@@ -276,7 +276,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
                         href={linkMatch[2]}
                         target="_blank"
                         rel="noopener noreferrer"
-                        className="underline hover:text-white/80 font-bold transition-colors ml-1 mr-1"
+                        className="underline hover:opacity-85 font-bold transition-colors ml-1 mr-1 text-amber-950 dark:text-amber-100"
                       >
                         {linkMatch[1]}
                       </a>
@@ -289,7 +289,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
           </div>
           <button
             onClick={() => setShowAnnouncement(false)}
-            className="absolute right-2 top-1/2 -translate-y-1/2 p-1 hover:bg-white/20 rounded-full transition-colors"
+            className="absolute right-3 top-3 p-1 hover:bg-amber-500/20 rounded-full transition-colors text-amber-600 dark:text-amber-400"
           >
             <X size={16} />
           </button>

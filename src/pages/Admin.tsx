@@ -25,7 +25,8 @@ import {
   Coins,
   Sparkles,
   Megaphone,
-  ArrowUpDown
+  ArrowUpDown,
+  Info
 } from 'lucide-react';
 import { syncManager } from '../db/SyncManager';
 import { Bar, Pie, Line } from 'react-chartjs-2';
@@ -1435,37 +1436,48 @@ const Admin: React.FC = () => {
                     </p>
                   </div>
                 ) : (
-                  <div className="w-full min-h-[100px] bg-muted/20 border border-dashed border-border rounded-xl p-4 flex items-start">
-                    <p className="text-sm font-medium leading-relaxed text-foreground whitespace-pre-wrap">
-                      {globalSettings.announcement ? (
-                        (() => {
-                          const text = globalSettings.announcement;
-                          const parts = text.split(/(\*\*.*?\*\*|\[.*?\]\(.*?\))/g);
-                          return parts.map((part, index) => {
-                            if (part.startsWith('**') && part.endsWith('**')) {
-                              return <strong key={index} className="font-extrabold text-foreground">{part.slice(2, -2)}</strong>;
-                            }
-                            const linkMatch = part.match(/^\[(.*?)\]\((.*?)\)$/);
-                            if (linkMatch) {
-                              return (
-                                <a
-                                  key={index}
-                                  href={linkMatch[2]}
-                                  target="_blank"
-                                  rel="noopener noreferrer"
-                                  className="underline hover:text-primary font-bold text-primary transition-colors ml-0.5 mr-0.5"
-                                >
-                                  {linkMatch[1]}
-                                </a>
-                              );
-                            }
-                            return part;
-                          });
-                        })()
-                      ) : (
+                  <div className="w-full min-h-[100px] bg-amber-500/10 dark:bg-amber-950/30 text-amber-800 dark:text-amber-200 border border-amber-500/20 dark:border-amber-500/10 rounded-xl p-4 flex items-start gap-3 relative">
+                    {globalSettings.announcement ? (
+                      <>
+                        <Info size={18} className="shrink-0 mt-0.5 text-amber-600 dark:text-amber-400" />
+                        <p className="text-xs font-medium leading-relaxed whitespace-pre-wrap flex-1 text-left">
+                          {(() => {
+                            const text = globalSettings.announcement;
+                            const parts = text.split(/(\*\*.*?\*\*|\[.*?\]\(.*?\))/g);
+                            return parts.map((part, index) => {
+                              if (part.startsWith('**') && part.endsWith('**')) {
+                                return <strong key={index} className="font-extrabold text-amber-950 dark:text-amber-100">{part.slice(2, -2)}</strong>;
+                              }
+                              const linkMatch = part.match(/^\[(.*?)\]\((.*?)\)$/);
+                              if (linkMatch) {
+                                return (
+                                  <a
+                                    key={index}
+                                    href={linkMatch[2]}
+                                    target="_blank"
+                                    rel="noopener noreferrer"
+                                    className="underline hover:opacity-85 font-bold transition-colors ml-0.5 mr-0.5 text-amber-950 dark:text-amber-100"
+                                  >
+                                    {linkMatch[1]}
+                                  </a>
+                                );
+                              }
+                              return part;
+                            });
+                          })()}
+                        </p>
+                        <button
+                          type="button"
+                          className="absolute right-3 top-3 p-1 hover:bg-amber-500/20 rounded-full transition-colors text-amber-600 dark:text-amber-400"
+                        >
+                          <X size={16} />
+                        </button>
+                      </>
+                    ) : (
+                      <div className="w-full flex items-center justify-center py-4">
                         <span className="italic text-muted-foreground text-xs">No announcement content to preview. Write something in Edit tab first.</span>
-                      )}
-                    </p>
+                      </div>
+                    )}
                   </div>
                 )}
               </div>

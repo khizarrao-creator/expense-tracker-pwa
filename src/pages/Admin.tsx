@@ -28,7 +28,13 @@ import {
   ArrowUpDown,
   Info,
   Mail,
-  Check
+  Check,
+  Bold,
+  Italic,
+  Underline,
+  List,
+  ListOrdered,
+  Link2
 } from 'lucide-react';
 import { syncManager } from '../db/SyncManager';
 import { Bar, Pie, Line } from 'react-chartjs-2';
@@ -136,6 +142,146 @@ interface SystemStats {
   totalEvents: number;
   lastScan: string | null;
 }
+interface RichTextEditorProps {
+  value: string;
+  onChange: (val: string) => void;
+}
+
+const RichTextEditor: React.FC<RichTextEditorProps> = ({ value, onChange }) => {
+  const editorRef = React.useRef<HTMLDivElement>(null);
+
+  // Sync state to innerHTML only when it doesn't match the current content
+  useEffect(() => {
+    if (editorRef.current && editorRef.current.innerHTML !== value) {
+      editorRef.current.innerHTML = value || '<p><br></p>';
+    }
+  }, [value]);
+
+  const handleInput = () => {
+    if (editorRef.current) {
+      onChange(editorRef.current.innerHTML);
+    }
+  };
+
+  const execCmd = (command: string, arg: string = '') => {
+    document.execCommand(command, false, arg);
+    handleInput();
+  };
+
+  const addLink = () => {
+    const url = prompt('Enter the link URL:');
+    if (url) {
+      execCmd('createLink', url);
+    }
+  };
+
+  return (
+    <div className="border border-border rounded-3xl overflow-hidden flex flex-col bg-muted/20">
+      {/* Toolbar */}
+      <div className="flex flex-wrap items-center gap-1 p-2 bg-muted/50 border-b border-border">
+        <button
+          type="button"
+          onClick={() => execCmd('bold')}
+          className="p-1.5 rounded-lg hover:bg-muted text-foreground hover:text-foreground transition-all"
+          title="Bold"
+        >
+          <Bold size={13} />
+        </button>
+        <button
+          type="button"
+          onClick={() => execCmd('italic')}
+          className="p-1.5 rounded-lg hover:bg-muted text-foreground hover:text-foreground transition-all"
+          title="Italic"
+        >
+          <Italic size={13} />
+        </button>
+        <button
+          type="button"
+          onClick={() => execCmd('underline')}
+          className="p-1.5 rounded-lg hover:bg-muted text-foreground hover:text-foreground transition-all"
+          title="Underline"
+        >
+          <Underline size={13} />
+        </button>
+        
+        <div className="w-px h-4 bg-border/80 mx-1" />
+
+        <button
+          type="button"
+          onClick={() => execCmd('formatBlock', '<h2>')}
+          className="px-2 py-1 rounded-lg hover:bg-muted text-foreground font-extrabold text-[10px] transition-all"
+          title="Heading 2"
+        >
+          H2
+        </button>
+        <button
+          type="button"
+          onClick={() => execCmd('formatBlock', '<h3>')}
+          className="px-2 py-1 rounded-lg hover:bg-muted text-foreground font-extrabold text-[10px] transition-all"
+          title="Heading 3"
+        >
+          H3
+        </button>
+        <button
+          type="button"
+          onClick={() => execCmd('formatBlock', '<p>')}
+          className="px-2 py-1 rounded-lg hover:bg-muted text-foreground font-extrabold text-[10px] transition-all"
+          title="Paragraph"
+        >
+          Para
+        </button>
+
+        <div className="w-px h-4 bg-border/80 mx-1" />
+
+        <button
+          type="button"
+          onClick={() => execCmd('insertUnorderedList')}
+          className="p-1.5 rounded-lg hover:bg-muted text-foreground hover:text-foreground transition-all"
+          title="Bullet List"
+        >
+          <List size={13} />
+        </button>
+        <button
+          type="button"
+          onClick={() => execCmd('insertOrderedList')}
+          className="p-1.5 rounded-lg hover:bg-muted text-foreground hover:text-foreground transition-all"
+          title="Numbered List"
+        >
+          <ListOrdered size={13} />
+        </button>
+
+        <div className="w-px h-4 bg-border/80 mx-1" />
+
+        <button
+          type="button"
+          onClick={addLink}
+          className="p-1.5 rounded-lg hover:bg-muted text-foreground hover:text-foreground transition-all"
+          title="Link"
+        >
+          <Link2 size={13} />
+        </button>
+        <button
+          type="button"
+          onClick={() => execCmd('removeFormat')}
+          className="p-1.5 rounded-lg hover:bg-muted text-foreground hover:text-foreground transition-all"
+          title="Clear Format"
+        >
+          <Sparkles size={13} />
+        </button>
+      </div>
+
+      {/* Editable Area */}
+      <div
+        ref={editorRef}
+        contentEditable
+        onInput={handleInput}
+        className="w-full min-h-[220px] bg-card text-card-foreground p-4 outline-none text-xs font-medium leading-relaxed overflow-y-auto max-h-[350px] text-left prose prose-sm max-w-none focus:ring-1 focus:ring-primary/20 focus:border-primary/20"
+        style={{ minHeight: '220px' }}
+      />
+    </div>
+  );
+};
+
 const Admin: React.FC = () => {
   const [isAuthorized, setIsAuthorized] = useState(false);
   const [username, setUsername] = useState('');
@@ -402,7 +548,7 @@ const Admin: React.FC = () => {
   const [emailCustomRecipients, setEmailCustomRecipients] = useState('');
   const [isSendingEmail, setIsSendingEmail] = useState(false);
   const [emailSendResult, setEmailSendResult] = useState<{ success: boolean; sentCount: number; failCount: number; errors?: any[] } | null>(null);
-  const [emailTab, setEmailTab] = useState<'edit' | 'preview'>('edit');
+  const [emailTab, setEmailTab] = useState<'rich' | 'edit' | 'preview'>('rich');
   const [showEmailConfirmModal, setShowEmailConfirmModal] = useState(false);
   const [adminSecretKey, setAdminSecretKey] = useState(
     localStorage.getItem('admin_secret_key') || import.meta.env.VITE_ADMIN_SECRET_KEY || ''
@@ -874,6 +1020,15 @@ const Admin: React.FC = () => {
     return `/whatsapp-api${path}`;
   };
 
+  const formatEmailBody = (text: string) => {
+    if (!text) return '';
+    const commonHtmlTags = /<(h[1-6]|p|br|div|a|strong|em|ul|ol|li|span|table|tr|td|style|html|body)/i;
+    if (commonHtmlTags.test(text)) {
+      return text;
+    }
+    return text.split('\n').join('<br />');
+  };
+
   const checkSmtpStatus = async () => {
     try {
       const response = await fetch(getGatewayUrl('/status'));
@@ -961,19 +1116,22 @@ const Admin: React.FC = () => {
         return;
       }
 
-      const gatewayUrl = getGatewayUrl('/api/admin/send-emails');
-      const response = await fetch(gatewayUrl, {
+      const headers = {
+        'Content-Type': 'application/json',
+        'x-admin-secret': adminSecretKey
+      };
+      const body = JSON.stringify({
+        subject: emailSubject,
+        html: formatEmailBody(emailBody),
+        filter: bodyFilter,
+        recipients: resolvedRecipients
+      });
+
+      const localUrl = `/whatsapp-api/api/admin/send-emails`;
+      const response = await fetch(localUrl, {
         method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          'x-admin-secret': adminSecretKey
-        },
-        body: JSON.stringify({
-          subject: emailSubject,
-          html: emailBody,
-          filter: bodyFilter,
-          recipients: resolvedRecipients
-        })
+        headers,
+        body
       });
 
       const data = await response.json();
@@ -2630,6 +2788,13 @@ const Admin: React.FC = () => {
                     <div className="flex bg-muted p-0.5 rounded-lg text-[9px]">
                       <button
                         type="button"
+                        onClick={() => setEmailTab('rich')}
+                        className={`px-3 py-1 rounded-md font-extrabold transition-all ${emailTab === 'rich' ? 'bg-card text-foreground shadow-sm' : 'text-muted-foreground hover:text-foreground'}`}
+                      >
+                        Rich Editor
+                      </button>
+                      <button
+                        type="button"
                         onClick={() => setEmailTab('edit')}
                         className={`px-3 py-1 rounded-md font-extrabold transition-all ${emailTab === 'edit' ? 'bg-card text-foreground shadow-sm' : 'text-muted-foreground hover:text-foreground'}`}
                       >
@@ -2645,13 +2810,15 @@ const Admin: React.FC = () => {
                     </div>
                   </div>
 
-                  {emailTab === 'edit' ? (
+                  {emailTab === 'rich' ? (
+                    <RichTextEditor value={emailBody} onChange={setEmailBody} />
+                  ) : emailTab === 'edit' ? (
                     <div className="space-y-1.5">
                       <textarea
                         value={emailBody}
                         onChange={(e) => setEmailBody(e.target.value)}
                         className="w-full bg-muted/50 border border-transparent rounded-2xl p-4 outline-none focus:bg-card focus:border-primary/20 focus:ring-2 focus:ring-primary/10 transition-all text-xs font-medium text-foreground min-h-[220px] font-mono leading-relaxed"
-                        placeholder="&lt;h2&gt;Hello User!&lt;/h2&gt;&#10;&lt;p&gt;We have completed our system update...&lt;/p&gt;&#10;&lt;a href='https://domain.com'&gt;Visit App&lt;/a&gt;"
+                        placeholder="<h2>Hello User!</h2>&#10;<p>We have completed our system update...</p>&#10;<a href='https://domain.com'>Visit App</a>"
                       />
                       <p className="text-[9px] text-muted-foreground ml-1 leading-relaxed">
                         HTML template support: Use standard tags like <code className="bg-muted px-1 py-0.5 rounded">&lt;h2&gt;</code>, <code className="bg-muted px-1 py-0.5 rounded">&lt;p&gt;</code>, <code className="bg-muted px-1 py-0.5 rounded">&lt;strong&gt;</code>, or inline style attributes for custom color formatting.
@@ -2660,9 +2827,9 @@ const Admin: React.FC = () => {
                   ) : (
                     <div className="w-full min-h-[220px] bg-white text-black border border-border rounded-2xl p-4 overflow-y-auto max-h-[400px] text-left">
                       {emailBody ? (
-                        <div dangerouslySetInnerHTML={{ __html: emailBody }} />
+                        <div dangerouslySetInnerHTML={{ __html: formatEmailBody(emailBody) }} />
                       ) : (
-                        <span className="italic text-gray-400 text-xs">No email content to preview. Write something in Edit HTML first.</span>
+                        <span className="italic text-gray-400 text-xs">No email content to preview. Write something in Rich Editor or Edit HTML first.</span>
                       )}
                     </div>
                   )}
@@ -2725,7 +2892,7 @@ const Admin: React.FC = () => {
                 {/* Email Body Area */}
                 <div className="flex-1 p-5 bg-white text-black overflow-y-auto max-h-[350px] text-left">
                   {emailBody ? (
-                    <div className="prose prose-sm max-w-none text-black" dangerouslySetInnerHTML={{ __html: emailBody }} />
+                    <div className="prose prose-sm max-w-none text-black" dangerouslySetInnerHTML={{ __html: formatEmailBody(emailBody) }} />
                   ) : (
                     <div className="h-full flex flex-col items-center justify-center text-center text-gray-400 space-y-2">
                       <Mail size={32} className="opacity-20 animate-bounce" />

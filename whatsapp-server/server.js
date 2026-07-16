@@ -696,7 +696,7 @@ app.get('/status', (req, res) => {
   }));
   res.json({
     accounts: result,
-    smtpConfigured: !!(process.env.SMTP_HOST && process.env.SMTP_USER && process.env.SMTP_PASS),
+    smtpConfigured: !!((process.env.SMTP_HOST && process.env.SMTP_USER && process.env.SMTP_PASS) || process.env.RESEND_API_KEY),
     adminSecretSet: !!process.env.ADMIN_SECRET_KEY
   });
 });
@@ -1033,7 +1033,18 @@ app.post('/api/admin/send-emails', async (req, res) => {
   const smtpPort = process.env.SMTP_PORT;
   const smtpUser = process.env.SMTP_USER;
   const smtpPass = process.env.SMTP_PASS;
-  const smtpFrom = process.env.SMTP_FROM || smtpUser;
+  
+  let smtpFrom = process.env.SMTP_FROM || smtpUser;
+  if (smtpFrom) {
+    smtpFrom = smtpFrom.replace(/\\/g, '');
+    const emailMatch = smtpFrom.match(/<([^>]+)>/);
+    if (emailMatch) {
+      const email = emailMatch[1].trim();
+      let name = smtpFrom.replace(/<[^>]+>/, '').trim();
+      name = name.replace(/^["'\s]+|["'\s]+$/g, '');
+      smtpFrom = name ? `"${name}" <${email}>` : email;
+    }
+  }
 
   if (!smtpHost || !smtpUser || !smtpPass) {
     console.error('[SMTP] Missing SMTP configurations.');
@@ -1085,6 +1096,83 @@ app.post('/api/admin/send-emails', async (req, res) => {
 
   if (targetEmails.length === 0) {
     return res.json({ success: true, sentCount: 0, message: 'No matching recipients found.' });
+  }
+
+  const resendApiKey = process.env.RESEND_API_KEY;
+  if (resendApiKey) {
+    console.log(`[Resend] Sending broadcast to ${targetEmails.length} recipients using Resend API.`);
+    let resendFrom = process.env.RESEND_FROM || 'onboarding@resend.dev';
+    if (resendFrom) {
+      resendFrom = resendFrom.replace(/\\/g, '');
+      const emailMatch = resendFrom.match(/<([^>]+)>/);
+      if (emailMatch) {
+        const email = emailMatch[1].trim();
+        let name = resendFrom.replace(/<[^>]+>/, '').trim();
+        name = name.replace(/^["'\s]+|["'\s]+$/g, '');
+        resendFrom = name ? `"${name}" <${email}>` : email;
+      }
+    }
+    const https = require('https');
+
+    let successCount = 0;
+    let failCount = 0;
+    const errors = [];
+
+    // Send emails sequentially
+    for (const email of targetEmails) {
+      try {
+        await new Promise((resolve, reject) => {
+          const postData = JSON.stringify({
+            from: resendFrom,
+            to: email,
+            subject: subject,
+            html: html
+          });
+
+          const reqOpts = {
+            hostname: 'api.resend.com',
+            port: 443,
+            path: '/emails',
+            method: 'POST',
+            headers: {
+              'Authorization': `Bearer ${resendApiKey}`,
+              'Content-Type': 'application/json',
+              'Content-Length': Buffer.byteLength(postData)
+            }
+          };
+
+          const req = https.request(reqOpts, (apiRes) => {
+            let resBody = '';
+            apiRes.on('data', (c) => resBody += c);
+            apiRes.on('end', () => {
+              if (apiRes.statusCode >= 200 && apiRes.statusCode < 300) {
+                resolve();
+              } else {
+                reject(new Error(`Resend returned status ${apiRes.statusCode}: ${resBody}`));
+              }
+            });
+          });
+
+          req.on('error', reject);
+          req.write(postData);
+          req.end();
+        });
+        successCount++;
+        console.log(`[Resend] Sent to ${email}`);
+      } catch (err) {
+        console.error(`[Resend] Failed to send email to ${email}:`, err.message);
+        failCount++;
+        errors.push({ email, error: err.message });
+      }
+    }
+
+    console.log(`[Resend] Email broadcast finished. Sent: ${successCount}, Failed: ${failCount}`);
+    return res.json({
+      success: failCount === 0,
+      sentCount: successCount,
+      failCount: failCount,
+      errors: errors.length > 0 ? errors : undefined
+    });
   }
 
   console.log(`[SMTP] Sending broadcast email to ${targetEmails.length} recipients.`);

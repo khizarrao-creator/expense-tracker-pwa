@@ -71,11 +71,37 @@ Koyeb is a modern developer platform that offers a free tier without card verifi
 
 ---
 
+## Option C: Deploy to Railway (Requires Card/Verification)
+
+If you already have a verified Railway account, or don't mind adding a card (Railway requires verification to prevent crypto mining abuse), Railway is an excellent and extremely fast platform.
+
+### Step 1: Create a Railway Project
+1. Log in to [railway.app](https://railway.app).
+2. Click **New Project** -> **Deploy from GitHub repo**.
+3. Select your Expense Tracker repository.
+
+### Step 2: Configure Service Settings
+1. Once the repo card appears on your canvas, click on it.
+2. Go to the **Settings** tab.
+3. Scroll down to **Root Directory** and set it to `whatsapp-server` (⚠️ **CRITICAL**).
+4. Railway will automatically detect the `Dockerfile` inside that directory and trigger a build.
+
+### Step 3: Add Variables
+1. Go to the **Variables** tab of the service.
+2. Click **Raw Editor** or add variables one by one. Paste the keys and values from your local `.env` file.
+
+### Step 4: Expose the Service
+1. Go to the **Settings** tab of the service.
+2. Under **Networking**, click **Generate Domain** (or set up a custom domain). This will expose your container publicly.
+3. Copy your generated URL (e.g. `https://whatsapp-bridge-production.up.railway.app`).
+
+---
+
 ## Step 6: Configure PWA Frontend
 
-Once you have your cloud gateway URL from Hugging Face or Koyeb, update the environment variable in your local `.env` or Netlify deployment configurations:
+Once you have your cloud gateway URL from Hugging Face, Koyeb, or Railway, update the environment variable in your local `.env` or Netlify deployment configurations:
 
 ```env
 VITE_WHATSAPP_GATEWAY_URL="https://username-space-name.hf.space"
 ```
-*(Replace with your actual URL)*
+*(Replace with your actual URL, e.g. `https://whatsapp-bridge-production.up.railway.app` if using Railway)*

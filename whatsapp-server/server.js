@@ -1089,17 +1089,33 @@ app.post('/api/admin/send-emails', async (req, res) => {
 
   console.log(`[SMTP] Sending broadcast email to ${targetEmails.length} recipients.`);
 
-  // Create transporter dynamically to pick up any runtime env var updates
+  // Create transporter with explicit timeouts so a bad connection fails fast
   const nodemailer = require('nodemailer');
+  const resolvedPort = parseInt(smtpPort || '587', 10);
   const transporter = nodemailer.createTransport({
     host: smtpHost,
-    port: parseInt(smtpPort || '465', 10),
-    secure: parseInt(smtpPort || '465', 10) === 465, // true for 465, false for other ports
+    port: resolvedPort,
+    secure: resolvedPort === 465,   // true only for legacy SSL port
     auth: {
       user: smtpUser,
       pass: smtpPass
-    }
+    },
+    connectionTimeout: 10000,   // 10 s to establish TCP connection
+    greetingTimeout: 10000,     // 10 s to receive SMTP greeting
+    socketTimeout: 15000        // 15 s of inactivity before giving up
   });
+
+  // Verify credentials before attempting any sends — surfaces auth errors instantly
+  try {
+    await transporter.verify();
+    console.log('[SMTP] Transporter verified successfully.');
+  } catch (verifyErr) {
+    console.error('[SMTP] Transporter verification failed:', verifyErr.message);
+    return res.status(500).json({
+      success: false,
+      error: `SMTP connection/auth failed: ${verifyErr.message}. Check SMTP_HOST, SMTP_PORT, SMTP_USER and SMTP_PASS in Railway variables.`
+    });
+  }
 
   let successCount = 0;
   let failCount = 0;
@@ -1115,6 +1131,7 @@ app.post('/api/admin/send-emails', async (req, res) => {
         html: html
       });
       successCount++;
+      console.log(`[SMTP] Sent to ${email}`);
     } catch (err) {
       console.error(`[SMTP] Failed to send email to ${email}:`, err.message);
       failCount++;

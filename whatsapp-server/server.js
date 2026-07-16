@@ -694,7 +694,11 @@ app.get('/status', (req, res) => {
     qrCodeUrl: s.qrCodeUrl,
     hasCreds: fs.existsSync(path.join(__dirname, 'auth_info_baileys', s.id, 'creds.json'))
   }));
-  res.json({ accounts: result });
+  res.json({
+    accounts: result,
+    smtpConfigured: !!(process.env.SMTP_HOST && process.env.SMTP_USER && process.env.SMTP_PASS),
+    adminSecretSet: !!process.env.ADMIN_SECRET_KEY
+  });
 });
 
 // 2. Send message
@@ -1006,6 +1010,118 @@ app.post('/sync-all-statuses', async (req, res) => {
   }
   
   res.json({ success: true, syncedCount: successCount, syncedItems });
+});
+
+// Send emails to registered users (Admin Broadcast)
+app.post('/api/admin/send-emails', async (req, res) => {
+  const adminSecret = req.headers['x-admin-secret'];
+  const expectedSecret = process.env.ADMIN_SECRET_KEY;
+
+  // Verify Admin Secret Key
+  if (!expectedSecret || adminSecret !== expectedSecret) {
+    console.warn('[SMTP] Unauthorized access attempt to email broadcast.');
+    return res.status(401).json({ success: false, error: 'Unauthorized: Invalid admin secret key.' });
+  }
+
+  const { subject, html, filter, customRecipients } = req.body;
+  if (!subject || !html) {
+    return res.status(400).json({ success: false, error: 'Bad Request: Subject and HTML body are required.' });
+  }
+
+  // Check SMTP configurations
+  const smtpHost = process.env.SMTP_HOST;
+  const smtpPort = process.env.SMTP_PORT;
+  const smtpUser = process.env.SMTP_USER;
+  const smtpPass = process.env.SMTP_PASS;
+  const smtpFrom = process.env.SMTP_FROM || smtpUser;
+
+  if (!smtpHost || !smtpUser || !smtpPass) {
+    console.error('[SMTP] Missing SMTP configurations.');
+    return res.status(500).json({ success: false, error: 'SMTP configurations (SMTP_HOST, SMTP_USER, SMTP_PASS) are missing on the server.' });
+  }
+
+  // Resolve target email list
+  let targetEmails = [];
+  try {
+    if (filter === 'custom') {
+      if (!Array.isArray(customRecipients) || customRecipients.length === 0) {
+        return res.status(400).json({ success: false, error: 'Bad Request: customRecipients must be a non-empty array when filter is custom.' });
+      }
+      targetEmails = customRecipients.map(e => e.trim()).filter(Boolean);
+    } else {
+      if (!db) {
+        return res.status(500).json({ success: false, error: 'Database is not initialized on the server.' });
+      }
+      const usersSnap = await getDocs(collection(db, 'registered_users'));
+      usersSnap.forEach(docSnap => {
+        const userData = docSnap.data();
+        const email = userData.email;
+        if (email) {
+          const isPro = !!userData.isPro;
+          if (filter === 'all') {
+            targetEmails.push(email);
+          } else if (filter === 'pro' && isPro) {
+            targetEmails.push(email);
+          } else if (filter === 'free' && !isPro) {
+            targetEmails.push(email);
+          }
+        }
+      });
+    }
+  } catch (err) {
+    console.error('[SMTP] Failed to fetch users from Firestore:', err.message);
+    return res.status(500).json({ success: false, error: `Failed to fetch users: ${err.message}` });
+  }
+
+  // Remove duplicates and filter empty/invalid email formats
+  targetEmails = [...new Set(targetEmails)].filter(e => e.includes('@'));
+
+  if (targetEmails.length === 0) {
+    return res.json({ success: true, sentCount: 0, message: 'No matching recipients found.' });
+  }
+
+  console.log(`[SMTP] Sending broadcast email to ${targetEmails.length} recipients.`);
+
+  // Create transporter dynamically to pick up any runtime env var updates
+  const nodemailer = require('nodemailer');
+  const transporter = nodemailer.createTransport({
+    host: smtpHost,
+    port: parseInt(smtpPort || '465', 10),
+    secure: parseInt(smtpPort || '465', 10) === 465, // true for 465, false for other ports
+    auth: {
+      user: smtpUser,
+      pass: smtpPass
+    }
+  });
+
+  let successCount = 0;
+  let failCount = 0;
+  const errors = [];
+
+  // Send emails sequentially to avoid SMTP block rate-limits
+  for (const email of targetEmails) {
+    try {
+      await transporter.sendMail({
+        from: smtpFrom,
+        to: email,
+        subject: subject,
+        html: html
+      });
+      successCount++;
+    } catch (err) {
+      console.error(`[SMTP] Failed to send email to ${email}:`, err.message);
+      failCount++;
+      errors.push({ email, error: err.message });
+    }
+  }
+
+  console.log(`[SMTP] Email broadcast finished. Sent: ${successCount}, Failed: ${failCount}`);
+  res.json({
+    success: failCount === 0,
+    sentCount: successCount,
+    failCount: failCount,
+    errors: errors.length > 0 ? errors : undefined
+  });
 });
 
 // Start server

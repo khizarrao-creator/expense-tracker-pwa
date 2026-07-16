@@ -26,7 +26,9 @@ import {
   Sparkles,
   Megaphone,
   ArrowUpDown,
-  Info
+  Info,
+  Mail,
+  Check
 } from 'lucide-react';
 import { syncManager } from '../db/SyncManager';
 import { Bar, Pie, Line } from 'react-chartjs-2';
@@ -368,7 +370,7 @@ const Admin: React.FC = () => {
   const [statusFilter, setStatusFilter] = useState<'all' | 'pro' | 'standard' | 'banned' | 'active_today'>('all');
   const [sortBy, setSortBy] = useState<'lastActive' | 'name' | 'email' | 'tx_volume'>('lastActive');
   const [sortOrder, setSortOrder] = useState<'asc' | 'desc'>('desc');
-  const [activeTab, setActiveTab] = useState<'users' | 'settings' | 'logs' | 'analytics'>('users');
+  const [activeTab, setActiveTab] = useState<'users' | 'settings' | 'logs' | 'analytics' | 'email'>('users');
   const [announcementTab, setAnnouncementTab] = useState<'edit' | 'preview'>('edit');
   const [newCurrencyCode, setNewCurrencyCode] = useState('');
   const [newCurrencySymbol, setNewCurrencySymbol] = useState('');
@@ -392,6 +394,25 @@ const Admin: React.FC = () => {
   const [showLogoutConfirm, setShowLogoutConfirm] = useState(false);
   const [pendingItems, setPendingItems] = useState<any[]>([]);
   const [isForceSyncing, setIsForceSyncing] = useState(false);
+
+  // Email Broadcast States
+  const [emailSubject, setEmailSubject] = useState('');
+  const [emailBody, setEmailBody] = useState('');
+  const [emailFilter, setEmailFilter] = useState<'all' | 'pro' | 'free' | 'custom'>('all');
+  const [emailCustomRecipients, setEmailCustomRecipients] = useState('');
+  const [isSendingEmail, setIsSendingEmail] = useState(false);
+  const [emailSendResult, setEmailSendResult] = useState<{ success: boolean; sentCount: number; failCount: number; errors?: any[] } | null>(null);
+  const [emailTab, setEmailTab] = useState<'edit' | 'preview'>('edit');
+  const [showEmailConfirmModal, setShowEmailConfirmModal] = useState(false);
+  const [adminSecretKey, setAdminSecretKey] = useState(
+    localStorage.getItem('admin_secret_key') || import.meta.env.VITE_ADMIN_SECRET_KEY || ''
+  );
+  const [showSecretKey, setShowSecretKey] = useState(false);
+  const [smtpStatus, setSmtpStatus] = useState<{ smtpConfigured: boolean; adminSecretSet: boolean; checked: boolean; error?: string }>({
+    smtpConfigured: false,
+    adminSecretSet: false,
+    checked: false
+  });
 
   const handleLogin = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -844,9 +865,144 @@ const Admin: React.FC = () => {
     }
   };
 
+  const getGatewayUrl = (path: string) => {
+    const envUrl = import.meta.env.VITE_WHATSAPP_GATEWAY_URL;
+    if (envUrl) {
+      const cleanEnvUrl = envUrl.endsWith('/') ? envUrl.slice(0, -1) : envUrl;
+      return `${cleanEnvUrl}${path}`;
+    }
+    return `/whatsapp-api${path}`;
+  };
+
+  const checkSmtpStatus = async () => {
+    try {
+      const response = await fetch(getGatewayUrl('/status'));
+      if (!response.ok) {
+        throw new Error(`HTTP error ${response.status}`);
+      }
+      const data = await response.json();
+      setSmtpStatus({
+        smtpConfigured: !!data.smtpConfigured,
+        adminSecretSet: !!data.adminSecretSet,
+        checked: true
+      });
+      if (data.accounts) {
+        setWhatsappAccounts(data.accounts);
+      }
+    } catch (err: any) {
+      console.error('[SMTP Check] Failed to check status:', err);
+      setSmtpStatus({
+        smtpConfigured: false,
+        adminSecretSet: false,
+        checked: true,
+        error: err.message || 'Failed to connect to gateway server'
+      });
+    }
+  };
+
+  const handleSaveSecretKey = (val: string) => {
+    setAdminSecretKey(val);
+    localStorage.setItem('admin_secret_key', val);
+    toast.success('Admin Secret Key saved locally');
+  };
+
+  const handleSendEmailBroadcast = async (isTestOnly = false) => {
+    if (!emailSubject.trim()) {
+      toast.error('Email subject is required');
+      return;
+    }
+    if (!emailBody.trim()) {
+      toast.error('Email body is required');
+      return;
+    }
+
+    setIsSendingEmail(true);
+    setEmailSendResult(null);
+
+    let bodyFilter = emailFilter;
+    let customRecipientsList: string[] = [];
+
+    if (isTestOnly) {
+      bodyFilter = 'custom';
+      customRecipientsList = [adminUsername || 'khizarraoworks@gmail.com'];
+    } else if (emailFilter === 'custom') {
+      customRecipientsList = emailCustomRecipients
+        .split(',')
+        .map(e => e.trim())
+        .filter(Boolean);
+      if (customRecipientsList.length === 0) {
+        toast.error('Please enter at least one custom recipient email address');
+        setIsSendingEmail(false);
+        return;
+      }
+    }
+
+    try {
+      const gatewayUrl = getGatewayUrl('/api/admin/send-emails');
+      const response = await fetch(gatewayUrl, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'x-admin-secret': adminSecretKey
+        },
+        body: JSON.stringify({
+          subject: emailSubject,
+          html: emailBody,
+          filter: bodyFilter,
+          customRecipients: customRecipientsList.length > 0 ? customRecipientsList : undefined
+        })
+      });
+
+      const data = await response.json();
+
+      if (!response.ok) {
+        throw new Error(data.error || `HTTP error ${response.status}`);
+      }
+
+      setEmailSendResult({
+        success: data.success,
+        sentCount: data.sentCount,
+        failCount: data.failCount,
+        errors: data.errors
+      });
+
+      if (data.success) {
+        toast.success(isTestOnly ? 'Test email sent successfully!' : 'Email broadcast completed successfully!');
+        if (!isTestOnly) {
+          // Clear inputs on successful broadcast
+          setEmailSubject('');
+          setEmailBody('');
+          
+          // Log admin action
+          await addDoc(collection(db, 'admin_logs'), {
+            action: `Sent email broadcast to ${data.sentCount} users (Subject: "${emailSubject}")`,
+            timestamp: new Date().toISOString(),
+            user: adminUsername
+          });
+        }
+      } else {
+        toast.error(`Broadcast finished with errors. Sent: ${data.sentCount}, Failed: ${data.failCount}`);
+      }
+    } catch (err: any) {
+      console.error('[SMTP Send] Broadcast failed:', err);
+      toast.error(err.message || 'Failed to send email broadcast');
+      setEmailSendResult({
+        success: false,
+        sentCount: 0,
+        failCount: 0,
+        errors: [{ email: 'System', error: err.message || 'Network error or bad gateway' }]
+      });
+    } finally {
+      setIsSendingEmail(false);
+      setShowEmailConfirmModal(false);
+    }
+  };
+
   useEffect(() => {
     if (activeTab === 'analytics') {
       fetchWhatsAppStatus();
+    } else if (activeTab === 'email') {
+      checkSmtpStatus();
     }
   }, [activeTab]);
 
@@ -1046,6 +1202,12 @@ const Admin: React.FC = () => {
             className={`px-4 py-2 rounded-lg text-sm font-bold transition-all ${activeTab === 'analytics' ? 'bg-card shadow-sm text-primary' : 'text-muted-foreground'}`}
           >
             Analytics
+          </button>
+          <button
+            onClick={() => setActiveTab('email')}
+            className={`px-4 py-2 rounded-lg text-sm font-bold transition-all ${activeTab === 'email' ? 'bg-card shadow-sm text-primary' : 'text-muted-foreground'}`}
+          >
+            Email Broadcast
           </button>
         </div>
 
@@ -2294,7 +2456,360 @@ const Admin: React.FC = () => {
             </div>
           );
         })()}
+
+        {activeTab === 'email' && (
+          <div className="space-y-6 animate-in fade-in duration-200">
+            {/* Security & SMTP Settings Sub-Card */}
+            <div className="bg-card border border-border rounded-3xl p-5 shadow-sm space-y-4">
+              <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+                <div className="flex items-center gap-2">
+                  <Sliders className="text-primary" size={18} />
+                  <h3 className="font-extrabold text-sm text-foreground">SMTP & Gateway Security</h3>
+                </div>
+                <div className="flex items-center gap-2">
+                  {smtpStatus.checked ? (
+                    smtpStatus.error ? (
+                      <span className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-[10px] font-extrabold bg-rose-500/10 text-rose-500">
+                        <AlertCircle size={10} /> Gateway Offline
+                      </span>
+                    ) : smtpStatus.smtpConfigured ? (
+                      <span className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-[10px] font-extrabold bg-emerald-500/10 text-emerald-500 animate-pulse">
+                        <Check size={10} /> SMTP Ready
+                      </span>
+                    ) : (
+                      <span className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-[10px] font-extrabold bg-amber-500/10 text-amber-500">
+                        <AlertCircle size={10} /> SMTP Missing Configs
+                      </span>
+                    )
+                  ) : (
+                    <span className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-[10px] font-extrabold bg-muted text-muted-foreground">
+                      <RefreshCw size={10} className="animate-spin" /> Checking Status...
+                    </span>
+                  )}
+                  <button
+                    onClick={checkSmtpStatus}
+                    className="p-1.5 hover:bg-muted text-muted-foreground hover:text-foreground rounded-lg transition-colors"
+                    title="Refresh Connection Status"
+                  >
+                    <RefreshCw size={14} />
+                  </button>
+                </div>
+              </div>
+
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-4 pt-2 text-left">
+                <div className="space-y-1.5">
+                  <label className="text-[10px] font-extrabold uppercase tracking-wider text-muted-foreground ml-1">Admin API Secret Key</label>
+                  <div className="relative">
+                    <input
+                      type={showSecretKey ? 'text' : 'password'}
+                      value={adminSecretKey}
+                      onChange={(e) => handleSaveSecretKey(e.target.value)}
+                      className="w-full bg-muted/50 border border-transparent rounded-2xl py-2.5 pl-4 pr-10 outline-none focus:bg-card focus:border-primary/20 focus:ring-2 focus:ring-primary/10 transition-all text-xs font-semibold text-foreground placeholder:text-muted-foreground/60"
+                      placeholder="Enter ADMIN_SECRET_KEY..."
+                    />
+                    <button
+                      type="button"
+                      onClick={() => setShowSecretKey(!showSecretKey)}
+                      className="absolute right-3 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground p-1 rounded-lg"
+                    >
+                      {showSecretKey ? <EyeOff size={14} /> : <Eye size={14} />}
+                    </button>
+                  </div>
+                  <p className="text-[9px] text-muted-foreground ml-1 leading-relaxed">
+                    This key must match the <code className="bg-muted px-1 py-0.5 rounded text-primary font-bold">ADMIN_SECRET_KEY</code> set in Railway env variables. Saved in browser.
+                  </p>
+                </div>
+
+                <div className="p-3.5 bg-muted/30 border border-border/50 rounded-2xl flex flex-col justify-center space-y-1">
+                  <p className="text-[10px] font-extrabold uppercase tracking-wider text-muted-foreground">Gateway URL</p>
+                  <p className="text-xs font-semibold text-foreground font-mono truncate select-all">{getGatewayUrl('')}</p>
+                  <p className="text-[9px] text-muted-foreground leading-normal">
+                    {smtpStatus.checked && !smtpStatus.error && !smtpStatus.smtpConfigured && (
+                      <span className="text-rose-500 font-medium">⚠️ Set SMTP_HOST, SMTP_USER, and SMTP_PASS in Railway to send emails.</span>
+                    )}
+                    {smtpStatus.checked && smtpStatus.error && (
+                      <span className="text-rose-500 font-medium">⚠️ Could not connect: {smtpStatus.error}. Check gateway status.</span>
+                    )}
+                    {smtpStatus.checked && !smtpStatus.error && smtpStatus.smtpConfigured && (
+                      <span className="text-emerald-500 font-medium">✓ SMTP settings verified on cloud gateway.</span>
+                    )}
+                  </p>
+                </div>
+              </div>
+            </div>
+
+            {/* Email Broadcast Creator Layout */}
+            <div className="grid grid-cols-1 lg:grid-cols-12 gap-6 items-start">
+              {/* Form Side */}
+              <div className="lg:col-span-7 bg-card border border-border rounded-3xl p-5 shadow-sm space-y-4 text-left">
+                <div className="flex items-center gap-2 border-b border-border/50 pb-3">
+                  <Mail className="text-primary" size={18} />
+                  <h3 className="font-extrabold text-sm text-foreground">Compose Email Broadcast</h3>
+                </div>
+
+                {/* Filter */}
+                <div className="space-y-1.5">
+                  <label className="text-[10px] font-extrabold uppercase tracking-wider text-muted-foreground ml-1">Target Recipients</label>
+                  <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
+                    {(
+                      [
+                        { id: 'all', label: 'All Users' },
+                        { id: 'pro', label: 'PRO Only' },
+                        { id: 'free', label: 'Free Only' },
+                        { id: 'custom', label: 'Custom List' }
+                      ] as const
+                    ).map((option) => (
+                      <button
+                        key={option.id}
+                        type="button"
+                        onClick={() => setEmailFilter(option.id)}
+                        className={`py-2 px-3 rounded-xl text-xs font-bold transition-all border ${
+                          emailFilter === option.id
+                            ? 'bg-primary text-primary-foreground border-primary shadow-sm'
+                            : 'bg-muted/30 border-transparent hover:bg-muted text-muted-foreground hover:text-foreground'
+                        }`}
+                      >
+                        {option.label}
+                      </button>
+                    ))}
+                  </div>
+                </div>
+
+                {/* Custom Recipients Textarea */}
+                {emailFilter === 'custom' && (
+                  <div className="space-y-1.5 animate-in slide-in-from-top duration-200">
+                    <label className="text-[10px] font-extrabold uppercase tracking-wider text-muted-foreground ml-1">Custom Recipient Emails</label>
+                    <textarea
+                      value={emailCustomRecipients}
+                      onChange={(e) => setEmailCustomRecipients(e.target.value)}
+                      className="w-full bg-muted/50 border border-transparent rounded-2xl p-3.5 outline-none focus:bg-card focus:border-primary/20 focus:ring-2 focus:ring-primary/10 transition-all text-xs font-medium text-foreground min-h-[60px]"
+                      placeholder="email1@domain.com, email2@domain.com (comma separated)..."
+                    />
+                  </div>
+                )}
+
+                {/* Subject */}
+                <div className="space-y-1.5">
+                  <label className="text-[10px] font-extrabold uppercase tracking-wider text-muted-foreground ml-1">Email Subject</label>
+                  <input
+                    type="text"
+                    value={emailSubject}
+                    onChange={(e) => setEmailSubject(e.target.value)}
+                    className="w-full bg-muted/50 border border-transparent rounded-2xl p-3.5 outline-none focus:bg-card focus:border-primary/20 focus:ring-2 focus:ring-primary/10 transition-all text-xs font-semibold text-foreground placeholder:text-muted-foreground/60"
+                    placeholder="Enter email subject header..."
+                  />
+                </div>
+
+                {/* Body editor */}
+                <div className="space-y-1.5">
+                  <div className="flex items-center justify-between">
+                    <label className="text-[10px] font-extrabold uppercase tracking-wider text-muted-foreground ml-1">Email HTML Body</label>
+                    <div className="flex bg-muted p-0.5 rounded-lg text-[9px]">
+                      <button
+                        type="button"
+                        onClick={() => setEmailTab('edit')}
+                        className={`px-3 py-1 rounded-md font-extrabold transition-all ${emailTab === 'edit' ? 'bg-card text-foreground shadow-sm' : 'text-muted-foreground hover:text-foreground'}`}
+                      >
+                        Edit HTML
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => setEmailTab('preview')}
+                        className={`px-3 py-1 rounded-md font-extrabold transition-all ${emailTab === 'preview' ? 'bg-card text-foreground shadow-sm' : 'text-muted-foreground hover:text-foreground'}`}
+                      >
+                        Live Preview
+                      </button>
+                    </div>
+                  </div>
+
+                  {emailTab === 'edit' ? (
+                    <div className="space-y-1.5">
+                      <textarea
+                        value={emailBody}
+                        onChange={(e) => setEmailBody(e.target.value)}
+                        className="w-full bg-muted/50 border border-transparent rounded-2xl p-4 outline-none focus:bg-card focus:border-primary/20 focus:ring-2 focus:ring-primary/10 transition-all text-xs font-medium text-foreground min-h-[220px] font-mono leading-relaxed"
+                        placeholder="&lt;h2&gt;Hello User!&lt;/h2&gt;&#10;&lt;p&gt;We have completed our system update...&lt;/p&gt;&#10;&lt;a href='https://domain.com'&gt;Visit App&lt;/a&gt;"
+                      />
+                      <p className="text-[9px] text-muted-foreground ml-1 leading-relaxed">
+                        HTML template support: Use standard tags like <code className="bg-muted px-1 py-0.5 rounded">&lt;h2&gt;</code>, <code className="bg-muted px-1 py-0.5 rounded">&lt;p&gt;</code>, <code className="bg-muted px-1 py-0.5 rounded">&lt;strong&gt;</code>, or inline style attributes for custom color formatting.
+                      </p>
+                    </div>
+                  ) : (
+                    <div className="w-full min-h-[220px] bg-white text-black border border-border rounded-2xl p-4 overflow-y-auto max-h-[400px] text-left">
+                      {emailBody ? (
+                        <div dangerouslySetInnerHTML={{ __html: emailBody }} />
+                      ) : (
+                        <span className="italic text-gray-400 text-xs">No email content to preview. Write something in Edit HTML first.</span>
+                      )}
+                    </div>
+                  )}
+                </div>
+
+                {/* Send Buttons */}
+                <div className="flex gap-3 pt-2">
+                  <button
+                    type="button"
+                    onClick={() => handleSendEmailBroadcast(true)}
+                    disabled={isSendingEmail || !emailSubject.trim() || !emailBody.trim()}
+                    className="flex-1 py-3 bg-muted hover:bg-muted/80 text-foreground disabled:opacity-50 disabled:cursor-not-allowed rounded-2xl font-bold text-xs transition-all shadow-sm border border-border flex items-center justify-center gap-1.5"
+                  >
+                    <Send size={14} className="opacity-70" />
+                    Send Test Email
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setShowEmailConfirmModal(true)}
+                    disabled={isSendingEmail || !emailSubject.trim() || !emailBody.trim()}
+                    className="flex-1 py-3 bg-primary hover:opacity-90 text-primary-foreground disabled:opacity-50 disabled:cursor-not-allowed rounded-2xl font-bold text-xs transition-all shadow-md flex items-center justify-center gap-1.5"
+                  >
+                    <Mail size={14} />
+                    Send Broadcast
+                  </button>
+                </div>
+              </div>
+
+              {/* Live Preview Side (Mock Email Client Window) */}
+              <div className="lg:col-span-5 bg-card border border-border rounded-3xl shadow-sm overflow-hidden flex flex-col min-h-[460px]">
+                {/* Mock Client Header */}
+                <div className="p-3 bg-muted/40 border-b border-border flex items-center gap-1.5 shrink-0">
+                  <div className="w-2.5 h-2.5 rounded-full bg-rose-500/80" />
+                  <div className="w-2.5 h-2.5 rounded-full bg-amber-500/80" />
+                  <div className="w-2.5 h-2.5 rounded-full bg-emerald-500/80" />
+                  <span className="text-[10px] font-bold text-muted-foreground ml-3 font-mono">Mail Client Simulator</span>
+                </div>
+
+                {/* Email Metadata */}
+                <div className="p-3.5 border-b border-border/60 bg-muted/10 space-y-1.5 text-xs shrink-0 text-left">
+                  <div>
+                    <span className="text-muted-foreground font-semibold">From: </span>
+                    <span className="font-medium text-foreground">Expense Tracker Support &lt;khizarraoworks@gmail.com&gt;</span>
+                  </div>
+                  <div>
+                    <span className="text-muted-foreground font-semibold">To: </span>
+                    <span className="font-medium text-foreground px-1.5 py-0.5 rounded-md bg-muted text-[10px] uppercase tracking-wider font-extrabold">
+                      {emailFilter === 'all' && 'All Registered Users'}
+                      {emailFilter === 'pro' && 'PRO Subscribed Users'}
+                      {emailFilter === 'free' && 'Standard Free Users'}
+                      {emailFilter === 'custom' && 'Custom Mailing List'}
+                    </span>
+                  </div>
+                  <div>
+                    <span className="text-muted-foreground font-semibold">Subject: </span>
+                    <span className="font-bold text-foreground">{emailSubject || '(No Subject Drafted)'}</span>
+                  </div>
+                </div>
+
+                {/* Email Body Area */}
+                <div className="flex-1 p-5 bg-white text-black overflow-y-auto max-h-[350px] text-left">
+                  {emailBody ? (
+                    <div className="prose prose-sm max-w-none text-black" dangerouslySetInnerHTML={{ __html: emailBody }} />
+                  ) : (
+                    <div className="h-full flex flex-col items-center justify-center text-center text-gray-400 space-y-2">
+                      <Mail size={32} className="opacity-20 animate-bounce" />
+                      <p className="text-xs italic">Email layout preview simulator.<br />Compose your content in HTML to view rendering live.</p>
+                    </div>
+                  )}
+                </div>
+              </div>
+            </div>
+
+            {/* Send Result Summary */}
+            {emailSendResult && (
+              <div className={`border rounded-3xl p-5 shadow-sm animate-in slide-in-from-bottom duration-300 space-y-3 text-left ${
+                emailSendResult.success 
+                  ? 'bg-emerald-500/5 border-emerald-500/20 text-emerald-800 dark:text-emerald-300' 
+                  : 'bg-rose-500/5 border-rose-500/20 text-rose-800 dark:text-rose-300'
+              }`}>
+                <div className="flex items-center justify-between border-b border-current/10 pb-2">
+                  <div className="flex items-center gap-2">
+                    <ShieldCheck size={18} />
+                    <h4 className="font-extrabold text-sm">Broadcast Process Finished</h4>
+                  </div>
+                  <span className="text-[10px] font-extrabold uppercase bg-current/10 px-2 py-0.5 rounded-md">
+                    {emailSendResult.success ? 'Success' : 'Completed with Errors'}
+                  </span>
+                </div>
+                <div className="grid grid-cols-2 sm:grid-cols-3 gap-3 text-xs">
+                  <div>
+                    <p className="opacity-70 font-semibold">Sent Successfully</p>
+                    <p className="text-xl font-bold">{emailSendResult.sentCount} users</p>
+                  </div>
+                  <div>
+                    <p className="opacity-70 font-semibold">Failed Transfers</p>
+                    <p className="text-xl font-bold">{emailSendResult.failCount} users</p>
+                  </div>
+                </div>
+
+                {emailSendResult.errors && emailSendResult.errors.length > 0 && (
+                  <div className="pt-2 border-t border-current/10 space-y-2">
+                    <p className="text-[10px] font-extrabold uppercase tracking-wide">Error Trace Log</p>
+                    <div className="max-h-[120px] overflow-y-auto bg-black/10 dark:bg-black/30 rounded-xl p-3 font-mono text-[10px] space-y-1">
+                      {emailSendResult.errors.map((err, idx) => (
+                        <p key={idx}>
+                          <span className="text-rose-500 font-bold">[{err.email}]</span>: {err.error}
+                        </p>
+                      ))}
+                    </div>
+                  </div>
+                )}
+              </div>
+            )}
+          </div>
+        )}
       </div>
+
+      {showEmailConfirmModal && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/60 backdrop-blur-sm animate-in fade-in duration-200">
+          <div className="bg-card border border-border w-full max-w-md rounded-3xl shadow-2xl overflow-hidden animate-in zoom-in-95 duration-200 p-6 space-y-4 text-left">
+            <div className="flex items-center gap-3 text-rose-500">
+              <div className="p-3 bg-rose-500/10 rounded-2xl">
+                <AlertCircle size={24} />
+              </div>
+              <div>
+                <h3 className="font-extrabold text-base text-foreground">Confirm Email Broadcast</h3>
+                <p className="text-[10px] text-muted-foreground uppercase font-bold tracking-widest">High-Privilege Security Action</p>
+              </div>
+            </div>
+
+            <p className="text-xs text-muted-foreground leading-relaxed">
+              Are you sure you want to broadcast this email? It will be sent to:
+              <strong className="text-foreground font-extrabold block mt-1 uppercase text-[10px] tracking-wider">
+                {emailFilter === 'all' && 'All Registered Users'}
+                {emailFilter === 'pro' && 'PRO Subscription Users'}
+                {emailFilter === 'free' && 'Standard Free Users'}
+                {emailFilter === 'custom' && `Custom List (${emailCustomRecipients.split(',').filter(Boolean).length} emails)`}
+              </strong>
+              This action cannot be undone once started. Please double check that SMTP settings and content formatting are correct.
+            </p>
+
+            <div className="flex gap-3 pt-2">
+              <button
+                type="button"
+                onClick={() => setShowEmailConfirmModal(false)}
+                className="flex-1 py-3 bg-muted hover:bg-muted/80 text-foreground rounded-2xl font-bold text-xs transition-all border border-border"
+              >
+                Cancel
+              </button>
+              <button
+                type="button"
+                onClick={() => handleSendEmailBroadcast(false)}
+                disabled={isSendingEmail}
+                className="flex-1 py-3 bg-primary hover:opacity-90 text-primary-foreground disabled:opacity-50 rounded-2xl font-bold text-xs transition-all shadow-md flex items-center justify-center gap-1.5"
+              >
+                {isSendingEmail ? (
+                  <>
+                    <RefreshCw size={14} className="animate-spin" /> Broadcasting...
+                  </>
+                ) : (
+                  <>
+                    <Mail size={14} /> Yes, Send Now
+                  </>
+                )}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
 
       {showQueueModal && (
         <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/60 backdrop-blur-sm animate-in fade-in duration-200">

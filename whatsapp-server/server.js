@@ -1301,13 +1301,27 @@ app.post('/api/ai/chat', verifyFirebaseToken, aiRateLimit, async (req, res) => {
 
     const data = await response.json();
 
-    // Increment and persist user usage in Firestore asynchronously
+    // Increment and persist user usage in Firestore asynchronously via REST API using user's ID token
     const today = new Date().toISOString().split('T')[0];
-    const userDocRef = doc(db, 'registered_users', req.user.uid);
-    await updateDoc(userDocRef, {
-      aiUsageToday: req.aiUsage.used,
-      aiUsageDate: today
-    });
+    const authHeader = req.headers.authorization;
+    const idToken = authHeader ? authHeader.split('Bearer ')[1] : '';
+
+    if (idToken) {
+      const updateUrl = `https://firestore.googleapis.com/v1/projects/${process.env.VITE_FIREBASE_PROJECT_ID}/databases/(default)/documents/registered_users/${req.user.uid}?updateMask.fieldPaths=aiUsageToday&updateMask.fieldPaths=aiUsageDate`;
+      fetch(updateUrl, {
+        method: 'PATCH',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${idToken}`
+        },
+        body: JSON.stringify({
+          fields: {
+            aiUsageToday: { integerValue: req.aiUsage.used.toString() },
+            aiUsageDate: { stringValue: today }
+          }
+        })
+      }).catch(err => console.error('[Firestore REST Update] Failed to update usage:', err));
+    }
 
     res.json(data);
   } catch (error) {
@@ -1349,6 +1363,44 @@ app.post('/api/cloudinary/sign', verifyFirebaseToken, (req, res) => {
   }
 });
 
+// Helper to serialize simple JS objects to Firestore REST format
+function toFirestoreREST(obj) {
+  const fields = {};
+  for (const [key, value] of Object.entries(obj)) {
+    if (value === null || value === undefined) {
+      fields[key] = { nullValue: null };
+    } else if (typeof value === 'string') {
+      fields[key] = { stringValue: value };
+    } else if (typeof value === 'number') {
+      if (Number.isInteger(value)) {
+        fields[key] = { integerValue: value.toString() };
+      } else {
+        fields[key] = { doubleValue: value };
+      }
+    } else if (typeof value === 'boolean') {
+      fields[key] = { booleanValue: value };
+    } else if (value instanceof Date) {
+      fields[key] = { timestampValue: value.toISOString() };
+    } else if (Array.isArray(value)) {
+      fields[key] = {
+        arrayValue: {
+          values: value.map(item => {
+            if (typeof item === 'string') return { stringValue: item };
+            return { stringValue: JSON.stringify(item) };
+          })
+        }
+      };
+    } else if (typeof value === 'object') {
+      fields[key] = {
+        mapValue: {
+          fields: toFirestoreREST(value).fields
+        }
+      };
+    }
+  }
+  return { fields };
+}
+
 /**
  * 3. Subscription Payment Submission
  * POST /api/payments/submit
@@ -1369,16 +1421,44 @@ app.post('/api/payments/submit', verifyFirebaseToken, async (req, res) => {
     return res.status(400).json({ success: false, error: 'Missing required payment verification fields.' });
   }
 
-  try {
-    const { addDoc, collection, query, where, getDocs } = require('firebase/firestore');
+  const authHeader = req.headers.authorization;
+  const idToken = authHeader ? authHeader.split('Bearer ')[1] : '';
 
-    // Prevent duplicate Transaction ID submissions
-    const q = query(
-      collection(db, 'payment_requests'), 
-      where('transactionId', '==', transactionId.trim())
-    );
-    const existingSnap = await getDocs(q);
-    if (!existingSnap.empty) {
+  if (!idToken) {
+    return res.status(401).json({ success: false, error: 'User authorization token is required.' });
+  }
+
+  try {
+    // 1. Prevent duplicate Transaction ID submissions using Firestore REST runQuery
+    const queryUrl = `https://firestore.googleapis.com/v1/projects/${process.env.VITE_FIREBASE_PROJECT_ID}/databases/(default)/documents:runQuery`;
+    const queryResponse = await fetch(queryUrl, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'Authorization': `Bearer ${idToken}`
+      },
+      body: JSON.stringify({
+        structuredQuery: {
+          from: [{ collectionId: 'payment_requests' }],
+          where: {
+            fieldFilter: {
+              field: { fieldPath: 'transactionId' },
+              op: 'EQUAL',
+              value: { stringValue: transactionId.trim() }
+            }
+          }
+        }
+      })
+    });
+
+    if (!queryResponse.ok) {
+      const errText = await queryResponse.text();
+      throw new Error(`Firestore REST query error: ${queryResponse.status} - ${errText}`);
+    }
+
+    const queryData = await queryResponse.json();
+    const hasExisting = queryData.some(item => item.document);
+    if (hasExisting) {
       return res.status(409).json({ 
         success: false, 
         error: 'This Transaction ID has already been submitted for review.' 
@@ -1388,7 +1468,7 @@ app.post('/api/payments/submit', verifyFirebaseToken, async (req, res) => {
     // Capture requester client IP
     const clientIp = req.headers['x-forwarded-for']?.split(',')[0] || req.socket.remoteAddress;
 
-    // Create payment request in Firestore
+    // Create payment request object
     const requestDoc = {
       userId: req.user.uid,
       userEmail: req.user.email,
@@ -1410,7 +1490,24 @@ app.post('/api/payments/submit', verifyFirebaseToken, async (req, res) => {
       internalNotes: null
     };
 
-    const docRef = await addDoc(collection(db, 'payment_requests'), requestDoc);
+    // 2. Create payment request document via Firestore REST API using user token context
+    const firestoreUrl = `https://firestore.googleapis.com/v1/projects/${process.env.VITE_FIREBASE_PROJECT_ID}/databases/(default)/documents/payment_requests`;
+    const docResponse = await fetch(firestoreUrl, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'Authorization': `Bearer ${idToken}`
+      },
+      body: JSON.stringify(toFirestoreREST(requestDoc))
+    });
+
+    if (!docResponse.ok) {
+      const errText = await docResponse.text();
+      throw new Error(`Firestore REST create document error: ${docResponse.status} - ${errText}`);
+    }
+
+    const createdDoc = await docResponse.json();
+    const docId = createdDoc.name.split('/').pop();
 
     // Send WhatsApp notification alert to admin
     const submittedDateStr = new Date().toLocaleString('en-US', { timeZone: 'Asia/Karachi' });
@@ -1431,7 +1528,7 @@ Status: ⏳ *Pending Verification*
 
     res.json({ 
       success: true, 
-      requestId: docRef.id, 
+      requestId: docId, 
       message: 'Payment request submitted successfully. Under review.' 
     });
   } catch (error) {

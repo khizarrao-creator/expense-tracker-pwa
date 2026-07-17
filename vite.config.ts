@@ -9,10 +9,15 @@ export default defineConfig({
       registerType: 'autoUpdate',
       includeAssets: ['favicon.ico', 'apple-touch-icon.png', 'mask-icon.svg'],
       manifest: {
-        name: 'Ledger PWA',
-        short_name: 'Ledger',
-        description: 'Elite financial tracking',
-        theme_color: '#ffffff',
+        name: 'The Ledger',
+        short_name: 'The Ledger',
+        description: 'The Ledger - Premium high-fidelity personal finance tracking and smart AI insights',
+        theme_color: '#0F172A',
+        background_color: '#0F172A',
+        start_url: '/',
+        display: 'standalone',
+        orientation: 'portrait',
+        categories: ['finance', 'productivity'],
         icons: [
           {
             src: 'pwa-192x192.png',

@@ -34,7 +34,18 @@ import {
   Underline,
   List,
   ListOrdered,
-  Link2
+  Link2,
+  Crown,
+  Shield,
+  Trash2,
+  Edit,
+  MapPin,
+  CheckCircle2,
+  XCircle,
+  PlusCircle,
+  CreditCard,
+  Clock,
+  Loader2
 } from 'lucide-react';
 import { syncManager } from '../db/SyncManager';
 import { Bar, Pie, Line } from 'react-chartjs-2';
@@ -69,6 +80,12 @@ import { toast } from 'sonner';
 import { format } from 'date-fns';
 import { executeQuery } from '../db/sqlite';
 import ConfirmModal from '../components/ConfirmModal';
+import { Modal } from '../components/ui/Modal';
+import { Card } from '../components/ui/Card';
+import { Button } from '../components/ui/Button';
+import { Input } from '../components/ui/Input';
+import { Badge } from '../components/ui/Badge';
+import { PlanBadge } from '../components/ui/PlanBadge';
 
 const hashPassword = async (password: string) => {
   const msgBuffer = new TextEncoder().encode(password);
@@ -108,6 +125,8 @@ interface UserProfile {
     events: number;
   };
   disabledFeatures?: string[];
+  plan?: string;
+  planExpiresAt?: any;
 }
 
 interface AdminLog {
@@ -516,7 +535,7 @@ const Admin: React.FC = () => {
   const [statusFilter, setStatusFilter] = useState<'all' | 'pro' | 'standard' | 'banned' | 'active_today'>('all');
   const [sortBy, setSortBy] = useState<'lastActive' | 'name' | 'email' | 'tx_volume'>('lastActive');
   const [sortOrder, setSortOrder] = useState<'asc' | 'desc'>('desc');
-  const [activeTab, setActiveTab] = useState<'users' | 'settings' | 'logs' | 'analytics' | 'email'>('users');
+  const [activeTab, setActiveTab] = useState<'users' | 'settings' | 'logs' | 'analytics' | 'email' | 'payments' | 'plans'>('users');
   const [announcementTab, setAnnouncementTab] = useState<'edit' | 'preview'>('edit');
   const [newCurrencyCode, setNewCurrencyCode] = useState('');
   const [newCurrencySymbol, setNewCurrencySymbol] = useState('');
@@ -524,6 +543,98 @@ const Admin: React.FC = () => {
   const [logSearchQuery, setLogSearchQuery] = useState('');
   const [logTypeFilter, setLogTypeFilter] = useState<'all' | 'config' | 'user' | 'scan'>('all');
   const [adminLogs, setAdminLogs] = useState<AdminLog[]>([]);
+
+  // Payments Tab States
+  const [paymentRequests, setPaymentRequests] = useState<any[]>([]);
+  const [paymentAccounts, setPaymentAccounts] = useState<any[]>([]);
+  const [selectedRequest, setSelectedRequest] = useState<any | null>(null);
+  const [rejectionReason, setRejectionReason] = useState<string>('');
+  const [internalNotes, setInternalNotes] = useState<string>('');
+  const [showApprovalModal, setShowApprovalModal] = useState<boolean>(false);
+  const [showRejectionModal, setShowRejectionModal] = useState<boolean>(false);
+  const [showAccountModal, setShowAccountModal] = useState<boolean>(false);
+  const [customExpiryDate, setCustomExpiryDate] = useState<string>(() => {
+    const d = new Date();
+    d.setDate(d.getDate() + 30);
+    return d.toISOString().split('T')[0];
+  });
+  
+  // Payment Account Form state
+  const [accountForm, setAccountForm] = useState({
+    id: '',
+    method: 'SadaPay',
+    holderName: '',
+    accountNumber: '',
+    iban: '',
+    instructions: '',
+    isActive: true,
+    displayOrder: 1,
+    qrCodeUrl: ''
+  });
+
+  // Plans Tab States
+  const [plansConfigLocal, setPlansConfigLocal] = useState<any>({
+    standard: {
+      name: 'Standard',
+      price: 0,
+      currency: 'PKR',
+      billingCycle: 'forever',
+      features: [
+        'transactions', 'accounts', 'categories', 'dashboard',
+        'goals', 'reminders', 'calculator', 'converter',
+        'tasks', 'loans', 'events', 'fuel', 'reports',
+        'subscriptions'
+      ],
+      limits: { aiCallsPerDay: 0, maxTransactions: 10000 },
+      badgeIcon: 'shield',
+      badgeColor: '#6B7280',
+      displayOrder: 1
+    },
+    pro: {
+      name: 'Pro',
+      price: 600,
+      currency: 'PKR',
+      billingCycle: 'monthly',
+      features: [
+        'transactions', 'accounts', 'categories', 'dashboard',
+        'goals', 'reminders', 'calculator', 'converter',
+        'tasks', 'loans', 'events', 'fuel', 'reports',
+        'subscriptions', 'ai-chat'
+      ],
+      limits: { aiCallsPerDay: 50, maxTransactions: 50000 },
+      badgeIcon: 'zap',
+      badgeColor: '#3B82F6',
+      displayOrder: 2
+    },
+    max: {
+      name: 'Max',
+      price: 1000,
+      currency: 'PKR',
+      billingCycle: 'monthly',
+      features: [
+        'transactions', 'accounts', 'categories', 'dashboard',
+        'goals', 'reminders', 'calculator', 'converter',
+        'tasks', 'loans', 'events', 'fuel', 'reports',
+        'subscriptions', 'ai-chat', 'whatsapp', 'investments'
+      ],
+      limits: { aiCallsPerDay: 150, maxTransactions: -1 },
+      badgeIcon: 'crown',
+      badgeColor: '#F59E0B',
+      displayOrder: 3
+    }
+  });
+  const [editingPlanId, setEditingPlanId] = useState<string>('');
+  const [planForm, setPlanForm] = useState({
+    name: '',
+    price: 0,
+    currency: 'PKR',
+    billingCycle: 'monthly',
+    features: [] as string[],
+    limits: { aiCallsPerDay: 50, maxTransactions: 50000 },
+    badgeIcon: 'zap',
+    badgeColor: '#3B82F6',
+    displayOrder: 1
+  });
   const [systemStats, setSystemStats] = useState<SystemStats>({
     totalUsers: 0,
     proUsers: 0,
@@ -626,8 +737,83 @@ const Admin: React.FC = () => {
       const logsSnap = await getDocs(query(collection(db, 'admin_logs'), orderBy('timestamp', 'desc'), limit(50)));
       const logsList = logsSnap.docs.map(doc => ({ id: doc.id, ...doc.data() } as AdminLog));
       setAdminLogs(logsList);
+
+      // Fetch Payment Requests
+      const paymentsSnap = await getDocs(query(collection(db, 'payment_requests'), orderBy('submittedAt', 'desc')));
+      const paymentsList = paymentsSnap.docs.map(docSnap => ({ id: docSnap.id, ...docSnap.data() }));
+      setPaymentRequests(paymentsList);
+
+      // Fetch Payment Accounts
+      const accountsDoc = await getDoc(doc(db, 'system', 'payment_accounts'));
+      if (accountsDoc.exists() && accountsDoc.data().accounts) {
+        setPaymentAccounts(accountsDoc.data().accounts);
+      } else {
+        setPaymentAccounts([]);
+      }
+
+      // Fetch Plans Config
+      const plansDoc = await getDoc(doc(db, 'system', 'plans_config'));
+      const plansData = plansDoc.exists() ? plansDoc.data() : null;
+      if (plansData && plansData.plans) {
+        setPlansConfigLocal(plansData.plans);
+      } else {
+        // Seed default plans if not present
+        const defaultPlans = {
+          standard: {
+            name: 'Standard',
+            price: 0,
+            currency: 'PKR',
+            billingCycle: 'forever',
+            features: [
+              'transactions', 'accounts', 'categories', 'dashboard',
+              'goals', 'reminders', 'calculator', 'converter',
+              'tasks', 'loans', 'events', 'fuel', 'reports',
+              'subscriptions'
+            ],
+            limits: { aiCallsPerDay: 0, maxTransactions: 10000 },
+            badgeIcon: 'shield',
+            badgeColor: '#6B7280',
+            displayOrder: 1
+          },
+          pro: {
+            name: 'Pro',
+            price: 600,
+            currency: 'PKR',
+            billingCycle: 'monthly',
+            features: [
+              'transactions', 'accounts', 'categories', 'dashboard',
+              'goals', 'reminders', 'calculator', 'converter',
+              'tasks', 'loans', 'events', 'fuel', 'reports',
+              'subscriptions', 'ai-chat'
+            ],
+            limits: { aiCallsPerDay: 50, maxTransactions: 50000 },
+            badgeIcon: 'zap',
+            badgeColor: '#3B82F6',
+            displayOrder: 2
+          },
+          max: {
+            name: 'Max',
+            price: 1000,
+            currency: 'PKR',
+            billingCycle: 'monthly',
+            features: [
+              'transactions', 'accounts', 'categories', 'dashboard',
+              'goals', 'reminders', 'calculator', 'converter',
+              'tasks', 'loans', 'events', 'fuel', 'reports',
+              'subscriptions', 'ai-chat', 'whatsapp', 'investments'
+            ],
+            limits: { aiCallsPerDay: 150, maxTransactions: -1 },
+            badgeIcon: 'crown',
+            badgeColor: '#F59E0B',
+            displayOrder: 3
+          }
+        };
+        await setDoc(doc(db, 'system', 'plans_config'), { plans: defaultPlans }, { merge: true });
+        setPlansConfigLocal(defaultPlans);
+      }
+
       // Update quick stats
-      const proCount = usersList.filter(u => u.isPro).length;
+      const proCount = usersList.filter(u => u.plan && u.plan !== 'standard').length;
       const activeCount = usersList.filter(u => u.lastLogin?.includes(new Date().toISOString().split('T')[0])).length;
 
       setSystemStats(prev => ({
@@ -641,6 +827,198 @@ const Admin: React.FC = () => {
       toast.error('Failed to load admin data');
     } finally {
       setIsLoading(false);
+    }
+  };
+
+  // ── PAYMENTS & PLANS CONFIGURATION HANDLERS ──────────────────────────────
+
+  const handleApproveRequest = async () => {
+    if (!selectedRequest) return;
+    setIsLoading(true);
+    try {
+      const now = new Date();
+      const expiry = new Date(customExpiryDate);
+
+      // 1. Update payment request status
+      const reqRef = doc(db, 'payment_requests', selectedRequest.id);
+      await updateDoc(reqRef, {
+        status: 'approved',
+        verifiedBy: adminUsername || 'admin',
+        verifiedAt: now,
+        subscriptionStartDate: now,
+        subscriptionEndDate: expiry,
+        internalNotes
+      });
+
+      // 2. Update user plan
+      const userRef = doc(db, 'registered_users', selectedRequest.userId);
+      await updateDoc(userRef, {
+        plan: selectedRequest.selectedPlan,
+        planAssignedAt: now,
+        planExpiresAt: expiry,
+        planAssignedBy: 'admin'
+      });
+
+      // 3. Log history
+      await addDoc(collection(db, 'subscription_history'), {
+        userId: selectedRequest.userId,
+        plan: selectedRequest.selectedPlan,
+        action: 'activated',
+        previousPlan: 'standard',
+        paymentRequestId: selectedRequest.id,
+        performedBy: adminUsername || 'admin',
+        performedAt: now,
+        notes: `Manual verification approved. Tx ID: ${selectedRequest.transactionId}`
+      });
+
+      // 4. In-app notification
+      await addDoc(collection(db, `users/${selectedRequest.userId}/notifications`), {
+        message: `Your payment has been verified! The ${selectedRequest.selectedPlan.toUpperCase()} plan is now active until ${expiry.toLocaleDateString()}.`,
+        timestamp: now,
+        read: false
+      });
+
+      // 5. Admin audit log
+      await addDoc(collection(db, 'admin_logs'), {
+        timestamp: now.toISOString(),
+        type: 'user',
+        action: 'Approve Payment',
+        payload: { requestId: selectedRequest.id, uid: selectedRequest.userId, plan: selectedRequest.selectedPlan },
+        adminEmail: adminUsername || 'admin'
+      });
+
+      toast.success('Subscription activated successfully!');
+      setShowApprovalModal(false);
+      setSelectedRequest(null);
+      setInternalNotes('');
+      fetchData();
+    } catch (e: any) {
+      console.error(e);
+      toast.error('Failed to approve payment: ' + e.message);
+    } finally {
+      setIsLoading(false);
+    }
+  };
+
+  const handleRejectRequest = async () => {
+    if (!selectedRequest || !rejectionReason.trim()) {
+      toast.error('Rejection reason is required.');
+      return;
+    }
+    setIsLoading(true);
+    try {
+      const now = new Date();
+
+      // 1. Update payment request status
+      const reqRef = doc(db, 'payment_requests', selectedRequest.id);
+      await updateDoc(reqRef, {
+        status: 'rejected',
+        verifiedBy: adminUsername || 'admin',
+        verifiedAt: now,
+        rejectionReason,
+        internalNotes
+      });
+
+      // 2. In-app notification
+      await addDoc(collection(db, `users/${selectedRequest.userId}/notifications`), {
+        message: `Your payment request was rejected. Reason: ${rejectionReason}`,
+        timestamp: now,
+        read: false
+      });
+
+      // 3. Admin audit log
+      await addDoc(collection(db, 'admin_logs'), {
+        timestamp: now.toISOString(),
+        type: 'user',
+        action: 'Reject Payment',
+        payload: { requestId: selectedRequest.id, uid: selectedRequest.userId, reason: rejectionReason },
+        adminEmail: adminUsername || 'admin'
+      });
+
+      toast.success('Payment request rejected.');
+      setShowRejectionModal(false);
+      setSelectedRequest(null);
+      setRejectionReason('');
+      setInternalNotes('');
+      fetchData();
+    } catch (e: any) {
+      console.error(e);
+      toast.error('Failed to reject payment: ' + e.message);
+    } finally {
+      setIsLoading(false);
+    }
+  };
+
+  // CRUD Payment Accounts
+  const handleSaveAccount = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!accountForm.holderName || !accountForm.accountNumber) {
+      toast.error('Holder name and account number are required.');
+      return;
+    }
+
+    try {
+      let updatedAccounts = [...paymentAccounts];
+      const isEdit = !!accountForm.id;
+      const targetId = accountForm.id || `account_${Date.now()}`;
+
+      const newAccount = {
+        ...accountForm,
+        id: targetId,
+        displayOrder: Number(accountForm.displayOrder)
+      };
+
+      if (isEdit) {
+        updatedAccounts = updatedAccounts.map(acc => acc.id === targetId ? newAccount : acc);
+      } else {
+        updatedAccounts.push(newAccount);
+      }
+
+      await setDoc(doc(db, 'system', 'payment_accounts'), { accounts: updatedAccounts });
+      toast.success(isEdit ? 'Payment account updated.' : 'Payment account added.');
+      setShowAccountModal(false);
+      fetchData();
+    } catch (e: any) {
+      console.error(e);
+      toast.error('Failed to save account: ' + e.message);
+    }
+  };
+
+  const handleDeleteAccount = async (accountId: string) => {
+    if (!confirm('Are you sure you want to delete this payment account?')) return;
+    try {
+      const updatedAccounts = paymentAccounts.filter(acc => acc.id !== accountId);
+      await setDoc(doc(db, 'system', 'payment_accounts'), { accounts: updatedAccounts });
+      toast.success('Payment account deleted.');
+      fetchData();
+    } catch (e: any) {
+      console.error(e);
+      toast.error('Failed to delete account: ' + e.message);
+    }
+  };
+
+  // CRUD Plans Config
+  const handleSavePlan = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!editingPlanId) return;
+
+    try {
+      const updatedPlans = {
+        ...plansConfigLocal,
+        [editingPlanId]: {
+          ...planForm,
+          price: Number(planForm.price),
+          displayOrder: Number(planForm.displayOrder)
+        }
+      };
+
+      await setDoc(doc(db, 'system', 'plans_config'), { plans: updatedPlans });
+      toast.success(`Plan ${planForm.name} updated successfully.`);
+      setEditingPlanId('');
+      fetchData();
+    } catch (e: any) {
+      console.error(e);
+      toast.error('Failed to save plan: ' + e.message);
     }
   };
 
@@ -1359,7 +1737,7 @@ const Admin: React.FC = () => {
         </div>
 
         {/* Tabs */}
-        <div className="flex p-1 bg-muted rounded-xl w-fit">
+        <div className="flex flex-wrap p-1 bg-muted rounded-xl w-fit gap-1">
           <button
             onClick={() => setActiveTab('users')}
             className={`px-4 py-2 rounded-lg text-sm font-bold transition-all ${activeTab === 'users' ? 'bg-card shadow-sm text-primary' : 'text-muted-foreground'}`}
@@ -1371,6 +1749,23 @@ const Admin: React.FC = () => {
             className={`px-4 py-2 rounded-lg text-sm font-bold transition-all ${activeTab === 'settings' ? 'bg-card shadow-sm text-primary' : 'text-muted-foreground'}`}
           >
             Global Settings
+          </button>
+          <button
+            onClick={() => setActiveTab('payments')}
+            className={`px-4 py-2 rounded-lg text-sm font-bold transition-all relative ${activeTab === 'payments' ? 'bg-card shadow-sm text-primary' : 'text-muted-foreground'}`}
+          >
+            Payments Verification
+            {paymentRequests.filter(r => r.status === 'pending').length > 0 && (
+              <span className="absolute -top-1.5 -right-1.5 h-5 w-5 bg-rose-500 text-white rounded-full flex items-center justify-center text-[10px] font-black shadow-md border border-background">
+                {paymentRequests.filter(r => r.status === 'pending').length}
+              </span>
+            )}
+          </button>
+          <button
+            onClick={() => setActiveTab('plans')}
+            className={`px-4 py-2 rounded-lg text-sm font-bold transition-all ${activeTab === 'plans' ? 'bg-card shadow-sm text-primary' : 'text-muted-foreground'}`}
+          >
+            Subscription Plans
           </button>
           <button
             onClick={() => setActiveTab('logs')}
@@ -2946,7 +3341,676 @@ const Admin: React.FC = () => {
             )}
           </div>
         )}
+
+        {/* 6. Payments Verification Tab */}
+        {activeTab === 'payments' && (
+          <div className="space-y-6 animate-in fade-in duration-200">
+            {/* Pending Requests Queue Card */}
+            <div className="bg-card border border-border rounded-3xl p-5 shadow-sm space-y-4">
+              <div className="flex items-center justify-between gap-3 border-b border-border/40 pb-4">
+                <div className="flex items-center gap-2">
+                  <Clock className="text-primary" size={18} />
+                  <h3 className="font-extrabold text-sm text-foreground">Pending Verification Queue</h3>
+                </div>
+                <Badge variant="info" size="sm">
+                  {paymentRequests.filter(r => r.status === 'pending').length} Pending
+                </Badge>
+              </div>
+
+              {paymentRequests.length === 0 ? (
+                <div className="py-12 text-center text-xs text-muted-foreground italic">
+                  No payment verification requests recorded.
+                </div>
+              ) : (
+                <div className="overflow-x-auto">
+                  <table className="w-full text-left text-xs border-collapse">
+                    <thead>
+                      <tr className="border-b border-border/40 text-muted-foreground font-semibold">
+                        <th className="py-3 px-2">User</th>
+                        <th className="py-3 px-2">Plan</th>
+                        <th className="py-3 px-2">Method</th>
+                        <th className="py-3 px-2">Tx ID</th>
+                        <th className="py-3 px-2">Amount</th>
+                        <th className="py-3 px-2">Submitted</th>
+                        <th className="py-3 px-2">IP / Geotag</th>
+                        <th className="py-3 px-2">Status</th>
+                        <th className="py-3 px-2 text-right">Actions</th>
+                      </tr>
+                    </thead>
+                    <tbody className="divide-y divide-border/30">
+                      {paymentRequests.map((req) => (
+                        <tr key={req.id} className="hover:bg-muted/10">
+                          <td className="py-3 px-2">
+                            <p className="font-bold text-foreground truncate max-w-[120px]">{req.userName}</p>
+                            <p className="text-[10px] text-muted-foreground truncate max-w-[150px]">{req.userEmail}</p>
+                          </td>
+                          <td className="py-3 px-2">
+                            <PlanBadge plan={req.selectedPlan} size="sm" />
+                          </td>
+                          <td className="py-3 px-2 font-medium text-foreground">{req.paymentMethod}</td>
+                          <td className="py-3 px-2 font-mono font-medium">{req.transactionId}</td>
+                          <td className="py-3 px-2 font-bold text-foreground">PKR {req.amount}</td>
+                          <td className="py-3 px-2 text-muted-foreground text-[10px]">
+                            {req.submittedAt?.toDate ? req.submittedAt.toDate().toLocaleString() : new Date(req.submittedAt).toLocaleString()}
+                          </td>
+                          <td className="py-3 px-2 space-y-0.5">
+                            <p className="font-mono text-[9px] text-muted-foreground">{req.submittedFromIP || '---'}</p>
+                            {req.submittedFromCoords && (
+                              <a
+                                href={`https://www.google.com/maps?q=${req.submittedFromCoords.lat},${req.submittedFromCoords.lng}`}
+                                target="_blank"
+                                rel="noopener noreferrer"
+                                className="inline-flex items-center gap-0.5 text-[9px] text-brand hover:underline font-bold"
+                              >
+                                <MapPin size={10} /> View Map
+                              </a>
+                            )}
+                          </td>
+                          <td className="py-3 px-2">
+                            <Badge
+                              variant={
+                                req.status === 'approved' ? 'success' :
+                                req.status === 'rejected' ? 'danger' : 'warning'
+                              }
+                              size="sm"
+                            >
+                              {req.status}
+                            </Badge>
+                          </td>
+                          <td className="py-3 px-2 text-right space-x-2 shrink-0">
+                            {req.screenshotUrl && (
+                              <button
+                                onClick={() => setSelectedRequest(req)}
+                                className="p-1 hover:bg-muted rounded-lg text-primary transition-colors inline-flex"
+                                title="View Receipt"
+                              >
+                                <Eye size={16} />
+                              </button>
+                            )}
+                            {req.status === 'pending' && (
+                              <>
+                                <button
+                                  onClick={() => {
+                                    setSelectedRequest(req);
+                                    setShowApprovalModal(true);
+                                  }}
+                                  className="p-1 hover:bg-success/10 rounded-lg text-success transition-colors inline-flex"
+                                  title="Approve"
+                                >
+                                  <CheckCircle2 size={16} />
+                                </button>
+                                <button
+                                  onClick={() => {
+                                    setSelectedRequest(req);
+                                    setShowRejectionModal(true);
+                                  }}
+                                  className="p-1 hover:bg-destructive/10 rounded-lg text-destructive transition-colors inline-flex"
+                                  title="Reject"
+                                >
+                                  <XCircle size={16} />
+                                </button>
+                              </>
+                            )}
+                          </td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              )}
+            </div>
+
+            {/* Payment Accounts Setup Panel */}
+            <div className="bg-card border border-border rounded-3xl p-5 shadow-sm space-y-4">
+              <div className="flex items-center justify-between gap-3 border-b border-border/40 pb-4">
+                <div className="flex items-center gap-2">
+                  <CreditCard className="text-primary" size={18} />
+                  <h3 className="font-extrabold text-sm text-foreground">Manual Payment Accounts Config</h3>
+                </div>
+                <Button
+                  variant="outline"
+                  size="sm"
+                  onClick={() => {
+                    setAccountForm({
+                      id: '',
+                      method: 'SadaPay',
+                      holderName: '',
+                      accountNumber: '',
+                      iban: '',
+                      instructions: '',
+                      isActive: true,
+                      displayOrder: paymentAccounts.length + 1,
+                      qrCodeUrl: ''
+                    });
+                    setShowAccountModal(true);
+                  }}
+                  leftIcon={<PlusCircle size={14} />}
+                >
+                  Add Method
+                </Button>
+              </div>
+
+              {paymentAccounts.length === 0 ? (
+                <div className="py-8 text-center text-xs text-muted-foreground italic">
+                  No payment accounts configured yet.
+                </div>
+              ) : (
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                  {paymentAccounts.map((acc) => (
+                    <div
+                      key={acc.id}
+                      className="border border-border/60 bg-muted/10 rounded-2xl p-4 flex justify-between items-start gap-4"
+                    >
+                      <div className="space-y-2 text-xs">
+                        <div className="flex items-center gap-2">
+                          <h4 className="font-extrabold text-foreground">{acc.method}</h4>
+                          <Badge variant={acc.isActive ? 'success' : 'outline'} size="sm">
+                            {acc.isActive ? 'Active' : 'Disabled'}
+                          </Badge>
+                        </div>
+                        <div className="space-y-0.5 text-muted-foreground leading-normal">
+                          <p>Holder: <strong className="text-foreground">{acc.holderName}</strong></p>
+                          <p>Account: <strong className="text-foreground font-semibold">{acc.accountNumber}</strong></p>
+                          {acc.iban && <p>IBAN: <strong className="text-foreground font-mono">{acc.iban}</strong></p>}
+                          {acc.instructions && <p className="italic text-[10px]">"{acc.instructions}"</p>}
+                        </div>
+                      </div>
+                      
+                      <div className="flex items-center gap-1 shrink-0">
+                        <button
+                          onClick={() => {
+                            setAccountForm(acc);
+                            setShowAccountModal(true);
+                          }}
+                          className="p-1.5 hover:bg-muted rounded-lg text-slate-500 transition-colors inline-flex"
+                        >
+                          <Edit size={14} />
+                        </button>
+                        <button
+                          onClick={() => handleDeleteAccount(acc.id)}
+                          className="p-1.5 hover:bg-destructive/10 rounded-lg text-destructive transition-colors inline-flex"
+                        >
+                          <Trash2 size={14} />
+                        </button>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
+          </div>
+        )}
+
+        {/* 7. Plans Configuration Tab */}
+        {activeTab === 'plans' && (
+          <div className="space-y-6 animate-in fade-in duration-200">
+            {/* Plans List Config Card */}
+            <div className="bg-card border border-border rounded-3xl p-5 shadow-sm space-y-4">
+              <div className="flex items-center gap-2 border-b border-border/40 pb-4">
+                <Sliders className="text-primary" size={18} />
+                <h3 className="font-extrabold text-sm text-foreground">SaaS Subscription Plans Configuration</h3>
+              </div>
+
+              {!plansConfigLocal ? (
+                <div className="py-12 flex flex-col items-center justify-center gap-2">
+                  <Loader2 className="animate-spin text-primary" size={24} />
+                  <span className="text-xs text-muted-foreground font-medium">Loading plans...</span>
+                </div>
+              ) : (
+                <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
+                  {Object.entries(plansConfigLocal)
+                    .sort((a: any, b: any) => (a[1].displayOrder || 0) - (b[1].displayOrder || 0))
+                    .map(([planId, details]: [string, any]) => {
+                      const isPro = planId === 'pro';
+                      const isMax = planId === 'max';
+
+                      return (
+                        <Card
+                          key={planId}
+                          variant="default"
+                          className="p-5 border border-border/60 hover:border-primary/30 flex flex-col justify-between"
+                        >
+                          <div className="space-y-4 text-xs">
+                            <div className="flex items-center justify-between border-b border-border/30 pb-2">
+                              <div className="flex items-center gap-1.5">
+                                {isMax ? <Crown size={16} className="text-warning" /> : isPro ? <Zap size={16} className="text-brand" /> : <Shield size={16} className="text-muted-foreground" />}
+                                <h4 className="font-extrabold text-sm text-foreground">{details.name}</h4>
+                              </div>
+                              <Badge variant="outline" size="sm">
+                                Order: {details.displayOrder}
+                              </Badge>
+                            </div>
+
+                            <div className="space-y-1">
+                              <p className="text-lg font-black text-foreground">
+                                PKR {details.price}
+                                <span className="text-[10px] text-muted-foreground font-medium">/{details.billingCycle}</span>
+                              </p>
+                              <p className="text-[10px] text-muted-foreground leading-normal">
+                                Daily AI rate limit: <strong className="text-foreground">{details.limits.aiCallsPerDay} calls</strong>
+                              </p>
+                              <p className="text-[10px] text-muted-foreground leading-normal">
+                                Max Local Txs: <strong className="text-foreground">{details.limits.maxTransactions === -1 ? 'Unlimited' : details.limits.maxTransactions}</strong>
+                              </p>
+                            </div>
+
+                            <div className="space-y-1.5 pt-2 border-t border-border/30">
+                              <p className="font-semibold text-muted-foreground text-[10px] uppercase tracking-wider">Features Included:</p>
+                              <div className="flex flex-wrap gap-1">
+                                {(details.features || []).map((feat: string) => (
+                                  <span key={feat} className="px-2 py-0.5 bg-muted text-foreground text-[9px] font-bold rounded-lg uppercase">
+                                    {feat}
+                                  </span>
+                                ))}
+                              </div>
+                            </div>
+                          </div>
+
+                          <div className="pt-4 mt-4 border-t border-border/30">
+                            <Button
+                              variant="outline"
+                              fullWidth
+                              size="sm"
+                              onClick={() => {
+                                setEditingPlanId(planId);
+                                setPlanForm({
+                                  name: details.name,
+                                  price: details.price,
+                                  currency: details.currency || 'PKR',
+                                  billingCycle: details.billingCycle,
+                                  features: details.features || [],
+                                  limits: details.limits || { aiCallsPerDay: 50, maxTransactions: 50000 },
+                                  badgeIcon: details.badgeIcon || 'zap',
+                                  badgeColor: details.badgeColor || '#3B82F6',
+                                  displayOrder: details.displayOrder
+                                });
+                              }}
+                            >
+                              Edit Plan Configuration
+                            </Button>
+                          </div>
+                        </Card>
+                      );
+                    })}
+                </div>
+              )}
+            </div>
+
+            {/* Plan Editor Form Card */}
+            {editingPlanId && (
+              <Card variant="default" className="p-6 border border-primary/30 shadow-md space-y-4 animate-in slide-in-from-bottom duration-250">
+                <div className="flex items-center justify-between border-b border-border/40 pb-3">
+                  <h4 className="font-extrabold text-sm text-foreground">
+                    Editing Plan: {planForm.name} ({editingPlanId.toUpperCase()})
+                  </h4>
+                  <button
+                    onClick={() => setEditingPlanId('')}
+                    className="p-1 hover:bg-muted rounded-full transition-colors"
+                  >
+                    <X size={16} />
+                  </button>
+                </div>
+
+                <form onSubmit={handleSavePlan} className="space-y-4 text-xs">
+                  <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
+                    <Input
+                      label="Plan Name"
+                      value={planForm.name}
+                      onChange={e => setPlanForm({ ...planForm, name: e.target.value })}
+                      required
+                    />
+                    <Input
+                      label="Price (PKR)"
+                      type="number"
+                      value={planForm.price}
+                      onChange={e => setPlanForm({ ...planForm, price: Number(e.target.value) })}
+                      required
+                    />
+                    <Input
+                      as="select"
+                      label="Billing Cycle"
+                      value={planForm.billingCycle}
+                      onChange={e => setPlanForm({ ...planForm, billingCycle: e.target.value })}
+                      options={[
+                        { value: 'forever', label: 'Forever (Free)' },
+                        { value: 'monthly', label: 'Monthly' },
+                        { value: 'yearly', label: 'Yearly' }
+                      ]}
+                    />
+                  </div>
+
+                  <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
+                    <Input
+                      label="Daily AI Call limit"
+                      type="number"
+                      value={planForm.limits.aiCallsPerDay}
+                      onChange={e => setPlanForm({ 
+                        ...planForm, 
+                        limits: { ...planForm.limits, aiCallsPerDay: Number(e.target.value) } 
+                      })}
+                      required
+                    />
+                    <Input
+                      label="Max Transactions (-1 for unlimited)"
+                      type="number"
+                      value={planForm.limits.maxTransactions}
+                      onChange={e => setPlanForm({ 
+                        ...planForm, 
+                        limits: { ...planForm.limits, maxTransactions: Number(e.target.value) } 
+                      })}
+                      required
+                    />
+                    <Input
+                      label="Display Order"
+                      type="number"
+                      value={planForm.displayOrder}
+                      onChange={e => setPlanForm({ ...planForm, displayOrder: Number(e.target.value) })}
+                      required
+                    />
+                  </div>
+
+                  <div className="space-y-2">
+                    <span className="block text-xs font-semibold text-foreground/80">
+                      Features Access Toggles
+                    </span>
+                    <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 bg-muted/20 border border-border/50 p-4 rounded-2xl">
+                      {[
+                        { id: 'transactions', label: 'Transactions Ledger' },
+                        { id: 'accounts', label: 'Account Management' },
+                        { id: 'categories', label: 'Custom Categories' },
+                        { id: 'dashboard', label: 'Core Dashboard' },
+                        { id: 'goals', label: 'Savings Goals' },
+                        { id: 'reminders', label: 'System Reminders' },
+                        { id: 'calculator', label: 'Utility Calculator' },
+                        { id: 'converter', label: 'Currency Converter' },
+                        { id: 'tasks', label: 'Task List' },
+                        { id: 'loans', label: 'Loan Tracker' },
+                        { id: 'events', label: 'Event Budgets' },
+                        { id: 'fuel', label: 'Fuel Tracking' },
+                        { id: 'reports', label: 'Visual Reports' },
+                        { id: 'subscriptions', label: 'Subscription Manager' },
+                        { id: 'ai-chat', label: 'AI Financial Copilot' },
+                        { id: 'whatsapp', label: 'WhatsApp Copilot' },
+                        { id: 'investments', label: 'Exchange Integrations' }
+                      ].map((feat) => {
+                        const isEnabled = planForm.features.includes(feat.id);
+                        return (
+                          <label key={feat.id} className="flex items-center gap-2 select-none cursor-pointer">
+                            <input
+                              type="checkbox"
+                              checked={isEnabled}
+                              onChange={() => {
+                                const updated = isEnabled
+                                  ? planForm.features.filter(id => id !== feat.id)
+                                  : [...planForm.features, feat.id];
+                                setPlanForm({ ...planForm, features: updated });
+                              }}
+                              className="rounded border-border text-primary focus:ring-ring shrink-0 h-4 w-4"
+                            />
+                            <span className="font-medium text-foreground/90">{feat.label}</span>
+                          </label>
+                        );
+                      })}
+                    </div>
+                  </div>
+
+                  <div className="flex justify-end gap-3 pt-2">
+                    <Button variant="outline" size="sm" onClick={() => setEditingPlanId('')}>
+                      Cancel
+                    </Button>
+                    <Button type="submit" variant="primary" size="sm">
+                      Save Plan Settings
+                    </Button>
+                  </div>
+                </form>
+              </Card>
+            )}
+          </div>
+        )}
       </div>
+
+      {/* ── MANUALLY INTEGRATED MODALS ────────────────────────────────────── */}
+
+      {/* 1. Approval Modal */}
+      {showApprovalModal && selectedRequest && (
+        <Modal
+          isOpen={showApprovalModal}
+          onClose={() => {
+            setShowApprovalModal(false);
+            setInternalNotes('');
+          }}
+          title="Approve Subscription Payment"
+          description={`Activating ${selectedRequest.selectedPlan.toUpperCase()} Plan for ${selectedRequest.userName}`}
+          variant="success"
+          footer={
+            <>
+              <Button
+                variant="outline"
+                onClick={() => {
+                  setShowApprovalModal(false);
+                  setInternalNotes('');
+                }}
+                disabled={isLoading}
+              >
+                Cancel
+              </Button>
+              <Button
+                variant="primary"
+                onClick={handleApproveRequest}
+                loading={isLoading}
+              >
+                Confirm Approval
+              </Button>
+            </>
+          }
+        >
+          <div className="space-y-4 text-xs">
+            <p className="text-[11px] text-muted-foreground leading-relaxed">
+              Confirming this transaction will grant active subscription rights immediately.
+            </p>
+            <div className="grid grid-cols-1 gap-4">
+              <Input
+                label="Subscription Expiry Date"
+                type="date"
+                value={customExpiryDate}
+                onChange={e => setCustomExpiryDate(e.target.value)}
+                required
+              />
+              <Input
+                as="textarea"
+                label="Internal Audit Notes"
+                placeholder="Include verification details or banking logs reference..."
+                value={internalNotes}
+                onChange={e => setInternalNotes(e.target.value)}
+                rows={2}
+              />
+            </div>
+          </div>
+        </Modal>
+      )}
+
+      {/* 2. Rejection Modal */}
+      {showRejectionModal && selectedRequest && (
+        <Modal
+          isOpen={showRejectionModal}
+          onClose={() => {
+            setShowRejectionModal(false);
+            setRejectionReason('');
+            setInternalNotes('');
+          }}
+          title="Reject Subscription Payment"
+          description={`Declining transaction proof from ${selectedRequest.userName}`}
+          variant="danger"
+          footer={
+            <>
+              <Button
+                variant="outline"
+                onClick={() => {
+                  setShowRejectionModal(false);
+                  setRejectionReason('');
+                  setInternalNotes('');
+                }}
+                disabled={isLoading}
+              >
+                Cancel
+              </Button>
+              <Button
+                variant="destructive"
+                onClick={handleRejectRequest}
+                loading={isLoading}
+                disabled={!rejectionReason.trim()}
+              >
+                Confirm Rejection
+              </Button>
+            </>
+          }
+        >
+          <div className="space-y-4 text-xs">
+            <p className="text-[11px] text-muted-foreground leading-relaxed">
+              Provide a clear reason for rejecting the receipt. This will be shown to the user.
+            </p>
+            <div className="grid grid-cols-1 gap-4">
+              <Input
+                label="Rejection Reason (Required)"
+                placeholder="e.g. Invalid/unreadable receipt image, duplicate transaction ID, incorrect transfer amount"
+                value={rejectionReason}
+                onChange={e => setRejectionReason(e.target.value)}
+                required
+              />
+              <Input
+                as="textarea"
+                label="Internal Audit Notes"
+                placeholder="Include details about why it failed checks..."
+                value={internalNotes}
+                onChange={e => setInternalNotes(e.target.value)}
+                rows={2}
+              />
+            </div>
+          </div>
+        </Modal>
+      )}
+
+      {/* 3. Account Configuration CRUD Modal */}
+      {showAccountModal && (
+        <Modal
+          isOpen={showAccountModal}
+          onClose={() => setShowAccountModal(false)}
+          title={accountForm.id ? "Edit Payment Account" : "Add Payment Account"}
+          description="Configure banking/wallet credentials displayed to users during checkout"
+          footer={
+            <>
+              <Button
+                variant="outline"
+                onClick={() => setShowAccountModal(false)}
+              >
+                Cancel
+              </Button>
+              <Button
+                variant="primary"
+                onClick={handleSaveAccount}
+              >
+                Save Account
+              </Button>
+            </>
+          }
+        >
+          <form onSubmit={handleSaveAccount} className="space-y-4 text-xs">
+            <div className="grid grid-cols-2 gap-4">
+              <Input
+                as="select"
+                label="Payment Method"
+                value={accountForm.method}
+                onChange={e => setAccountForm({ ...accountForm, method: e.target.value })}
+                options={[
+                  { value: 'SadaPay', label: 'SadaPay' },
+                  { value: 'JazzCash', label: 'JazzCash' },
+                  { value: 'Easypaisa', label: 'Easypaisa' },
+                  { value: 'Bank Transfer', label: 'Bank Transfer' }
+                ]}
+              />
+              <Input
+                label="Account Holder Name"
+                value={accountForm.holderName}
+                onChange={e => setAccountForm({ ...accountForm, holderName: e.target.value })}
+                required
+              />
+            </div>
+            <div className="grid grid-cols-2 gap-4">
+              <Input
+                label="Account / Phone Number"
+                value={accountForm.accountNumber}
+                onChange={e => setAccountForm({ ...accountForm, accountNumber: e.target.value })}
+                required
+              />
+              <Input
+                label="IBAN / Swift (Optional)"
+                value={accountForm.iban}
+                onChange={e => setAccountForm({ ...accountForm, iban: e.target.value })}
+              />
+            </div>
+            <Input
+              label="QR Code Image URL (Optional)"
+              value={accountForm.qrCodeUrl}
+              onChange={e => setAccountForm({ ...accountForm, qrCodeUrl: e.target.value })}
+              helperText="Cloudinary URL for QR code scan."
+            />
+            <Input
+              as="textarea"
+              label="Checkout Instructions"
+              placeholder="Display instructions (e.g. Include your username in the transaction notes)"
+              value={accountForm.instructions}
+              onChange={e => setAccountForm({ ...accountForm, instructions: e.target.value })}
+              rows={2}
+            />
+            <div className="grid grid-cols-2 gap-4">
+              <Input
+                label="Display Order"
+                type="number"
+                value={accountForm.displayOrder}
+                onChange={e => setAccountForm({ ...accountForm, displayOrder: Number(e.target.value) })}
+                required
+              />
+              <div className="flex items-center gap-2 select-none pt-6 text-left">
+                <input
+                  type="checkbox"
+                  id="isActive"
+                  checked={accountForm.isActive}
+                  onChange={e => setAccountForm({ ...accountForm, isActive: e.target.checked })}
+                  className="rounded border-border text-primary h-4 w-4"
+                />
+                <label htmlFor="isActive" className="font-bold text-xs cursor-pointer">Method Active</label>
+              </div>
+            </div>
+          </form>
+        </Modal>
+      )}
+
+      {/* 4. Screenshot Zoom Viewer Modal */}
+      {selectedRequest && !showApprovalModal && !showRejectionModal && (
+        <Modal
+          isOpen={!!selectedRequest}
+          onClose={() => setSelectedRequest(null)}
+          title="Payment Verification Screenshot"
+          description={`Tx ID: ${selectedRequest.transactionId} • Submitted: ${selectedRequest.submittedAt?.toDate ? selectedRequest.submittedAt.toDate().toLocaleDateString() : new Date(selectedRequest.submittedAt).toLocaleDateString()}`}
+          size="lg"
+        >
+          <div className="flex flex-col items-center gap-4 bg-muted/10 p-2 rounded-2xl">
+            <img
+              src={selectedRequest.screenshotUrl}
+              alt="Transaction Proof Receipt"
+              className="max-w-full max-h-[60vh] object-contain rounded-xl shadow-md border"
+            />
+            <div className="w-full text-xs space-y-1 bg-card border border-border p-4 rounded-xl text-left leading-relaxed">
+              <p>User: <strong className="text-foreground">{selectedRequest.userName}</strong> ({selectedRequest.userEmail})</p>
+              <p>Requested Plan: <strong className="text-foreground uppercase">{selectedRequest.selectedPlan}</strong></p>
+              <p>Amount paid: <strong className="text-foreground font-semibold">PKR {selectedRequest.amount}</strong> via <strong className="text-foreground">{selectedRequest.paymentMethod}</strong></p>
+              {selectedRequest.notes && (
+                <p className="border-t pt-2 mt-2 italic text-muted-foreground">Notes: "{selectedRequest.notes}"</p>
+              )}
+            </div>
+          </div>
+        </Modal>
+      )}
 
       {showEmailConfirmModal && (
         <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/60 backdrop-blur-sm animate-in fade-in duration-200">

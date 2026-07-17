@@ -33,6 +33,13 @@
     --ring: 220 20% 15%;
  
     --radius: 0.75rem;
+
+    --brand: 160 84% 39%;
+    --brand-foreground: 0 0% 100%;
+    --success: 142 76% 36%;
+    --success-foreground: 0 0% 100%;
+    --warning: 38 92% 50%;
+    --warning-foreground: 0 0% 100%;
   }
  
   .dark {
@@ -63,8 +70,15 @@
     --border: 0 0% 12%;
     --input: 0 0% 12%;
     --ring: 0 0% 98%;
-  }
 
+    --brand: 160 70% 45%;
+    --brand-foreground: 0 0% 100%;
+    --success: 142 70% 45%;
+    --success-foreground: 0 0% 0%;
+    --warning: 38 85% 55%;
+    --warning-foreground: 0 0% 0%;
+  }
+ 
   .eye-comfort {
     --background: 38 40% 95%;
     --foreground: 38 25% 15%;
@@ -93,12 +107,20 @@
     --border: 38 20% 86%;
     --input: 38 20% 86%;
     --ring: 38 35% 22%;
+
+    --brand: 38 85% 45%;
+    --brand-foreground: 38 30% 99%;
+    --success: 142 76% 36%;
+    --success-foreground: 0 0% 100%;
+    --warning: 38 92% 50%;
+    --warning-foreground: 0 0% 100%;
   }
 }
  
 @layer base {
   * {
     @apply border-border;
+    font-family: 'Inter', sans-serif;
   }
   body {
     @apply bg-background text-foreground;

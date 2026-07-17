@@ -13,11 +13,11 @@ import {
 } from 'firebase/firestore';
 import type { FinancialSnapshot } from './aiDataService';
 import { formatSnapshotForAI } from './aiDataService';
-import { getApiKey, markModelUnavailable, recordApiRequest } from './ai';
+import { markModelUnavailable, recordApiRequest } from './ai';
 import { selectModelChain } from './ai/router';
 import { resolveModel } from './ai/modelRegistry';
-
-const GEMINI_BASE_URL = `https://generativelanguage.googleapis.com/v1beta/models`;
+import { getApiUrl } from './whatsappService';
+import { auth } from '../firebase';
 
 export interface ChatMessage {
   role: 'user' | 'model';
@@ -715,7 +715,7 @@ export const sendToGemini = async (
   snapshot: FinancialSnapshot,
   currencyCode: string,
   currencySymbol: string,
-  apiKey?: string,
+  _apiKey?: string,
   mode?: 'thinking' | 'fast'
 ): Promise<GeminiResponse> => {
   const systemInstruction = buildSystemInstruction(snapshot, currencyCode, currencySymbol);
@@ -725,19 +725,12 @@ export const sendToGemini = async (
     throw new Error('No available models for chat. Check your API key and try again.');
   }
 
-  const activeKey = apiKey || getApiKey();
-  if (!activeKey) throw new Error('Gemini API Key is missing.');
-
   const apiContents = buildApiContents(messages);
   const lastError: Error[] = [];
 
   for (const model of modelChain) {
     try {
       const isGemma = model.apiName.startsWith('gemma');
-      const baseUrl = isGemma
-        ? 'https://generativelanguage.googleapis.com/v1/models'
-        : GEMINI_BASE_URL;
-      const apiUrl = `${baseUrl}/${model.apiName}:generateContent`;
 
       let modelContents = apiContents;
       if (isGemma) {
@@ -765,6 +758,7 @@ export const sendToGemini = async (
 
       const body: any = {
         contents: modelContents,
+        modelId: model.apiName,
         generationConfig: {
           temperature: model.temperature ?? 0.4,
           maxOutputTokens: model.maxOutputTokens ?? 2048,
@@ -779,15 +773,19 @@ export const sendToGemini = async (
         };
       }
 
-      const response = await fetch(`${apiUrl}?key=${activeKey}`, {
+      const idToken = auth?.currentUser ? await auth.currentUser.getIdToken() : '';
+      const response = await fetch(getApiUrl('/api/ai/chat'), {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: { 
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${idToken}`
+        },
         body: JSON.stringify(body),
       });
 
       if (!response.ok) {
         const errJson = await response.json().catch(() => ({}));
-        const errorMsg = errJson?.error?.message || `Gemini API error: ${response.status}`;
+        const errorMsg = errJson?.error || `AI proxy error: ${response.status}`;
 
         if (response.status === 404 || response.status === 403) {
           markModelUnavailable(model.id);
@@ -921,68 +919,7 @@ const buildModelChain = () => {
   return modelIds.map(id => resolveModel(id, 'chat')).filter(m => m.isAvailable);
 };
 
-/** Parse a Gemini SSE stream and yield each text/thought delta */
-async function* streamGeminiResponse(
-  apiUrl: string,
-  apiKey: string,
-  body: any
-): AsyncGenerator<{ textDelta?: string; thoughtDelta?: string; functionCall?: { name: string; args: any } }, void, undefined> {
-  const response = await fetch(`${apiUrl}:streamGenerateContent?alt=sse&key=${apiKey}`, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify(body),
-  });
 
-  if (!response.ok) {
-    const errJson = await response.json().catch(() => ({}));
-    throw new Error(errJson?.error?.message || `Gemini API error: ${response.status}`);
-  }
-
-  const reader = response.body?.getReader();
-  if (!reader) throw new Error('Response body is not readable');
-
-  const decoder = new TextDecoder();
-  let buffer = '';
-
-  while (true) {
-    const { done, value } = await reader.read();
-    if (done) break;
-
-    buffer += decoder.decode(value, { stream: true });
-    const lines = buffer.split('\n');
-    buffer = lines.pop() || '';
-
-    for (const line of lines) {
-      const trimmed = line.trim();
-      if (!trimmed || !trimmed.startsWith('data: ')) continue;
-      const jsonStr = trimmed.slice(6);
-      if (jsonStr === '[DONE]' || jsonStr === 'done') continue;
-
-      try {
-        const data = JSON.parse(jsonStr);
-        const usage = data.usageMetadata;
-        const candidatesCount = usage?.candidatesTokenCount || 0;
-        const thoughtsCount = usage?.thoughtsTokenCount || 0;
-
-        const parts = data?.candidates?.[0]?.content?.parts || [];
-        for (const part of parts) {
-          if (part.functionCall) {
-            yield { functionCall: { name: part.functionCall.name, args: part.functionCall.args } };
-          } else if (part.text) {
-            const isThought = part.thought === true || (candidatesCount === 0 && thoughtsCount > 0);
-            if (isThought) {
-              yield { thoughtDelta: part.text };
-            } else {
-              yield { textDelta: part.text };
-            }
-          }
-        }
-      } catch {
-        // skip malformed SSE data
-      }
-    }
-  }
-}
 
 /**
  * Send messages to Gemini and stream the response text chunk-by-chunk.
@@ -995,7 +932,7 @@ export const sendToGeminiStream = async (
   currencyCode: string,
   currencySymbol: string,
   onChunk: (text: string) => void,
-  apiKey?: string,
+  _apiKey?: string,
   onThoughtChunk?: (text: string) => void,
   mode?: 'thinking' | 'fast'
 ): Promise<GeminiResponse> => {
@@ -1006,22 +943,12 @@ export const sendToGeminiStream = async (
     throw new Error('No available models for chat. Check your API key and try again.');
   }
 
-  const activeKey = apiKey || getApiKey();
-  if (!activeKey) throw new Error('Gemini API Key is missing.');
-
   const apiContents = buildApiContents(messages);
   const lastError: Error[] = [];
 
   for (const model of modelChain) {
     try {
       const isGemma = model.apiName.startsWith('gemma');
-      const baseUrl = isGemma
-        ? 'https://generativelanguage.googleapis.com/v1/models'
-        : GEMINI_BASE_URL;
-      const apiUrl = `${baseUrl}/${model.apiName}`;
-      let accumulatedText = '';
-      let accumulatedThought = '';
-      let functionCallResult: GeminiResponse['functionCall'];
 
       let modelContents = apiContents;
       if (isGemma) {
@@ -1049,6 +976,7 @@ export const sendToGeminiStream = async (
 
       const body: any = {
         contents: modelContents,
+        modelId: model.apiName,
         generationConfig: {
           temperature: model.temperature ?? 0.4,
           maxOutputTokens: model.maxOutputTokens ?? 2048,
@@ -1063,38 +991,84 @@ export const sendToGeminiStream = async (
         };
       }
 
-      const stream = streamGeminiResponse(apiUrl, activeKey, body);
+      const idToken = auth?.currentUser ? await auth.currentUser.getIdToken() : '';
+      const response = await fetch(getApiUrl('/api/ai/chat'), {
+        method: 'POST',
+        headers: { 
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${idToken}`
+        },
+        body: JSON.stringify(body),
+      });
 
-      for await (const chunk of stream) {
-        if (chunk.functionCall) {
-          functionCallResult = chunk.functionCall;
-          break;
+      if (!response.ok) {
+        const errJson = await response.json().catch(() => ({}));
+        const errorMsg = errJson?.error || `AI proxy error: ${response.status}`;
+
+        if (response.status === 404 || response.status === 403) {
+          markModelUnavailable(model.id);
         }
-        if (chunk.thoughtDelta) {
-          accumulatedThought += chunk.thoughtDelta;
-          if (onThoughtChunk) onThoughtChunk(accumulatedThought);
-        }
-        if (chunk.textDelta) {
-          accumulatedText += chunk.textDelta;
-          onChunk(accumulatedText);
+
+        lastError.push(new Error(errorMsg));
+        continue;
+      }
+
+      const data = await response.json();
+      const candidateParts = data?.candidates?.[0]?.content?.parts || [];
+      
+      let text = '';
+      let thought = '';
+      let functionCallResult: GeminiResponse['functionCall'] = undefined;
+
+      const textParts = candidateParts.filter((p: any) => p.text && !p.thought);
+      const thoughtParts = candidateParts.filter((p: any) => p.thought);
+
+      if (thoughtParts.length > 0) {
+        thought = thoughtParts.map((p: any) => p.text).join('');
+      }
+
+      if (textParts.length > 1 && thoughtParts.length === 0) {
+        const responsePart = textParts[textParts.length - 1];
+        text = responsePart.text || '';
+        const preceding = textParts.slice(0, textParts.length - 1);
+        thought = preceding.map((p: any) => p.text).join('\n');
+      } else {
+        text = textParts.map((p: any) => p.text).join('');
+      }
+
+      for (const part of candidateParts) {
+        if (part.functionCall) {
+          functionCallResult = {
+            name: part.functionCall.name,
+            args: part.functionCall.args,
+          };
         }
       }
 
+      // Record API request token estimates
+      const totalChars = systemInstruction.length + 
+        messages.reduce((acc, m) => acc + (m.content?.length || 0), 0) + 
+        text.length + 
+        thought.length +
+        (functionCallResult ? JSON.stringify(functionCallResult).length : 0);
+      recordApiRequest(Math.ceil(totalChars / 4));
+
       if (functionCallResult) {
-        const totalChars = systemInstruction.length + 
-          messages.reduce((acc, m) => acc + (m.content?.length || 0), 0) + 
-          JSON.stringify(functionCallResult).length;
-        recordApiRequest(Math.ceil(totalChars / 4));
         return { functionCall: functionCallResult };
       }
 
-      const totalChars = systemInstruction.length + 
-        messages.reduce((acc, m) => acc + (m.content?.length || 0), 0) + 
-        accumulatedText.length + 
-        accumulatedThought.length;
-      recordApiRequest(Math.ceil(totalChars / 4));
+      if (text.length === 0 && thought.length === 0) {
+        throw new Error('No response generated from the AI model.');
+      }
 
-      return { text: accumulatedText, thought: accumulatedThought || undefined };
+      if (thought && onThoughtChunk) {
+        onThoughtChunk(thought);
+      }
+      if (text) {
+        onChunk(text);
+      }
+
+      return { text, thought: thought || undefined };
     } catch (error: any) {
       if (error.message?.includes('404') || error.message?.includes('403') || error.message?.includes('not found')) {
         markModelUnavailable(model.id);

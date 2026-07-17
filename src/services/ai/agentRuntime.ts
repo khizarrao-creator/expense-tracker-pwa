@@ -1,19 +1,10 @@
 import type { AgentExecutionOptions, AgentExecutionResult, ModelInfo, ToolInfo } from './types';
-import { GEMINI_BASE_URL } from './types';
 import { resolveModel, markModelUnavailable } from './modelRegistry';
 import { getToolsForModel, getEnabledByDefaultTools } from './toolRegistry';
 import { selectModelChain } from './router';
-import { getApiKey, getProviderConfig } from './provider';
-
-interface GeminiRequestBody {
-  contents: any[];
-  systemInstruction?: { parts: [{ text: string }] };
-  tools?: any[];
-  generationConfig?: {
-    temperature?: number;
-    maxOutputTokens?: number;
-  };
-}
+import { getProviderConfig } from './provider';
+import { getApiUrl } from '../whatsappService';
+import { auth } from '../../firebase';
 
 interface GeminiResponseData {
   candidates?: {
@@ -59,12 +50,7 @@ const executeWithModel = async (
   options: AgentExecutionOptions,
   availableTools: ToolInfo[]
 ): Promise<GeminiResponseData> => {
-  const apiKey = getApiKey();
   const isGemma = model.apiName.startsWith('gemma');
-  const baseUrl = isGemma
-    ? 'https://generativelanguage.googleapis.com/v1/models'
-    : GEMINI_BASE_URL;
-  const apiUrl = `${baseUrl}/${model.apiName}:generateContent`;
 
   let adjustedContents = contents;
   if (isGemma && systemInstruction) {
@@ -79,8 +65,9 @@ const executeWithModel = async (
     });
   }
 
-  const body: GeminiRequestBody = {
+  const body: any = {
     contents: adjustedContents,
+    modelId: model.apiName,
     generationConfig: {
       temperature: options.temperature ?? model.temperature ?? 0.4,
       maxOutputTokens: options.maxOutputTokens ?? model.maxOutputTokens ?? 2048,
@@ -104,15 +91,21 @@ const executeWithModel = async (
   }
 
   try {
-    const response = await fetch(`${apiUrl}?key=${apiKey}`, {
+    const idToken = auth?.currentUser ? await auth.currentUser.getIdToken() : '';
+    const proxyUrl = getApiUrl('/api/ai/chat');
+
+    const response = await fetch(proxyUrl, {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
+      headers: { 
+        'Content-Type': 'application/json',
+        'Authorization': `Bearer ${idToken}`
+      },
       body: JSON.stringify(body),
     });
 
     if (!response.ok) {
       const errJson = await response.json().catch(() => ({}));
-      const errorMsg = errJson?.error?.message || `API error: ${response.status}`;
+      const errorMsg = errJson?.error || `AI proxy error: ${response.status}`;
 
       if (response.status === 404 || response.status === 403) {
         markModelUnavailable(model.id);

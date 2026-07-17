@@ -6,7 +6,19 @@ import { ShieldAlert, Info, X, AlertTriangle } from 'lucide-react';
 import { useAuth } from './AuthContext';
 import { useLocation } from 'react-router-dom';
 
-interface GlobalConfig {
+export interface PlanDetails {
+  name: string;
+  price: number;
+  currency: string;
+  billingCycle: string;
+  features: string[];
+  limits: { aiCallsPerDay: number; maxTransactions: number };
+  badgeIcon: string;
+  badgeColor: string;
+  displayOrder: number;
+}
+
+export interface GlobalConfig {
   announcement: string;
   emergencyMessage: string;
   maintenanceMode: boolean;
@@ -20,6 +32,7 @@ interface GlobalConfig {
   fallbackApiKey?: string;
   fallbackModelId?: string;
   globalSystemInstruction?: string;
+  exchangeRate?: number; // USD to PKR rate: e.g. 280 (1 USD = 280 PKR)
 }
 
 interface AppContextType {
@@ -27,6 +40,11 @@ interface AppContextType {
   isLoading: boolean;
   isPro: boolean;
   disabledFeatures: string[];
+  userPlan: string;
+  planExpiresAt: Date | null;
+  plansConfig: Record<string, PlanDetails>;
+  planFeatures: string[];
+  planLimits: { aiCallsPerDay: number; maxTransactions: number };
 }
 
 const AppContext = createContext<AppContextType | undefined>(undefined);
@@ -56,6 +74,57 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     ],
     version: '1.0.0'
   });
+  const DEFAULT_PLANS: Record<string, PlanDetails> = {
+    standard: {
+      name: 'Standard',
+      price: 0,
+      currency: 'PKR',
+      billingCycle: 'forever',
+      features: [
+        'transactions', 'accounts', 'categories', 'dashboard',
+        'goals', 'reminders', 'calculator', 'converter',
+        'tasks', 'loans', 'events', 'fuel', 'reports',
+        'subscriptions'
+      ],
+      limits: { aiCallsPerDay: 0, maxTransactions: 10000 },
+      badgeIcon: 'shield',
+      badgeColor: '#6B7280',
+      displayOrder: 1
+    },
+    pro: {
+      name: 'Pro',
+      price: 600,
+      currency: 'PKR',
+      billingCycle: 'monthly',
+      features: [
+        'transactions', 'accounts', 'categories', 'dashboard',
+        'goals', 'reminders', 'calculator', 'converter',
+        'tasks', 'loans', 'events', 'fuel', 'reports',
+        'subscriptions', 'ai-chat'
+      ],
+      limits: { aiCallsPerDay: 50, maxTransactions: 50000 },
+      badgeIcon: 'zap',
+      badgeColor: '#3B82F6',
+      displayOrder: 2
+    },
+    max: {
+      name: 'Max',
+      price: 1000,
+      currency: 'PKR',
+      billingCycle: 'monthly',
+      features: [
+        'transactions', 'accounts', 'categories', 'dashboard',
+        'goals', 'reminders', 'calculator', 'converter',
+        'tasks', 'loans', 'events', 'fuel', 'reports',
+        'subscriptions', 'ai-chat', 'whatsapp', 'investments'
+      ],
+      limits: { aiCallsPerDay: 150, maxTransactions: -1 },
+      badgeIcon: 'crown',
+      badgeColor: '#F59E0B',
+      displayOrder: 3
+    }
+  };
+
   const [isLoading, setIsLoading] = useState(true);
   const [isPro, setIsPro] = useState(false);
   const [isBanned, setIsBanned] = useState(false);
@@ -65,20 +134,59 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
   const { user } = useAuth();
   const location = useLocation();
 
+  // Plans config and user subscription states
+  const [plansConfig, setPlansConfig] = useState<Record<string, PlanDetails>>(DEFAULT_PLANS);
+  const [userPlan, setUserPlan] = useState<string>('standard');
+  const [planExpiresAt, setPlanExpiresAt] = useState<Date | null>(null);
+
+  // Load plans config in real time
+  useEffect(() => {
+    const unsubPlans = onSnapshot(doc(db, 'system', 'plans_config'), (docSnap) => {
+      if (docSnap.exists()) {
+        const data = docSnap.data();
+        if (data && data.plans) {
+          setPlansConfig(data.plans);
+        }
+      }
+    });
+    return () => unsubPlans();
+  }, []);
+
   useEffect(() => {
     if (!user) {
       setIsPro(false);
       setIsBanned(false);
       setDisabledFeatures([]);
+      setUserPlan('standard');
+      setPlanExpiresAt(null);
       return;
     }
 
-    const unsubUser = onSnapshot(doc(db, 'registered_users', user.uid), (doc) => {
-      if (doc.exists()) {
-        const data = doc.data();
-        setIsPro(!!data.isPro);
+    const unsubUser = onSnapshot(doc(db, 'registered_users', user.uid), (docSnap) => {
+      if (docSnap.exists()) {
+        const data = docSnap.data();
+        const planName = data.plan || 'standard';
+        setUserPlan(planName);
+        setIsPro(planName !== 'standard');
         setIsBanned(!!data.isBanned);
         setDisabledFeatures(data.disabledFeatures || []);
+
+        if (data.planExpiresAt) {
+          const expiresDate = data.planExpiresAt.toDate();
+          setPlanExpiresAt(expiresDate);
+          
+          // Auto downgrade if expired
+          const now = new Date();
+          if (expiresDate < now && planName !== 'standard') {
+            updateDoc(doc(db, 'registered_users', user.uid), {
+              plan: 'standard',
+              planExpiresAt: null,
+              planAssignedBy: 'expiry_daemon'
+            }).catch(err => console.error('Failed to auto-downgrade expired plan:', err));
+          }
+        } else {
+          setPlanExpiresAt(null);
+        }
       }
     });
 
@@ -230,8 +338,22 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     );
   }
 
+  const currentPlan = plansConfig[userPlan] || plansConfig.standard || DEFAULT_PLANS.standard;
+  const planFeatures = currentPlan.features || DEFAULT_PLANS.standard.features;
+  const planLimits = currentPlan.limits || DEFAULT_PLANS.standard.limits;
+
   return (
-    <AppContext.Provider value={{ config, isLoading, isPro, disabledFeatures }}>
+    <AppContext.Provider value={{ 
+      config, 
+      isLoading, 
+      isPro, 
+      disabledFeatures,
+      userPlan,
+      planExpiresAt,
+      plansConfig,
+      planFeatures,
+      planLimits
+    }}>
       {/* Emergency Modal */}
       {config.emergencyMessage && showEmergency && (
         <div className="fixed inset-0 z-[200] flex items-center justify-center p-4 bg-black/80 backdrop-blur-sm animate-in fade-in duration-300">

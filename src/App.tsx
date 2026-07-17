@@ -1,4 +1,4 @@
-import React from 'react';
+import React, { Suspense, lazy } from 'react';
 import { BrowserRouter, Routes, Route, Navigate } from 'react-router-dom';
 import { AuthProvider, useAuth } from './contexts/AuthContext';
 import { SQLiteProvider } from './contexts/SQLiteContext';
@@ -10,29 +10,44 @@ import { Toaster } from 'sonner';
 import { useTaskReminders } from './hooks/useTaskReminders';
 import { useWhatsAppBillReminders } from './hooks/useWhatsAppBillReminders';
 import Layout from './components/Layout';
-import Login from './pages/Login';
-import Dashboard from './pages/Dashboard';
-import Transactions from './pages/Transactions';
-import AddTransaction from './pages/AddTransaction';
-import Categories from './pages/Categories';
-import Settings from './pages/Settings';
-import Accounts from './pages/Accounts';
-import Goals from './pages/Goals';
-import Investments from './pages/Investments';
-import Reminders from './pages/Reminders';
-import More from './pages/More';
-import Calculator from './pages/Calculator';
-import Converter from './pages/Converter';
-import Tasks from './pages/Tasks';
-import Loans from './pages/Loans';
-import Events from './pages/Events';
-import FuelTracking from './pages/FuelTracking';
-import Reports from './pages/Reports';
-import Admin from './pages/Admin';
-import MexcDetails from './pages/MexcDetails';
-import AIChat from './pages/AIChat';
-import Subscriptions from './pages/Subscriptions';
-import WhatsApp from './pages/WhatsApp';
+import { UpgradePrompt } from './components/UpgradePrompt';
+import { Loader2 } from 'lucide-react';
+
+// Lazy load page components for route code-splitting
+const Login = lazy(() => import('./pages/Login'));
+const Dashboard = lazy(() => import('./pages/Dashboard'));
+const Transactions = lazy(() => import('./pages/Transactions'));
+const AddTransaction = lazy(() => import('./pages/AddTransaction'));
+const Categories = lazy(() => import('./pages/Categories'));
+const Settings = lazy(() => import('./pages/Settings'));
+const Accounts = lazy(() => import('./pages/Accounts'));
+const Goals = lazy(() => import('./pages/Goals'));
+const Investments = lazy(() => import('./pages/Investments'));
+const Reminders = lazy(() => import('./pages/Reminders'));
+const More = lazy(() => import('./pages/More'));
+const Calculator = lazy(() => import('./pages/Calculator'));
+const Converter = lazy(() => import('./pages/Converter'));
+const Tasks = lazy(() => import('./pages/Tasks'));
+const Loans = lazy(() => import('./pages/Loans'));
+const Events = lazy(() => import('./pages/Events'));
+const FuelTracking = lazy(() => import('./pages/FuelTracking'));
+const Reports = lazy(() => import('./pages/Reports'));
+const Admin = lazy(() => import('./pages/Admin'));
+const MexcDetails = lazy(() => import('./pages/MexcDetails'));
+const AIChat = lazy(() => import('./pages/AIChat'));
+const Subscriptions = lazy(() => import('./pages/Subscriptions'));
+const WhatsApp = lazy(() => import('./pages/WhatsApp'));
+const Upgrade = lazy(() => import('./pages/Upgrade').then(m => ({ default: m.Upgrade })));
+const Subscription = lazy(() => import('./pages/Subscription').then(m => ({ default: m.Subscription })));
+
+const SuspenseSpinner: React.FC = () => (
+  <div className="flex h-[60vh] w-full items-center justify-center bg-background text-foreground">
+    <div className="flex flex-col items-center gap-3">
+      <Loader2 className="animate-spin text-primary" size={32} />
+      <span className="text-xs text-muted-foreground font-semibold">Loading Page...</span>
+    </div>
+  </div>
+);
 
 const ProtectedRoute: React.FC<{ children: React.ReactNode }> = ({ children }) => {
   const { user, loading } = useAuth();
@@ -53,7 +68,7 @@ const ProtectedRoute: React.FC<{ children: React.ReactNode }> = ({ children }) =
 };
 
 const FeatureRoute: React.FC<{ featureId: string; children: React.ReactNode }> = ({ featureId, children }) => {
-  const { config, disabledFeatures } = useApp();
+  const { config, disabledFeatures, planFeatures } = useApp();
   
   const isGlobalDisabled = config.disabledFeatures?.includes(featureId);
   const isUserDisabled = disabledFeatures?.includes(featureId);
@@ -63,6 +78,11 @@ const FeatureRoute: React.FC<{ featureId: string; children: React.ReactNode }> =
 
   if (isGlobalDisabled || isUserDisabled || isLegacyDisabled) {
     return <Navigate to="/more" replace />;
+  }
+
+  // Validate feature against user plan tier
+  if (planFeatures && !planFeatures.includes(featureId)) {
+    return <UpgradePrompt featureId={featureId} />;
   }
 
   return <>{children}</>;
@@ -86,35 +106,39 @@ const App: React.FC = () => {
                 <ThemeProvider>
                   <AppHooks />
                   <Toaster position="top-center" richColors closeButton visibleToasts={3} />
-                  <Routes>
-                    <Route path="/login" element={<Login />} />
-                    
-                    <Route path="/" element={<ProtectedRoute><Layout /></ProtectedRoute>}>
-                      <Route index element={<Dashboard />} />
-                      <Route path="transactions" element={<Transactions />} />
-                      <Route path="add" element={<AddTransaction />} />
-                      <Route path="edit/:id" element={<AddTransaction />} />
-                      <Route path="categories" element={<Categories />} />
-                      <Route path="accounts" element={<Accounts />} />
-                      <Route path="goals" element={<FeatureRoute featureId="goals"><Goals /></FeatureRoute>} />
-                      <Route path="reminders" element={<FeatureRoute featureId="reminders"><Reminders /></FeatureRoute>} />
-                      <Route path="investments" element={<FeatureRoute featureId="investments"><Investments /></FeatureRoute>} />
-                      <Route path="more" element={<More />} />
-                      <Route path="calculator" element={<FeatureRoute featureId="calculator"><Calculator /></FeatureRoute>} />
-                      <Route path="converter" element={<FeatureRoute featureId="converter"><Converter /></FeatureRoute>} />
-                      <Route path="tasks" element={<FeatureRoute featureId="tasks"><Tasks /></FeatureRoute>} />
-                      <Route path="loans" element={<FeatureRoute featureId="loans"><Loans /></FeatureRoute>} />
-                      <Route path="events" element={<FeatureRoute featureId="events"><Events /></FeatureRoute>} />
-                      <Route path="fuel" element={<FeatureRoute featureId="fuel"><FuelTracking /></FeatureRoute>} />
-                      <Route path="reports" element={<FeatureRoute featureId="reports"><Reports /></FeatureRoute>} />
-                      <Route path="settings" element={<Settings />} />
-                      <Route path="mexc-details/:id" element={<MexcDetails />} />
-                      <Route path="ai-chat" element={<FeatureRoute featureId="ai-chat"><AIChat /></FeatureRoute>} />
-                      <Route path="subscriptions" element={<FeatureRoute featureId="subscriptions"><Subscriptions /></FeatureRoute>} />
-                      <Route path="whatsapp" element={<FeatureRoute featureId="whatsapp"><WhatsApp /></FeatureRoute>} />
-                    </Route>
-                    <Route path="/admin" element={<Admin />} />
-                  </Routes>
+                  <Suspense fallback={<SuspenseSpinner />}>
+                    <Routes>
+                      <Route path="/login" element={<Login />} />
+                      
+                      <Route path="/" element={<ProtectedRoute><Layout /></ProtectedRoute>}>
+                        <Route index element={<Dashboard />} />
+                        <Route path="transactions" element={<Transactions />} />
+                        <Route path="add" element={<AddTransaction />} />
+                        <Route path="edit/:id" element={<AddTransaction />} />
+                        <Route path="categories" element={<Categories />} />
+                        <Route path="accounts" element={<Accounts />} />
+                        <Route path="goals" element={<FeatureRoute featureId="goals"><Goals /></FeatureRoute>} />
+                        <Route path="reminders" element={<FeatureRoute featureId="reminders"><Reminders /></FeatureRoute>} />
+                        <Route path="investments" element={<FeatureRoute featureId="investments"><Investments /></FeatureRoute>} />
+                        <Route path="more" element={<More />} />
+                        <Route path="calculator" element={<FeatureRoute featureId="calculator"><Calculator /></FeatureRoute>} />
+                        <Route path="converter" element={<FeatureRoute featureId="converter"><Converter /></FeatureRoute>} />
+                        <Route path="tasks" element={<FeatureRoute featureId="tasks"><Tasks /></FeatureRoute>} />
+                        <Route path="loans" element={<FeatureRoute featureId="loans"><Loans /></FeatureRoute>} />
+                        <Route path="events" element={<FeatureRoute featureId="events"><Events /></FeatureRoute>} />
+                        <Route path="fuel" element={<FeatureRoute featureId="fuel"><FuelTracking /></FeatureRoute>} />
+                        <Route path="reports" element={<FeatureRoute featureId="reports"><Reports /></FeatureRoute>} />
+                        <Route path="settings" element={<Settings />} />
+                        <Route path="mexc-details/:id" element={<MexcDetails />} />
+                        <Route path="ai-chat" element={<FeatureRoute featureId="ai-chat"><AIChat /></FeatureRoute>} />
+                        <Route path="subscriptions" element={<FeatureRoute featureId="subscriptions"><Subscriptions /></FeatureRoute>} />
+                        <Route path="whatsapp" element={<FeatureRoute featureId="whatsapp"><WhatsApp /></FeatureRoute>} />
+                        <Route path="upgrade" element={<Upgrade />} />
+                        <Route path="subscription" element={<Subscription />} />
+                      </Route>
+                      <Route path="/admin" element={<Admin />} />
+                    </Routes>
+                  </Suspense>
                 </ThemeProvider>
               </CurrencyProvider>
             </SyncProvider>

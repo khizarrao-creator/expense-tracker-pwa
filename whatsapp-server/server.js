@@ -1236,6 +1236,210 @@ app.post('/api/admin/send-emails', async (req, res) => {
   });
 });
 
+// ── EXTENDED BACKEND API GATEWAY ENDPOINTS ─────────────────────────────────
+
+const verifyFirebaseToken = require('./middleware/auth');
+const aiRateLimit = require('./middleware/rateLimit');
+const { updateDoc } = require('firebase/firestore');
+
+// Helper to send WhatsApp alerts to admin
+const sendAdminWhatsAppAlert = async (message) => {
+  const adminPhone = process.env.ADMIN_WHATSAPP_NUMBER;
+  if (!adminPhone) {
+    console.warn('[WhatsApp Alert] ADMIN_WHATSAPP_NUMBER not set in environment. Skipping alert.');
+    return;
+  }
+
+  let cleanNumber = adminPhone.replace(/\D/g, '');
+  if (cleanNumber.startsWith('0')) {
+    cleanNumber = '92' + cleanNumber.substring(1);
+  }
+  const jid = `${cleanNumber}@s.whatsapp.net`;
+
+  // Find any connected session
+  const activeSession = Object.values(sessions).find(s => s.status === 'connected' && s.sock);
+  if (activeSession) {
+    try {
+      await activeSession.sock.sendMessage(jid, { text: message });
+      console.log(`[WhatsApp Alert] Admin alert sent successfully via ${activeSession.id}`);
+    } catch (err) {
+      console.error('[WhatsApp Alert] Failed to send WhatsApp alert:', err.message);
+    }
+  } else {
+    console.warn('[WhatsApp Alert] No active connected WhatsApp session available to send alert.');
+  }
+};
+
+/**
+ * 1. Secure Gemini AI Proxy with rate limiting
+ * POST /api/ai/chat
+ */
+app.post('/api/ai/chat', verifyFirebaseToken, aiRateLimit, async (req, res) => {
+  const { modelId, ...geminiPayload } = req.body;
+  
+  // Use default model if not provided
+  const model = modelId || 'gemini-2.5-flash';
+  const apiKey = process.env.GEMINI_API_KEY;
+
+  if (!apiKey) {
+    return res.status(500).json({ success: false, error: 'Gemini API key is not configured on the server.' });
+  }
+
+  try {
+    const geminiUrl = `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${apiKey}`;
+    
+    const response = await fetch(geminiUrl, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(geminiPayload)
+    });
+
+    if (!response.ok) {
+      const errorData = await response.json();
+      return res.status(response.status).json({ success: false, error: errorData.error?.message || 'Gemini API error' });
+    }
+
+    const data = await response.json();
+
+    // Increment and persist user usage in Firestore asynchronously
+    const today = new Date().toISOString().split('T')[0];
+    const userDocRef = doc(db, 'registered_users', req.user.uid);
+    await updateDoc(userDocRef, {
+      aiUsageToday: req.aiUsage.used,
+      aiUsageDate: today
+    });
+
+    res.json(data);
+  } catch (error) {
+    console.error('[Gemini Proxy] Error:', error);
+    res.status(500).json({ success: false, error: 'Failed to communicate with AI model' });
+  }
+});
+
+/**
+ * 2. Secure Cloudinary Signed Upload
+ * POST /api/cloudinary/sign
+ */
+app.post('/api/cloudinary/sign', verifyFirebaseToken, (req, res) => {
+  try {
+    const timestamp = Math.round(new Date().getTime() / 1000);
+    const folder = req.body.folder || 'payment_proofs';
+    
+    const paramsToSign = {
+      timestamp,
+      folder
+    };
+
+    const signature = cloudinary.utils.api_sign_request(
+      paramsToSign, 
+      process.env.VITE_CLOUDINARY_API_SECRET
+    );
+
+    res.json({
+      success: true,
+      signature,
+      timestamp,
+      folder,
+      apiKey: process.env.VITE_CLOUDINARY_API_KEY,
+      cloudName: process.env.VITE_CLOUDINARY_CLOUD_NAME
+    });
+  } catch (error) {
+    console.error('[Cloudinary Sign] Error:', error);
+    res.status(500).json({ success: false, error: 'Failed to generate upload signature' });
+  }
+});
+
+/**
+ * 3. Subscription Payment Submission
+ * POST /api/payments/submit
+ */
+app.post('/api/payments/submit', verifyFirebaseToken, async (req, res) => {
+  const { 
+    selectedPlan, 
+    paymentMethod, 
+    amount, 
+    currency, 
+    transactionId, 
+    screenshotUrl, 
+    notes,
+    userCoords
+  } = req.body;
+
+  if (!selectedPlan || !paymentMethod || !amount || !currency || !transactionId || !screenshotUrl) {
+    return res.status(400).json({ success: false, error: 'Missing required payment verification fields.' });
+  }
+
+  try {
+    const { addDoc, collection, query, where, getDocs } = require('firebase/firestore');
+
+    // Prevent duplicate Transaction ID submissions
+    const q = query(
+      collection(db, 'payment_requests'), 
+      where('transactionId', '==', transactionId.trim())
+    );
+    const existingSnap = await getDocs(q);
+    if (!existingSnap.empty) {
+      return res.status(409).json({ 
+        success: false, 
+        error: 'This Transaction ID has already been submitted for review.' 
+      });
+    }
+
+    // Capture requester client IP
+    const clientIp = req.headers['x-forwarded-for']?.split(',')[0] || req.socket.remoteAddress;
+
+    // Create payment request in Firestore
+    const requestDoc = {
+      userId: req.user.uid,
+      userEmail: req.user.email,
+      userName: req.user.displayName || 'User',
+      selectedPlan,
+      paymentMethod,
+      amount: parseFloat(amount),
+      currency,
+      transactionId: transactionId.trim(),
+      screenshotUrl,
+      notes: notes || '',
+      status: 'pending',
+      submittedAt: new Date(),
+      submittedFromIP: clientIp,
+      submittedFromCoords: userCoords || null,
+      verifiedBy: null,
+      verifiedAt: null,
+      rejectionReason: null,
+      internalNotes: null
+    };
+
+    const docRef = await addDoc(collection(db, 'payment_requests'), requestDoc);
+
+    // Send WhatsApp notification alert to admin
+    const submittedDateStr = new Date().toLocaleString('en-US', { timeZone: 'Asia/Karachi' });
+    const waMessage = `📋 *New Subscription Payment*
+
+👤 *User:* ${requestDoc.userName} (${requestDoc.userEmail})
+📦 *Plan:* ${selectedPlan.toUpperCase()}
+💳 *Method:* ${paymentMethod}
+💰 *Amount:* ${currency} ${requestDoc.amount}
+🔢 *Tx ID:* ${requestDoc.transactionId}
+⏰ *Time:* ${submittedDateStr}
+
+Status: ⏳ *Pending Verification*
+🔗 _Please review and approve in the Admin Dashboard._`;
+
+    // Fire-and-forget alert
+    sendAdminWhatsAppAlert(waMessage);
+
+    res.json({ 
+      success: true, 
+      requestId: docRef.id, 
+      message: 'Payment request submitted successfully. Under review.' 
+    });
+  } catch (error) {
+    console.error('[Payment Submit] Error:', error);
+    res.status(500).json({ success: false, error: 'Failed to record payment verification request.' });
+  }
+});
+
 // Start server
 app.listen(PORT, () => {
   console.log(`WhatsApp Bridge Server running on http://localhost:${PORT}`);

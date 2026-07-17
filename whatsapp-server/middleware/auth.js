@@ -1,27 +1,6 @@
-const { initializeApp } = require('firebase/app');
-const { getFirestore, doc, getDoc } = require('firebase/firestore');
-
-// Initialize Firebase client instance for auth verification
-const firebaseConfig = {
-  apiKey: process.env.VITE_FIREBASE_API_KEY,
-  authDomain: process.env.VITE_FIREBASE_AUTH_DOMAIN,
-  projectId: process.env.VITE_FIREBASE_PROJECT_ID,
-  storageBucket: process.env.VITE_FIREBASE_STORAGE_BUCKET,
-  messagingSenderId: process.env.VITE_FIREBASE_MESSAGING_SENDER_ID,
-  appId: process.env.VITE_FIREBASE_APP_ID
-};
-
-let db;
-try {
-  const firebaseApp = initializeApp(firebaseConfig, 'auth-app');
-  db = getFirestore(firebaseApp);
-} catch (e) {
-  // If already initialized
-  db = getFirestore();
-}
-
 /**
- * Express middleware to verify Firebase ID tokens using the Firebase Auth REST API.
+ * Express middleware to verify Firebase ID tokens using the Firebase Auth REST API,
+ * and fetch their plan metadata using the Firestore REST API with their own token context.
  * Attaches user details and plan metadata to the request object.
  */
 const verifyFirebaseToken = async (req, res, next) => {
@@ -36,7 +15,7 @@ const verifyFirebaseToken = async (req, res, next) => {
   }
 
   try {
-    // Verify ID token via Firebase Auth REST API
+    // 1. Verify ID token via Firebase Auth REST API
     const verifyUrl = `https://identitytoolkit.googleapis.com/v1/accounts:lookup?key=${process.env.VITE_FIREBASE_API_KEY}`;
     
     // Using global fetch (supported in Node.js 18+)
@@ -62,21 +41,38 @@ const verifyFirebaseToken = async (req, res, next) => {
     const uid = googleUser.localId;
     const email = googleUser.email;
 
-    // Fetch user profile plan details from Firestore
-    const userDocRef = doc(db, 'registered_users', uid);
-    const userDoc = await getDoc(userDocRef);
-    
+    // 2. Fetch user profile plan details from Firestore via REST API using user's own token
+    const firestoreUrl = `https://firestore.googleapis.com/v1/projects/${process.env.VITE_FIREBASE_PROJECT_ID}/databases/(default)/documents/registered_users/${uid}`;
+    const firestoreResponse = await fetch(firestoreUrl, {
+      method: 'GET',
+      headers: {
+        'Authorization': `Bearer ${idToken}`
+      }
+    });
+
     let plan = 'standard';
     let disabledFeatures = [];
     let isBanned = false;
     let displayName = googleUser.displayName || '';
 
-    if (userDoc.exists()) {
-      const userData = userDoc.data();
-      plan = userData.plan || 'standard';
-      disabledFeatures = userData.disabledFeatures || [];
-      isBanned = !!userData.isBanned;
-      displayName = userData.displayName || displayName;
+    if (firestoreResponse.ok) {
+      const docData = await firestoreResponse.json();
+      const fields = docData.fields || {};
+      
+      plan = fields.plan?.stringValue || 'standard';
+      
+      if (fields.disabledFeatures?.arrayValue?.values) {
+        disabledFeatures = fields.disabledFeatures.arrayValue.values
+          .map(v => v.stringValue)
+          .filter(Boolean);
+      }
+      
+      isBanned = !!fields.isBanned?.booleanValue;
+      displayName = fields.displayName?.stringValue || displayName;
+    } else if (firestoreResponse.status !== 404) {
+      // 404 is acceptable (default to standard plan); other statuses mean permissions or request failed.
+      const errText = await firestoreResponse.text();
+      throw new Error(`Firestore REST error ${firestoreResponse.status}: ${errText}`);
     }
 
     if (isBanned) {

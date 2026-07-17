@@ -180,7 +180,7 @@ export const GlobalAIAssistant: React.FC = () => {
   const [attachedImageBase64, setAttachedImageBase64] = useState<{ mimeType: string; data: string } | null>(null);
   const [isUploadingImage, setIsUploadingImage] = useState(false);
 
-  // Speech Recognition states
+  // ── Voice Recording States ──────────────────────────────────────────────
   const [isRecording, setIsRecording] = useState(false);
   const recognitionRef = useRef<any>(null);
 
@@ -239,16 +239,21 @@ export const GlobalAIAssistant: React.FC = () => {
     }
   }, [isOpen, sessionId]);
 
-  // ── Initialize Speech Recognition ─────────────────────────────────────────
+  // Keep handleSend ref updated to avoid stale closures in effects
   const handleSendRef = useRef<any>(null);
   useEffect(() => {
     handleSendRef.current = handleSend;
   });
 
-  useEffect(() => {
-    if (!isOpen) return;
+  // ── Voice Recording & Web Speech API ──────────────────────────────────────
+  const startSpeechRecognition = () => {
     const SpeechRecognition = (window as any).SpeechRecognition || (window as any).webkitSpeechRecognition;
-    if (SpeechRecognition) {
+    if (!SpeechRecognition) {
+      toast.error('Speech recognition is not supported in this browser. Please use Chrome or Safari.');
+      return;
+    }
+
+    try {
       const rec = new SpeechRecognition();
       rec.continuous = false;
       rec.interimResults = false;
@@ -256,17 +261,19 @@ export const GlobalAIAssistant: React.FC = () => {
 
       rec.onstart = () => {
         setIsRecording(true);
+        toast.info('Listening... Speak now.');
       };
 
       rec.onend = () => {
         setIsRecording(false);
+        recognitionRef.current = null;
       };
 
       rec.onresult = (event: any) => {
         const transcript = event.results[0][0].transcript;
         if (transcript) {
           setInputValue(transcript);
-          toast.success('Voice captured! Running command...');
+          toast.success('Voice captured!');
           setTimeout(() => {
             if (handleSendRef.current) {
               handleSendRef.current(transcript);
@@ -276,46 +283,50 @@ export const GlobalAIAssistant: React.FC = () => {
       };
 
       rec.onerror = (event: any) => {
-        console.error('Speech recognition error:', event.error);
-        if (event.error === 'not-allowed') {
-          toast.error('Microphone permission denied.');
-        } else {
-          toast.error(`Speech recognition failed: ${event.error}`);
-        }
+        console.error('Speech Recognition Error Event:', event);
         setIsRecording(false);
+        recognitionRef.current = null;
+
+        if (event.error === 'not-allowed') {
+          toast.error('Microphone permission denied. Please allow microphone access.');
+        } else if (event.error === 'network') {
+          toast.error('Speech recognition network error. Please check your internet connection or use Chrome.');
+        } else {
+          toast.error(`Speech recognition failed: ${event.error || 'unknown error'}`);
+        }
       };
 
       recognitionRef.current = rec;
+      rec.start();
+    } catch (e: any) {
+      console.error('Failed to start speech recognition:', e);
+      setIsRecording(false);
+      recognitionRef.current = null;
+      toast.error('Failed to start speech recognition.');
     }
+  };
 
-    return () => {
+  const toggleRecording = () => {
+    if (isRecording) {
       if (recognitionRef.current) {
         try {
           recognitionRef.current.stop();
         } catch { }
       }
-    };
-  }, [isOpen]);
-
-  const toggleRecording = () => {
-    if (!recognitionRef.current) {
-      toast.error('Speech recognition is not supported in this browser.');
-      return;
-    }
-
-    if (isRecording) {
-      recognitionRef.current.stop();
+      setIsRecording(false);
     } else {
-      try {
-        recognitionRef.current.start();
-      } catch (e) {
-        console.error(e);
-        try {
-          recognitionRef.current.stop();
-        } catch { }
-      }
+      startSpeechRecognition();
     }
   };
+
+  // Clean up on unmount
+  useEffect(() => {
+    return () => {
+      if (recognitionRef.current) {
+        try { recognitionRef.current.stop(); } catch { }
+      }
+    };
+  }, []);
 
   // ── Load financial data ───────────────────────────────────────────────────
   const loadSnapshot = useCallback(async () => {
@@ -909,11 +920,10 @@ export const GlobalAIAssistant: React.FC = () => {
                           <button
                             key={m.id}
                             onClick={() => handleModelSelect(m.id)}
-                            className={`w-full text-left px-3 py-1.5 text-[10px] font-medium transition-colors flex items-center justify-between gap-2 ${
-                              isActive
+                            className={`w-full text-left px-3 py-1.5 text-[10px] font-medium transition-colors flex items-center justify-between gap-2 ${isActive
                                 ? 'bg-primary/5 text-primary'
                                 : 'text-foreground hover:bg-muted/50'
-                            }`}
+                              }`}
                           >
                             <span className="truncate">{m.name}</span>
                             {isActive && <span className="text-primary font-bold">✓</span>}

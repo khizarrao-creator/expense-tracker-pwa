@@ -1,7 +1,7 @@
 export interface WhatsAppAccount {
   id: string;
   name: string;
-  status: 'disconnected' | 'connecting' | 'qr' | 'connected';
+  status: 'disconnected' | 'connecting' | 'qr' | 'connected' | 'reconnecting';
   qrCodeUrl: string | null;
   hasCreds: boolean;
 }
@@ -18,7 +18,8 @@ export interface SendMessageResponse {
 
 export const getApiUrl = (path: string): string => {
   const gatewayUrl = import.meta.env.VITE_WHATSAPP_GATEWAY_URL || '';
-  if (gatewayUrl) {
+  // In development, always use the local Vite proxy to hit the local bridge server
+  if (gatewayUrl && import.meta.env.PROD) {
     const base = gatewayUrl.replace(/\/$/, '');
     const cleanPath = path.replace(/^\//, '');
     return `${base}/${cleanPath}`;

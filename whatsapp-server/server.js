@@ -19,6 +19,7 @@ const { default: makeWASocket, useMultiFileAuthState, DisconnectReason, fetchLat
 
 const { initializeApp } = require('firebase/app');
 const { getFirestore, doc, getDoc, setDoc, deleteDoc, collection, getDocs } = require('firebase/firestore');
+const { getAuth, signInWithEmailAndPassword } = require('firebase/auth');
 
 const app = express();
 const PORT = process.env.PORT || 3001;
@@ -34,12 +35,41 @@ const firebaseConfig = {
 };
 
 let db = null;
+let auth = null;
 try {
   const firebaseApp = initializeApp(firebaseConfig);
   db = getFirestore(firebaseApp);
+  auth = getAuth(firebaseApp);
   console.log('[Firebase] Connected to Firestore successfully');
 } catch (e) {
   console.error('[Firebase] Initialization error:', e.message);
+}
+
+// Authenticate server if credentials are provided
+async function authenticateFirebaseServer() {
+  const email = process.env.FIREBASE_SERVER_EMAIL;
+  const password = process.env.FIREBASE_SERVER_PASSWORD;
+
+  if (!email || !password) {
+    console.warn('\n⚠️  [Firebase Auth] FIREBASE_SERVER_EMAIL or FIREBASE_SERVER_PASSWORD not set in .env.');
+    console.warn('⚠️  The server will run unauthenticated. Make sure your Firestore Rules allow unauthenticated access to /whatsapp_sessions.');
+    console.warn('⚠️  Alternatively, add credentials to .env to authenticate securely.\n');
+    return;
+  }
+
+  if (!auth) {
+    console.warn('[Firebase Auth] Auth service not initialized. Skipping sign-in.');
+    return;
+  }
+
+  try {
+    console.log(`[Firebase Auth] Attempting sign-in as service user: ${email}...`);
+    await signInWithEmailAndPassword(auth, email, password);
+    console.log('[Firebase Auth] Signed in successfully! Credentials will now sync securely.');
+  } catch (err) {
+    console.error('[Firebase Auth] Failed to authenticate service user:', err.message);
+    console.error('[Firebase Auth] Running unauthenticated. Sync operations may fail if Firestore Rules are strict.');
+  }
 }
 
 // Active watchers dictionary
@@ -386,7 +416,7 @@ async function initSession(sessionId) {
         
         console.log(`[${sessionId}] Connection closed. Code: ${statusCode}, Is Linked: ${isCurrentlyLinked}, Reconnecting: ${shouldReconnect}`);
         
-        session.status = 'disconnected';
+        session.status = shouldReconnect ? 'reconnecting' : 'disconnected';
         session.qrCodeUrl = null;
 
         // Clean up socket
@@ -643,7 +673,10 @@ async function initSession(sessionId) {
 
 // Initialize sessions on startup
 async function startSessionManager() {
-  // Wait a short delay to ensure db is initialized
+  // Wait for Firebase Auth to authenticate
+  await authenticateFirebaseServer();
+
+  // Wait a short delay to ensure db/auth states are fully resolved in the SDK
   await new Promise(resolve => setTimeout(resolve, 1000));
 
   for (const sessionId of Object.keys(sessions)) {
@@ -721,6 +754,14 @@ app.post('/send', async (req, res) => {
   const session = sessions[accountId];
   if (!session) {
     return res.status(404).json({ success: false, error: `Session '${accountId}' not found` });
+  }
+
+  // If session is reconnecting, wait briefly for it to come back
+  if (session.status === 'reconnecting') {
+    const waitStart = Date.now();
+    while (session.status === 'reconnecting' && Date.now() - waitStart < 10000) {
+      await new Promise(r => setTimeout(r, 500));
+    }
   }
 
   if (session.status !== 'connected' || !session.sock) {

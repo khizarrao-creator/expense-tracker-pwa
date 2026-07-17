@@ -13,44 +13,41 @@ const Login: React.FC = () => {
   }
 
   return (
-    <div className="min-h-screen flex items-center justify-center bg-background p-4 relative overflow-hidden">
-      {/* Background decorations */}
-      <div className="absolute top-0 right-0 -m-32 w-96 h-96 rounded-full bg-primary/10 blur-3xl shadow-xl z-0"></div>
-      <div className="absolute bottom-0 left-0 -m-32 w-80 h-80 rounded-full bg-secondary/30 blur-3xl z-0"></div>
-
-      <div className="bg-card w-full max-w-md p-8 rounded-2xl shadow-2xl border border-border z-10">
+    <div className="min-h-screen flex items-center justify-center bg-background p-6">
+      <div className="bg-card w-full max-w-md p-8 rounded-2xl border border-border shadow-sm">
+        {/* Brand & Logo */}
         <div className="flex flex-col items-center mb-8">
-          <div className="bg-primary/10 p-4 rounded-full mb-4">
-            <Wallet size={48} className="text-primary" />
+          <div className="bg-secondary text-foreground p-3.5 rounded-xl mb-4 border border-border/40">
+            <Wallet size={32} strokeWidth={1.75} />
           </div>
-          <h1 className="text-3xl font-bold bg-clip-text text-transparent bg-gradient-to-r from-primary to-accent tracking-tight">Ledger</h1>
-          <p className="text-muted-foreground mt-2 text-center text-sm font-medium">
-            Elite financial tracking.<br />Secure, offline, always available.
+          <h1 className="text-2xl font-bold text-foreground tracking-tight">Ledger</h1>
+          <p className="text-muted-foreground mt-2 text-center text-xs font-normal">
+            Clean, offline-first personal financial tracking.
           </p>
         </div>
 
+        {/* Auth Actions */}
         {!config.allowSignups ? (
-          <div className="bg-amber-500/10 border border-amber-500/20 p-4 rounded-xl flex items-start gap-3">
-            <UserX className="text-amber-500 shrink-0" size={20} />
-            <p className="text-xs text-amber-500/80 leading-relaxed font-medium">
-              New registrations are currently closed by the administrator. Only existing users can sign in.
+          <div className="bg-destructive/10 border border-destructive/25 p-4 rounded-xl flex items-start gap-3">
+            <UserX className="text-destructive shrink-0" size={18} />
+            <p className="text-xs text-destructive/80 leading-relaxed font-normal">
+              New registrations are closed by the administrator. Only existing users can sign in.
             </p>
           </div>
         ) : (
           <button
             onClick={signInWithGoogle}
-            className="w-full flex justify-center items-center gap-3 bg-primary text-primary-foreground py-3 px-4 rounded-xl font-semibold hover:bg-primary/90 transition-all shadow-md active:scale-95 group"
+            className="w-full flex justify-center items-center gap-3 bg-primary text-primary-foreground py-3 px-4 rounded-xl font-medium hover:bg-primary/95 transition-all active:scale-[0.98]"
           >
-            <div className="bg-primary-foreground/20 p-1.5 rounded-full group-hover:bg-primary-foreground/30 transition-colors">
-              <LogIn size={20} className="" />
-            </div>
+            <LogIn size={16} strokeWidth={2} />
             Continue with Google
           </button>
         )}
 
-        <div className="mt-8 text-center">
-          <p className="text-xs text-muted-foreground">
-            By signing in, you agree to our Terms of Service and Privacy Policy. Syncing starts automatically.
+        {/* Footer info */}
+        <div className="mt-8 text-center border-t border-border/60 pt-6">
+          <p className="text-[11px] text-muted-foreground leading-normal max-w-xs mx-auto">
+            Syncing runs securely in the background. By continuing, you agree to the Terms of Service & Privacy Policy.
           </p>
         </div>
       </div>

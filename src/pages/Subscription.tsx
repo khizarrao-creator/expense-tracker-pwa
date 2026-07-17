@@ -2,7 +2,7 @@ import React, { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useApp } from '../contexts/AppContext';
 import { useAuth } from '../contexts/AuthContext';
-import { collection, query, where, orderBy, onSnapshot } from 'firebase/firestore';
+import { collection, query, where, onSnapshot } from 'firebase/firestore';
 import { db } from '../firebase';
 import { Card } from '../components/ui/Card';
 import { Button } from '../components/ui/Button';
@@ -27,8 +27,7 @@ export const Subscription: React.FC = () => {
     // Real-time listener for the latest payment request to watch status updates
     const qLatest = query(
       collection(db, 'payment_requests'),
-      where('userId', '==', user.uid),
-      orderBy('submittedAt', 'desc')
+      where('userId', '==', user.uid)
     );
 
     const unsubLatest = onSnapshot(qLatest, (snapshot) => {
@@ -36,6 +35,14 @@ export const Subscription: React.FC = () => {
       snapshot.forEach((docSnap) => {
         docs.push({ id: docSnap.id, ...docSnap.data() });
       });
+
+      // Sort in memory by submittedAt desc to avoid Firestore composite index requirement
+      docs.sort((a, b) => {
+        const timeA = a.submittedAt?.toDate ? a.submittedAt.toDate().getTime() : new Date(a.submittedAt || 0).getTime();
+        const timeB = b.submittedAt?.toDate ? b.submittedAt.toDate().getTime() : new Date(b.submittedAt || 0).getTime();
+        return timeB - timeA;
+      });
+
       setPaymentHistory(docs);
       if (docs.length > 0) {
         setLatestRequest(docs[0]);

@@ -1,5 +1,14 @@
 const path = require('path');
 require('dotenv').config({ path: path.join(__dirname, '../.env') });
+
+// Prevent server crash on unhandled promise rejections and uncaught exceptions (e.g. Firestore idle timeouts)
+process.on('uncaughtException', (err) => {
+  console.error('[Uncaught Exception]:', err);
+});
+process.on('unhandledRejection', (reason, promise) => {
+  console.error('[Unhandled Rejection] at:', promise, 'reason:', reason);
+});
+
 const express = require('express');
 const cors = require('cors');
 const fs = require('fs');

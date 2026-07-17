@@ -86,6 +86,7 @@ const App: React.FC = () => {
                 <ThemeProvider>
                   <AppHooks />
                   <Toaster position="top-center" richColors closeButton visibleToasts={3} />
+                  <Toaster position="top-right" richColors closeButton visibleToasts={1} toastOptions={{ className: 'whisper-download-toaster' }} />
                   <Routes>
                     <Route path="/login" element={<Login />} />
                     

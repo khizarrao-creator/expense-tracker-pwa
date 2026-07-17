@@ -98,10 +98,11 @@ const WhatsApp: React.FC = () => {
 
   // Load contacts when active account changes or connects
   const fetchContacts = useCallback(async () => {
-    if (activeAccount.status !== 'connected') {
+    if (activeAccount.status !== 'connected' && activeAccount.status !== 'reconnecting') {
       setContacts([]);
       return;
     }
+    if (activeAccount.status === 'reconnecting') return; // keep existing contacts visible
     setLoadingContacts(true);
     const list = await getWhatsAppContacts(activeAccountId);
     setContacts(list);
@@ -110,10 +111,11 @@ const WhatsApp: React.FC = () => {
 
   // Load statuses
   const fetchStatuses = useCallback(async () => {
-    if (activeAccount.status !== 'connected') {
+    if (activeAccount.status !== 'connected' && activeAccount.status !== 'reconnecting') {
       setStatuses([]);
       return;
     }
+    if (activeAccount.status === 'reconnecting') return; // keep existing statuses visible
     setLoadingStatuses(true);
     const list = await getWhatsAppStatuses(activeAccountId);
     // Sort by timestamp desc
@@ -441,6 +443,7 @@ const WhatsApp: React.FC = () => {
               <h1 className="font-bold text-base leading-tight">WhatsApp Copilot</h1>
               <div className={`h-2 w-2 rounded-full ${
                 activeAccount.status === 'connected' ? 'bg-emerald-500 animate-pulse' :
+                activeAccount.status === 'reconnecting' ? 'bg-amber-500 animate-pulse' :
                 activeAccount.status === 'qr' ? 'bg-amber-500 animate-pulse' :
                 activeAccount.status === 'connecting' ? 'bg-indigo-500 animate-pulse' :
                 'bg-muted-foreground/30'
@@ -455,7 +458,7 @@ const WhatsApp: React.FC = () => {
               >
                 {accounts.map(acc => (
                   <option key={acc.id} value={acc.id} className="bg-card text-foreground font-medium text-xs">
-                    {acc.name} ({acc.status === 'connected' ? 'Connected' : acc.status === 'qr' ? 'Action Req.' : 'Offline'})
+                    {acc.name} ({acc.status === 'connected' ? 'Connected' : acc.status === 'reconnecting' ? 'Reconnecting...' : acc.status === 'qr' ? 'Action Req.' : 'Offline'})
                   </option>
                 ))}
               </select>
@@ -948,6 +951,7 @@ const WhatsApp: React.FC = () => {
                         <div className="flex items-center gap-3">
                           <div className={`p-2 rounded-xl border ${
                             acc.status === 'connected' ? 'bg-emerald-500/10 text-emerald-500 border-emerald-500/20' :
+                            acc.status === 'reconnecting' ? 'bg-amber-500/10 text-amber-500 border-amber-500/20' :
                             acc.status === 'qr' ? 'bg-amber-500/10 text-amber-500 border-amber-500/20' :
                             'bg-muted text-muted-foreground border-border'
                           }`}>
@@ -972,6 +976,7 @@ const WhatsApp: React.FC = () => {
                         <span className="text-[10px] text-muted-foreground font-semibold">Connection Status:</span>
                         <span className={`text-[10px] font-bold uppercase tracking-wide ${
                           acc.status === 'connected' ? 'text-emerald-500' :
+                          acc.status === 'reconnecting' ? 'text-amber-500' :
                           acc.status === 'qr' ? 'text-amber-500' :
                           acc.status === 'connecting' ? 'text-indigo-500' :
                           'text-muted-foreground/60'

@@ -26,7 +26,7 @@ import {
   ChevronRight,
   X,
   Check,
-  Sparkles,
+  Activity,
   Layout,
   Palette,
   Bold,
@@ -618,7 +618,7 @@ export const Projects: React.FC = () => {
               </button>
               <span className="text-muted-foreground">/</span>
               <h1 className="text-2xl font-extrabold text-foreground">{selectedProject.name}</h1>
-              <span className="text-[10px] font-bold px-2.5 py-1 rounded-full uppercase bg-violet-500/10 text-violet-500 border border-violet-500/20">
+              <span className="text-[10px] font-bold px-2.5 py-1 rounded-full uppercase bg-primary/10 text-primary border border-primary/20">
                 {currentRole.replace('_', ' ')}
               </span>
             </div>
@@ -756,7 +756,7 @@ export const Projects: React.FC = () => {
             <div className="space-y-6">
               <div className="bg-card p-6 rounded-3xl border border-border space-y-4">
                 <h3 className="font-bold text-base flex items-center gap-2">
-                  <Users size={18} className="text-violet-500" />
+                  <Users size={18} className="text-primary" />
                   Team Structure
                 </h3>
                 <div className="space-y-3">
@@ -839,7 +839,7 @@ export const Projects: React.FC = () => {
               <div className="bg-card p-4 rounded-3xl border border-border space-y-3">
                 <div className="flex items-center justify-between px-2">
                   <span className="text-xs font-extrabold uppercase text-blue-500 tracking-wider flex items-center gap-2">
-                    <Sparkles size={14} />
+                    <Activity size={14} />
                     In Progress ({projectTasks.filter(t => t.status === 'in_progress').length})
                   </span>
                 </div>
@@ -947,7 +947,7 @@ export const Projects: React.FC = () => {
                   <TldrawComponent />
                 ) : (
                   <div className="flex flex-col items-center justify-center h-full space-y-4 p-8 text-center">
-                    <Palette size={48} className="text-violet-500 animate-bounce" />
+                    <Palette size={48} className="text-primary animate-pulse" />
                     <h3 className="text-lg font-bold">Interactive Team Canvas</h3>
                     <p className="text-xs text-muted-foreground max-w-sm">
                       Use the Rich Notes Notepad above for formatting text and project guidelines.
@@ -1215,7 +1215,7 @@ export const Projects: React.FC = () => {
         <div>
           <h1 className="text-2xl font-bold tracking-tight flex items-center gap-2">
             Projects & Teams Management
-            <FolderKanban className="text-violet-500" size={24} />
+            <FolderKanban className="text-primary" size={24} />
           </h1>
           <p className="text-muted-foreground mt-1 text-sm font-medium">
             Collaborate with teams, assign tasks, and share real-time whiteboards.
@@ -1249,13 +1249,13 @@ export const Projects: React.FC = () => {
           onClick={() => setActiveTab('invites')}
           className={`py-3 px-6 text-sm font-semibold border-b-2 transition-all flex items-center gap-2 ${
             activeTab === 'invites'
-              ? 'border-violet-500 text-violet-500'
+              ? 'border-primary text-primary'
               : 'border-transparent text-muted-foreground hover:text-foreground'
           }`}
         >
           Pending Invites
           {invites.length > 0 && (
-            <span className="text-xs px-2 py-0.5 rounded-full bg-violet-500/20 text-violet-500 font-bold animate-pulse">
+            <span className="text-xs px-2 py-0.5 rounded-full bg-primary/20 text-primary font-bold animate-pulse">
               {invites.length}
             </span>
           )}
@@ -1267,7 +1267,7 @@ export const Projects: React.FC = () => {
         <>
           {projects.length === 0 ? (
             <div className="py-20 text-center border border-dashed border-border rounded-3xl bg-card space-y-4">
-              <div className="w-16 h-16 bg-violet-500/10 text-violet-500 rounded-3xl flex items-center justify-center mx-auto">
+              <div className="w-16 h-16 bg-primary/10 text-primary rounded-3xl flex items-center justify-center mx-auto">
                 <FolderKanban size={32} />
               </div>
               <h3 className="font-bold text-base">No Projects Joined</h3>
@@ -1295,7 +1295,7 @@ export const Projects: React.FC = () => {
                   >
                     <div>
                       <div className="flex items-start justify-between gap-2 mb-3">
-                        <div className="p-3 rounded-2xl bg-violet-500/10 text-violet-500">
+                        <div className="p-3 rounded-2xl bg-primary/10 text-primary">
                           <FolderKanban size={22} />
                         </div>
                         <span className="text-[10px] font-bold px-2.5 py-1 rounded-full uppercase bg-muted text-muted-foreground border">
@@ -1345,7 +1345,7 @@ export const Projects: React.FC = () => {
                   <h4 className="font-extrabold text-sm text-foreground">{inv.projectName}</h4>
                   <p className="text-xs text-muted-foreground mt-0.5">
                     Invited by <strong className="text-foreground">{inv.invitedByName}</strong> to join as{' '}
-                    <span className="font-bold text-violet-500 uppercase">{inv.role.replace('_', ' ')}</span>
+                    <span className="font-bold text-primary uppercase">{inv.role.replace('_', ' ')}</span>
                   </p>
                 </div>
                 <div className="flex items-center gap-2">

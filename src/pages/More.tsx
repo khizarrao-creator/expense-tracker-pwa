@@ -173,8 +173,8 @@ const DEFAULT_OPTIONS: MoreOption[] = [
     description: 'Team projects, whiteboard, and collaborative tasks',
     path: '/projects',
     icon: FolderKanban,
-    color: 'text-violet-500',
-    bgColor: 'bg-violet-500/10'
+    color: 'text-indigo-500',
+    bgColor: 'bg-indigo-500/10'
   }
 ];
 

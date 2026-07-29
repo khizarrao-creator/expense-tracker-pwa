@@ -1,5 +1,6 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { useAuth } from '../contexts/AuthContext';
+import { useApp } from '../contexts/AppContext';
 import { db } from '../firebase';
 import {
   collection,
@@ -43,7 +44,9 @@ import {
   Upload,
   Building2,
   Edit2,
-  Save
+  Save,
+  Maximize2,
+  Minimize2
 } from 'lucide-react';
 import { toast } from 'sonner';
 import { addTask as addSqliteTask } from '../db/queries';
@@ -243,6 +246,14 @@ const RichTextWhiteboard: React.FC<{
 
 export const Projects: React.FC = () => {
   const { user } = useAuth();
+  const { isSidebarHidden, setIsSidebarHidden } = useApp();
+
+  useEffect(() => {
+    return () => {
+      setIsSidebarHidden(false);
+    };
+  }, [setIsSidebarHidden]);
+
   const [projects, setProjects] = useState<Project[]>([]);
   const [invites, setInvites] = useState<ProjectInvite[]>([]);
   const [loading, setLoading] = useState(true);
@@ -1134,6 +1145,15 @@ export const Projects: React.FC = () => {
 
           <div className="flex items-center gap-2">
             <button
+              onClick={() => setIsSidebarHidden(!isSidebarHidden)}
+              className="bg-muted hover:bg-muted/80 text-foreground text-xs font-bold px-4 py-2.5 rounded-2xl hover:shadow-md transition-all flex items-center gap-2 border border-border/60"
+              title={isSidebarHidden ? "Exit Full Screen" : "Full Screen"}
+            >
+              {isSidebarHidden ? <Minimize2 size={16} /> : <Maximize2 size={16} />}
+              <span>{isSidebarHidden ? 'Exit Full Screen' : 'Full Screen'}</span>
+            </button>
+
+            <button
               onClick={() => setShowInviteModal(true)}
               className="bg-primary text-primary-foreground text-xs font-bold px-4 py-2.5 rounded-2xl hover:shadow-lg transition-all flex items-center gap-2"
             >
@@ -1768,7 +1788,7 @@ export const Projects: React.FC = () => {
             </div>
 
             {/* 6 Stage Kanban Pipeline Board */}
-            <div className="grid grid-cols-1 md:grid-cols-3 lg:grid-cols-6 gap-3 overflow-x-auto min-h-[500px]">
+            <div className="flex overflow-x-auto gap-4 pb-6 min-h-[550px] scrollbar-thin">
               {LEAD_STAGES.map((stage, sIdx) => {
                 const stageLeads = projectLeads.filter(l => l.stage === stage.id);
                 const stageValue = stageLeads.reduce((acc, l) => acc + (Number(l.value) || 0), 0);
@@ -1778,20 +1798,20 @@ export const Projects: React.FC = () => {
                     key={stage.id}
                     onDragOver={(e) => e.preventDefault()}
                     onDrop={(e) => handleDropLead(e, stage.id)}
-                    className="bg-card p-3 rounded-3xl border border-border space-y-3 min-w-[210px] flex flex-col justify-between"
+                    className="bg-card p-4 rounded-3xl border border-border flex flex-col min-w-[270px] flex-1 min-h-[500px]"
                   >
-                    <div className="space-y-3">
-                      <div className="flex items-center justify-between pb-2 border-b border-border">
-                        <span className={`text-[10px] font-extrabold uppercase px-2.5 py-0.5 rounded-full ${stage.color}`}>
-                          {stage.name} ({stageLeads.length})
-                        </span>
-                        <span className="text-[10px] font-bold text-muted-foreground">
-                          {stageValue > 0 ? stageValue.toLocaleString() : ''}
-                        </span>
-                      </div>
+                    <div className="flex items-center justify-between pb-3 border-b border-border mb-3">
+                      <span className={`text-[10px] font-extrabold uppercase px-2.5 py-0.5 rounded-full ${stage.color}`}>
+                        {stage.name} ({stageLeads.length})
+                      </span>
+                      <span className="text-[10px] font-bold text-muted-foreground">
+                        {stageValue > 0 ? stageValue.toLocaleString() : ''}
+                      </span>
+                    </div>
 
+                    <div className="flex-1 flex flex-col gap-2.5">
                       {stageLeads.length === 0 ? (
-                        <div className="py-8 text-center border border-dashed border-border/60 rounded-2xl">
+                        <div className="flex-1 min-h-[150px] flex items-center justify-center border border-dashed border-border/60 rounded-2xl bg-muted/10 p-4">
                           <p className="text-[10px] text-muted-foreground font-semibold">Drop lead here</p>
                         </div>
                       ) : (

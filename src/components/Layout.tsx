@@ -5,12 +5,14 @@ import { useAuth } from '../contexts/AuthContext';
 import { useSync } from '../contexts/SyncContext';
 import ConfirmModal from './ConfirmModal';
 import { GlobalAIAssistant } from './GlobalAIAssistant';
+import { useApp } from '../contexts/AppContext';
 
 const Layout: React.FC = () => {
   const { signOut } = useAuth();
   const { isSyncing, lastSynced, isOnline } = useSync();
   const location = useLocation();
   const [showLogoutConfirm, setShowLogoutConfirm] = useState(false);
+  const { isSidebarHidden } = useApp();
 
   const navItems = [
     { name: 'Dashboard', path: '/', icon: LayoutDashboard },
@@ -32,7 +34,7 @@ const Layout: React.FC = () => {
   return (
     <div className="flex h-screen bg-muted/30">
       {/* Desktop Sidebar */}
-      <aside className="hidden md:flex flex-col w-64 bg-card border-r border-border">
+      <aside className={`${isSidebarHidden ? 'hidden' : 'hidden md:flex'} flex-col w-64 bg-card border-r border-border transition-all duration-300`}>
         <div className="p-6">
           <h1 className="text-2xl font-bold tracking-tight text-primary flex items-center gap-2">
             <span className="bg-primary text-primary-foreground p-1 rounded-md shadow-sm">
@@ -86,7 +88,7 @@ const Layout: React.FC = () => {
       {/* Main Content Area */}
       <main className="flex-1 flex flex-col h-screen overflow-hidden">
         {/* Mobile Header */}
-        <header className="md:hidden bg-card/90 backdrop-blur-md border-b border-border/80 p-4 flex items-center justify-between z-10 sticky top-0 shadow-[0_1px_3px_rgba(0,0,0,0.02)]">
+        <header className={`${isSidebarHidden ? 'hidden' : 'md:hidden'} bg-card/90 backdrop-blur-md border-b border-border/80 p-4 flex items-center justify-between z-10 sticky top-0 shadow-[0_1px_3px_rgba(0,0,0,0.02)]`}>
           <div className="flex flex-col">
             <h1 className="text-xl font-bold tracking-tight text-primary">Ledger</h1>
             {!isOnline && (
@@ -101,13 +103,13 @@ const Layout: React.FC = () => {
           </div>
         </header>
 
-        <div className="flex-1 overflow-y-auto p-4 md:p-8 pb-24 md:pb-8">
+        <div className={`flex-1 overflow-y-auto ${isSidebarHidden ? 'p-2 md:p-3 pb-safe' : 'p-4 md:p-8 pb-24 md:pb-8'}`}>
           <Outlet />
         </div>
       </main>
 
       {/* Mobile Bottom Navigation */}
-      <nav className="md:hidden fixed bottom-0 w-full bg-card/85 backdrop-blur-md border-t border-border/70 flex justify-around p-2 pb-safe z-20 shadow-[0_-4px_12px_rgba(0,0,0,0.03)]">
+      <nav className={`${isSidebarHidden ? 'hidden' : 'md:hidden'} fixed bottom-0 w-full bg-card/85 backdrop-blur-md border-t border-border/70 flex justify-around p-2 pb-safe z-20 shadow-[0_-4px_12px_rgba(0,0,0,0.03)]`}>
         {navItems.map((item) => {
           const Icon = item.icon;
           const isActive = location.pathname === item.path ||

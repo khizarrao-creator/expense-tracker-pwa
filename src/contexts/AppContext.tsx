@@ -13,7 +13,7 @@ export interface PlanDetails {
   currency: string;
   billingCycle: string;
   features: string[];
-  limits: { aiCallsPerDay: number; maxTransactions: number };
+  limits: { aiCallsPerDay: number; maxTransactions: number; maxUploadsPerDay?: number };
   badgeIcon: string;
   badgeColor: string;
   displayOrder: number;
@@ -46,6 +46,8 @@ interface AppContextType {
   plansConfig: Record<string, PlanDetails>;
   planFeatures: string[];
   planLimits: { aiCallsPerDay: number; maxTransactions: number; maxUploadsPerDay?: number };
+  isSidebarHidden: boolean;
+  setIsSidebarHidden: (hidden: boolean) => void;
 }
 
 const AppContext = createContext<AppContextType | undefined>(undefined);
@@ -139,6 +141,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
   const [plansConfig, setPlansConfig] = useState<Record<string, PlanDetails>>(DEFAULT_PLANS);
   const [userPlan, setUserPlan] = useState<string>('standard');
   const [planExpiresAt, setPlanExpiresAt] = useState<Date | null>(null);
+  const [isSidebarHidden, setIsSidebarHidden] = useState(false);
 
   // Load plans config in real time, merging with DEFAULT_PLANS to preserve code defaults & tier inheritance
   useEffect(() => {
@@ -402,7 +405,9 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       planExpiresAt,
       plansConfig,
       planFeatures,
-      planLimits
+      planLimits,
+      isSidebarHidden,
+      setIsSidebarHidden
     }}>
       {/* Emergency Modal */}
       {config.emergencyMessage && showEmergency && (

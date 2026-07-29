@@ -9,6 +9,7 @@ import {
   setDoc,
   updateDoc,
   addDoc,
+  deleteDoc,
   onSnapshot,
   query,
   where,
@@ -23,6 +24,7 @@ import {
   CheckCircle2,
   Clock,
   Trash2,
+  ChevronLeft,
   ChevronRight,
   X,
   Check,
@@ -960,6 +962,7 @@ export const Projects: React.FC = () => {
 
     try {
       const assigneeObj = selectedProject.members.find(m => m.userId === newLeadAssignee);
+      const assigneeName = assigneeObj?.displayName || assigneeObj?.email || (newLeadAssignee === user.uid ? (user.displayName || user.email || 'You') : null);
       const now = serverTimestamp();
 
       if (editingLead) {
@@ -973,27 +976,27 @@ export const Projects: React.FC = () => {
           currency: newLeadCurrency.trim() || 'USD',
           stage: newLeadStage,
           assignedTo: newLeadAssignee || null,
-          assignedToName: assigneeObj?.displayName || assigneeObj?.email || null,
+          assignedToName: assigneeName,
           notes: newLeadNotes.trim() || null,
           updatedAt: now
         });
         toast.success('Lead updated');
       } else {
         const leadRef = doc(collection(db, `projects/${selectedProject.id}/leads`));
-        const leadData: ProjectLead = {
+        const leadData = {
           id: leadRef.id,
           projectId: selectedProject.id,
           title: newLeadTitle.trim(),
           clientName: newLeadClient.trim(),
-          company: newLeadCompany.trim() || undefined,
-          email: newLeadEmail.trim() || undefined,
-          phone: newLeadPhone.trim() || undefined,
+          company: newLeadCompany.trim() || null,
+          email: newLeadEmail.trim() || null,
+          phone: newLeadPhone.trim() || null,
           value: parseFloat(newLeadValue) || 0,
           currency: newLeadCurrency.trim() || 'USD',
           stage: newLeadStage,
           assignedTo: newLeadAssignee || null,
-          assignedToName: assigneeObj?.displayName || assigneeObj?.email || null,
-          notes: newLeadNotes.trim() || undefined,
+          assignedToName: assigneeName,
+          notes: newLeadNotes.trim() || null,
           createdAt: now,
           updatedAt: now
         };
@@ -1049,6 +1052,48 @@ export const Projects: React.FC = () => {
     setNewLeadStage('new');
     setNewLeadAssignee('');
     setNewLeadNotes('');
+  };
+
+  const LEAD_STAGES = [
+    { id: 'new', name: 'New', color: 'border-blue-500/40 text-blue-500 bg-blue-500/10' },
+    { id: 'contacted', name: 'Contacted', color: 'border-cyan-500/40 text-cyan-500 bg-cyan-500/10' },
+    { id: 'qualified', name: 'Qualified', color: 'border-amber-500/40 text-amber-500 bg-amber-500/10' },
+    { id: 'proposal', name: 'Proposal', color: 'border-indigo-500/40 text-indigo-500 bg-indigo-500/10' },
+    { id: 'won', name: 'Won 🎉', color: 'border-emerald-500/40 text-emerald-500 bg-emerald-500/10' },
+    { id: 'lost', name: 'Lost ❌', color: 'border-rose-500/40 text-rose-500 bg-rose-500/10' }
+  ];
+
+  const handleMoveLeadPrev = (lead: ProjectLead) => {
+    const idx = LEAD_STAGES.findIndex(s => s.id === lead.stage);
+    if (idx > 0) {
+      handleUpdateLeadStage(lead.id, LEAD_STAGES[idx - 1].id as any);
+    }
+  };
+
+  const handleMoveLeadNext = (lead: ProjectLead) => {
+    const idx = LEAD_STAGES.findIndex(s => s.id === lead.stage);
+    if (idx < LEAD_STAGES.length - 1) {
+      handleUpdateLeadStage(lead.id, LEAD_STAGES[idx + 1].id as any);
+    }
+  };
+
+  const handleDropLead = (e: React.DragEvent, targetStage: string) => {
+    e.preventDefault();
+    const leadId = e.dataTransfer.getData('leadId');
+    if (leadId) {
+      handleUpdateLeadStage(leadId, targetStage as any);
+    }
+  };
+
+  const handleDeleteLead = async (leadId: string, e: React.MouseEvent) => {
+    e.stopPropagation();
+    if (!selectedProject || !confirm('Delete this lead from pipeline?')) return;
+    try {
+      await deleteDoc(doc(db, `projects/${selectedProject.id}/leads`, leadId));
+      toast.success('Lead deleted');
+    } catch (err) {
+      toast.error('Failed to delete lead');
+    }
   };
 
   // Helper permission checks
@@ -1722,73 +1767,118 @@ export const Projects: React.FC = () => {
               </button>
             </div>
 
-            {/* 6 Stage Kanban Pipeline Columns */}
-            <div className="grid grid-cols-1 md:grid-cols-3 lg:grid-cols-6 gap-3 overflow-x-auto">
-              {[
-                { id: 'new', name: 'New', color: 'border-blue-500/40 text-blue-500 bg-blue-500/10' },
-                { id: 'contacted', name: 'Contacted', color: 'border-cyan-500/40 text-cyan-500 bg-cyan-500/10' },
-                { id: 'qualified', name: 'Qualified', color: 'border-amber-500/40 text-amber-500 bg-amber-500/10' },
-                { id: 'proposal', name: 'Proposal', color: 'border-indigo-500/40 text-indigo-500 bg-indigo-500/10' },
-                { id: 'won', name: 'Won 🎉', color: 'border-emerald-500/40 text-emerald-500 bg-emerald-500/10' },
-                { id: 'lost', name: 'Lost ❌', color: 'border-rose-500/40 text-rose-500 bg-rose-500/10' }
-              ].map(stage => {
+            {/* 6 Stage Kanban Pipeline Board */}
+            <div className="grid grid-cols-1 md:grid-cols-3 lg:grid-cols-6 gap-3 overflow-x-auto min-h-[500px]">
+              {LEAD_STAGES.map((stage, sIdx) => {
                 const stageLeads = projectLeads.filter(l => l.stage === stage.id);
                 const stageValue = stageLeads.reduce((acc, l) => acc + (Number(l.value) || 0), 0);
 
                 return (
-                  <div key={stage.id} className="bg-card p-3 rounded-3xl border border-border space-y-3 min-w-[200px]">
-                    <div className="flex items-center justify-between pb-2 border-b border-border">
-                      <span className={`text-[10px] font-extrabold uppercase px-2 py-0.5 rounded-full ${stage.color}`}>
-                        {stage.name} ({stageLeads.length})
-                      </span>
-                      <span className="text-[10px] font-bold text-muted-foreground">{stageValue > 0 ? stageValue.toLocaleString() : ''}</span>
-                    </div>
+                  <div
+                    key={stage.id}
+                    onDragOver={(e) => e.preventDefault()}
+                    onDrop={(e) => handleDropLead(e, stage.id)}
+                    className="bg-card p-3 rounded-3xl border border-border space-y-3 min-w-[210px] flex flex-col justify-between"
+                  >
+                    <div className="space-y-3">
+                      <div className="flex items-center justify-between pb-2 border-b border-border">
+                        <span className={`text-[10px] font-extrabold uppercase px-2.5 py-0.5 rounded-full ${stage.color}`}>
+                          {stage.name} ({stageLeads.length})
+                        </span>
+                        <span className="text-[10px] font-bold text-muted-foreground">
+                          {stageValue > 0 ? stageValue.toLocaleString() : ''}
+                        </span>
+                      </div>
 
-                    <div className="space-y-2">
-                      {stageLeads.map(lead => (
-                        <div
-                          key={lead.id}
-                          className="p-3 bg-muted/40 hover:bg-muted/70 border border-border rounded-2xl space-y-2 transition-all"
-                        >
-                          <div className="flex items-start justify-between gap-1">
-                            <h4 className="font-bold text-xs text-foreground">{lead.title}</h4>
-                            <button
-                              onClick={() => handleEditLeadClick(lead)}
-                              className="text-muted-foreground hover:text-primary p-1"
-                            >
-                              <Edit2 size={12} />
-                            </button>
-                          </div>
-
-                          <p className="text-[11px] font-semibold text-foreground">{lead.clientName}</p>
-                          {lead.company && <p className="text-[10px] text-muted-foreground flex items-center gap-1"><Building2 size={10} /> {lead.company}</p>}
-
-                          <div className="pt-2 border-t border-border/40 flex items-center justify-between text-[11px]">
-                            <span className="font-extrabold text-emerald-500">{lead.currency} {lead.value ? lead.value.toLocaleString() : 0}</span>
-                            {lead.assignedToName && <span className="text-[9px] text-muted-foreground">👤 {lead.assignedToName}</span>}
-                          </div>
-
-                          {/* Stage Transition Quick Actions */}
-                          <div className="flex items-center justify-between pt-1 text-[9px] font-bold gap-1">
-                            {stage.id !== 'won' && (
-                              <button
-                                onClick={() => handleUpdateLeadStage(lead.id, 'won')}
-                                className="text-emerald-500 hover:underline"
-                              >
-                                Won ✓
-                              </button>
-                            )}
-                            {stage.id !== 'lost' && (
-                              <button
-                                onClick={() => handleUpdateLeadStage(lead.id, 'lost')}
-                                className="text-rose-500 hover:underline"
-                              >
-                                Lost ✕
-                              </button>
-                            )}
-                          </div>
+                      {stageLeads.length === 0 ? (
+                        <div className="py-8 text-center border border-dashed border-border/60 rounded-2xl">
+                          <p className="text-[10px] text-muted-foreground font-semibold">Drop lead here</p>
                         </div>
-                      ))}
+                      ) : (
+                        <div className="space-y-2.5">
+                          {stageLeads.map(lead => (
+                            <div
+                              key={lead.id}
+                              draggable
+                              onDragStart={(e) => e.dataTransfer.setData('leadId', lead.id)}
+                              className="p-3.5 bg-muted/40 hover:bg-muted/70 border border-border/80 hover:border-primary/40 rounded-2xl space-y-2.5 transition-all shadow-sm cursor-grab active:cursor-grabbing group"
+                            >
+                              <div className="flex items-start justify-between gap-1">
+                                <h4 className="font-bold text-xs text-foreground group-hover:text-primary transition-colors">
+                                  {lead.title}
+                                </h4>
+                                <div className="flex items-center gap-1 shrink-0">
+                                  <button
+                                    onClick={() => handleEditLeadClick(lead)}
+                                    className="text-muted-foreground hover:text-primary p-1 rounded-lg hover:bg-muted"
+                                    title="Edit Lead"
+                                  >
+                                    <Edit2 size={12} />
+                                  </button>
+                                  <button
+                                    onClick={(e) => handleDeleteLead(lead.id, e)}
+                                    className="text-muted-foreground hover:text-rose-500 p-1 rounded-lg hover:bg-rose-500/10"
+                                    title="Delete Lead"
+                                  >
+                                    <Trash2 size={12} />
+                                  </button>
+                                </div>
+                              </div>
+
+                              <div className="space-y-0.5">
+                                <p className="text-[11px] font-semibold text-foreground">{lead.clientName}</p>
+                                {lead.company && (
+                                  <p className="text-[10px] text-muted-foreground flex items-center gap-1">
+                                    <Building2 size={10} /> {lead.company}
+                                  </p>
+                                )}
+                              </div>
+
+                              <div className="pt-2 border-t border-border/40 flex items-center justify-between text-[11px]">
+                                <span className="font-extrabold text-emerald-500">
+                                  {lead.currency} {lead.value ? lead.value.toLocaleString() : 0}
+                                </span>
+                                {lead.assignedToName && (
+                                  <span className="text-[9px] text-muted-foreground font-medium">👤 {lead.assignedToName}</span>
+                                )}
+                              </div>
+
+                              {/* Kanban Move Arrows & Quick Stage Dropdown */}
+                              <div className="flex items-center justify-between pt-1 text-[10px] border-t border-border/30">
+                                <button
+                                  disabled={sIdx === 0}
+                                  onClick={() => handleMoveLeadPrev(lead)}
+                                  className="p-1 rounded-lg hover:bg-muted text-muted-foreground hover:text-foreground disabled:opacity-30 disabled:hover:bg-transparent"
+                                  title="Move to previous stage"
+                                >
+                                  <ChevronLeft size={14} />
+                                </button>
+
+                                <select
+                                  value={lead.stage}
+                                  onChange={(e) => handleUpdateLeadStage(lead.id, e.target.value as any)}
+                                  className="bg-card border border-border text-[9px] font-bold py-0.5 px-1.5 rounded-lg outline-none cursor-pointer"
+                                >
+                                  {LEAD_STAGES.map(st => (
+                                    <option key={st.id} value={st.id}>
+                                      {st.name}
+                                    </option>
+                                  ))}
+                                </select>
+
+                                <button
+                                  disabled={sIdx === LEAD_STAGES.length - 1}
+                                  onClick={() => handleMoveLeadNext(lead)}
+                                  className="p-1 rounded-lg hover:bg-muted text-muted-foreground hover:text-foreground disabled:opacity-30 disabled:hover:bg-transparent"
+                                  title="Move to next stage"
+                                >
+                                  <ChevronRight size={14} />
+                                </button>
+                              </div>
+                            </div>
+                          ))}
+                        </div>
+                      )}
                     </div>
                   </div>
                 );

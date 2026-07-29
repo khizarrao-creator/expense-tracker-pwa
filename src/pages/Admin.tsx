@@ -107,7 +107,9 @@ const FEATURES = [
   { id: 'fuel', name: 'Fuel Tracking', desc: 'Track fuel consumption and costs' },
   { id: 'reports', name: 'Analytics & Reports', desc: 'Comprehensive financial insights' },
   { id: 'ai-chat', name: 'AI Copilot', desc: 'Chat with your personal financial AI' },
-  { id: 'subscriptions', name: 'Subscription Manager', desc: 'Track and analyze recurring subscriptions' }
+  { id: 'subscriptions', name: 'Subscription Manager', desc: 'Track and analyze recurring subscriptions' },
+  { id: 'whatsapp', name: 'WhatsApp Copilot', desc: 'Read, send messages and sync WhatsApp accounts' },
+  { id: 'projects', name: 'Projects Management', desc: 'Team projects, whiteboard, and collaborative tasks' }
 ];
 
 interface UserProfile {
@@ -583,7 +585,7 @@ const Admin: React.FC = () => {
         'transactions', 'accounts', 'categories', 'dashboard',
         'goals', 'reminders', 'calculator', 'converter',
         'tasks', 'loans', 'events', 'fuel', 'reports',
-        'subscriptions'
+        'subscriptions', 'projects'
       ],
       limits: { aiCallsPerDay: 0, maxTransactions: 10000 },
       badgeIcon: 'shield',
@@ -599,7 +601,7 @@ const Admin: React.FC = () => {
         'transactions', 'accounts', 'categories', 'dashboard',
         'goals', 'reminders', 'calculator', 'converter',
         'tasks', 'loans', 'events', 'fuel', 'reports',
-        'subscriptions', 'ai-chat'
+        'subscriptions', 'ai-chat', 'projects'
       ],
       limits: { aiCallsPerDay: 50, maxTransactions: 50000 },
       badgeIcon: 'zap',
@@ -615,7 +617,7 @@ const Admin: React.FC = () => {
         'transactions', 'accounts', 'categories', 'dashboard',
         'goals', 'reminders', 'calculator', 'converter',
         'tasks', 'loans', 'events', 'fuel', 'reports',
-        'subscriptions', 'ai-chat', 'whatsapp', 'investments'
+        'subscriptions', 'ai-chat', 'whatsapp', 'investments', 'projects'
       ],
       limits: { aiCallsPerDay: 150, maxTransactions: -1 },
       badgeIcon: 'crown',
@@ -768,7 +770,7 @@ const Admin: React.FC = () => {
               'transactions', 'accounts', 'categories', 'dashboard',
               'goals', 'reminders', 'calculator', 'converter',
               'tasks', 'loans', 'events', 'fuel', 'reports',
-              'subscriptions'
+              'subscriptions', 'projects'
             ],
             limits: { aiCallsPerDay: 0, maxTransactions: 10000 },
             badgeIcon: 'shield',
@@ -784,7 +786,7 @@ const Admin: React.FC = () => {
               'transactions', 'accounts', 'categories', 'dashboard',
               'goals', 'reminders', 'calculator', 'converter',
               'tasks', 'loans', 'events', 'fuel', 'reports',
-              'subscriptions', 'ai-chat'
+              'subscriptions', 'ai-chat', 'projects'
             ],
             limits: { aiCallsPerDay: 50, maxTransactions: 50000 },
             badgeIcon: 'zap',
@@ -800,7 +802,7 @@ const Admin: React.FC = () => {
               'transactions', 'accounts', 'categories', 'dashboard',
               'goals', 'reminders', 'calculator', 'converter',
               'tasks', 'loans', 'events', 'fuel', 'reports',
-              'subscriptions', 'ai-chat', 'whatsapp', 'investments'
+              'subscriptions', 'ai-chat', 'whatsapp', 'investments', 'projects'
             ],
             limits: { aiCallsPerDay: 150, maxTransactions: -1 },
             badgeIcon: 'crown',
@@ -1223,8 +1225,10 @@ const Admin: React.FC = () => {
 
   const toggleProStatus = async (user: UserProfile) => {
     try {
+      const newIsPro = !user.isPro;
       await updateDoc(doc(db, 'registered_users', user.id), {
-        isPro: !user.isPro
+        isPro: newIsPro,
+        plan: newIsPro ? 'pro' : 'standard'
       });
 
       await addDoc(collection(db, 'admin_logs'), {

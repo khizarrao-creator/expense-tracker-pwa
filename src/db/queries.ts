@@ -2579,6 +2579,7 @@ export interface Task {
   synced: number;
   time_spent?: number;
   last_started_at?: string | null;
+  project_id?: string | null;
 }
 
 export interface TaskLog {
@@ -2683,7 +2684,7 @@ export const addTask = async (
 };
 
 const TASK_UPDATABLE_FIELDS = new Set([
-  'title', 'description', 'status', 'due_date', 'due_time', 'reminder_enabled', 'reminder_offset', 'reminder_sent', 'priority', 'category', 'updated_at', 'deviceId', 'time_spent', 'last_started_at'
+  'title', 'description', 'status', 'due_date', 'due_time', 'reminder_enabled', 'reminder_offset', 'reminder_sent', 'priority', 'category', 'updated_at', 'deviceId', 'time_spent', 'last_started_at', 'project_id'
 ]);
 
 export const updateTask = async (id: string, data: Partial<Omit<Task, 'id' | 'created_at' | 'synced'>>) => {

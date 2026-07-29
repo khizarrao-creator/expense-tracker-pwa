@@ -84,7 +84,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         'transactions', 'accounts', 'categories', 'dashboard',
         'goals', 'reminders', 'calculator', 'converter',
         'tasks', 'loans', 'events', 'fuel', 'reports',
-        'subscriptions'
+        'subscriptions', 'projects'
       ],
       limits: { aiCallsPerDay: 0, maxTransactions: 10000 },
       badgeIcon: 'shield',
@@ -100,7 +100,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         'transactions', 'accounts', 'categories', 'dashboard',
         'goals', 'reminders', 'calculator', 'converter',
         'tasks', 'loans', 'events', 'fuel', 'reports',
-        'subscriptions', 'ai-chat'
+        'subscriptions', 'ai-chat', 'projects'
       ],
       limits: { aiCallsPerDay: 50, maxTransactions: 50000 },
       badgeIcon: 'zap',
@@ -116,7 +116,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         'transactions', 'accounts', 'categories', 'dashboard',
         'goals', 'reminders', 'calculator', 'converter',
         'tasks', 'loans', 'events', 'fuel', 'reports',
-        'subscriptions', 'ai-chat', 'whatsapp', 'investments'
+        'subscriptions', 'ai-chat', 'whatsapp', 'investments', 'projects'
       ],
       limits: { aiCallsPerDay: 150, maxTransactions: -1 },
       badgeIcon: 'crown',
@@ -139,15 +139,54 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
   const [userPlan, setUserPlan] = useState<string>('standard');
   const [planExpiresAt, setPlanExpiresAt] = useState<Date | null>(null);
 
-  // Load plans config in real time
+  // Load plans config in real time, merging with DEFAULT_PLANS to preserve code defaults & tier inheritance
   useEffect(() => {
     const unsubPlans = onSnapshot(doc(db, 'system', 'plans_config'), (docSnap) => {
-      if (docSnap.exists()) {
-        const data = docSnap.data();
-        if (data && data.plans) {
-          setPlansConfig(data.plans);
+      const firestorePlans = docSnap.exists() ? docSnap.data()?.plans || {} : {};
+
+      const standardFeatures = new Set([
+        ...(DEFAULT_PLANS.standard.features || []),
+        ...(firestorePlans.standard?.features || [])
+      ]);
+
+      const proFeatures = new Set([
+        ...standardFeatures,
+        ...(DEFAULT_PLANS.pro.features || []),
+        ...(firestorePlans.pro?.features || [])
+      ]);
+
+      const maxFeatures = new Set([
+        ...proFeatures,
+        ...(DEFAULT_PLANS.max.features || []),
+        ...(firestorePlans.max?.features || [])
+      ]);
+
+      const merged: Record<string, PlanDetails> = {
+        standard: {
+          ...DEFAULT_PLANS.standard,
+          ...(firestorePlans.standard || {}),
+          features: Array.from(standardFeatures)
+        },
+        pro: {
+          ...DEFAULT_PLANS.pro,
+          ...(firestorePlans.pro || {}),
+          features: Array.from(proFeatures)
+        },
+        max: {
+          ...DEFAULT_PLANS.max,
+          ...(firestorePlans.max || {}),
+          features: Array.from(maxFeatures)
         }
-      }
+      };
+
+      // Retain any additional custom plans
+      Object.keys(firestorePlans).forEach(k => {
+        if (!merged[k]) {
+          merged[k] = firestorePlans[k];
+        }
+      });
+
+      setPlansConfig(merged);
     });
     return () => unsubPlans();
   }, []);
@@ -165,9 +204,10 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     const unsubUser = onSnapshot(doc(db, 'registered_users', user.uid), (docSnap) => {
       if (docSnap.exists()) {
         const data = docSnap.data();
-        const planName = data.plan || 'standard';
+        // Fallback to 'pro' if isPro is true but data.plan is missing
+        const planName = data.plan || (data.isPro ? 'pro' : 'standard');
         setUserPlan(planName);
-        setIsPro(planName !== 'standard');
+        setIsPro(planName !== 'standard' || !!data.isPro);
         setIsBanned(!!data.isBanned);
         setDisabledFeatures(data.disabledFeatures || []);
 

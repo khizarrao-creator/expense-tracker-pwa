@@ -16,7 +16,8 @@ import {
   PieChart,
   Sparkles,
   CreditCard,
-  MessageSquare
+  MessageSquare,
+  FolderKanban
 } from 'lucide-react';
 import { useApp } from '../contexts/AppContext';
 import {
@@ -165,6 +166,15 @@ const DEFAULT_OPTIONS: MoreOption[] = [
     icon: MessageSquare,
     color: 'text-emerald-500',
     bgColor: 'bg-emerald-500/10'
+  },
+  {
+    id: 'projects',
+    name: 'Projects',
+    description: 'Team projects, whiteboard, and collaborative tasks',
+    path: '/projects',
+    icon: FolderKanban,
+    color: 'text-violet-500',
+    bgColor: 'bg-violet-500/10'
   }
 ];
 

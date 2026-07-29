@@ -545,6 +545,7 @@ const initializeSchema = async () => {
   addColumn('tasks', 'category', 'TEXT');
   addColumn('tasks', 'time_spent', 'INTEGER DEFAULT 0');
   addColumn('tasks', 'last_started_at', 'TEXT');
+  addColumn('tasks', 'project_id', 'TEXT');
   addColumn('asset_transactions', 'funding_account_id', 'TEXT');
   addColumn('fuel_logs', 'vehicle_id', 'TEXT');
   addColumn('fuel_logs', 'attachment_url', 'TEXT');

@@ -37,6 +37,7 @@ const MexcDetails = lazy(() => import('./pages/MexcDetails'));
 const AIChat = lazy(() => import('./pages/AIChat'));
 const Subscriptions = lazy(() => import('./pages/Subscriptions'));
 const WhatsApp = lazy(() => import('./pages/WhatsApp'));
+const Projects = lazy(() => import('./pages/Projects'));
 const Upgrade = lazy(() => import('./pages/Upgrade').then(m => ({ default: m.Upgrade })));
 const Subscription = lazy(() => import('./pages/Subscription').then(m => ({ default: m.Subscription })));
 
@@ -133,6 +134,7 @@ const App: React.FC = () => {
                         <Route path="ai-chat" element={<FeatureRoute featureId="ai-chat"><AIChat /></FeatureRoute>} />
                         <Route path="subscriptions" element={<FeatureRoute featureId="subscriptions"><Subscriptions /></FeatureRoute>} />
                         <Route path="whatsapp" element={<FeatureRoute featureId="whatsapp"><WhatsApp /></FeatureRoute>} />
+                        <Route path="projects" element={<FeatureRoute featureId="projects"><Projects /></FeatureRoute>} />
                         <Route path="upgrade" element={<Upgrade />} />
                         <Route path="subscription" element={<Subscription />} />
                       </Route>

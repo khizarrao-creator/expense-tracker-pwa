@@ -33,10 +33,19 @@ import {
   Italic,
   Underline,
   List,
-  ListOrdered
+  ListOrdered,
+  Table,
+  Briefcase,
+  TrendingUp,
+  Download,
+  Upload,
+  Building2,
+  Edit2,
+  Save
 } from 'lucide-react';
 import { toast } from 'sonner';
 import { addTask as addSqliteTask } from '../db/queries';
+import * as XLSX from 'xlsx';
 
 // Try to dynamically load Tldraw if installed, fallback to clean interactive drawing board if not loaded
 let TldrawComponent: any = null;
@@ -98,6 +107,42 @@ export interface ProjectTask {
   createdByName: string;
   dueDate: string | null;
   createdAt: any;
+}
+
+export interface ProjectGridColumn {
+  id: string;
+  name: string;
+  type: 'text' | 'number';
+}
+
+export interface ProjectGridRow {
+  id: string;
+  [key: string]: any;
+}
+
+export interface ProjectGridSheet {
+  id: string;
+  name: string;
+  columns: ProjectGridColumn[];
+  rows: ProjectGridRow[];
+}
+
+export interface ProjectLead {
+  id: string;
+  projectId: string;
+  title: string;
+  clientName: string;
+  company?: string;
+  email?: string;
+  phone?: string;
+  value: number;
+  currency: string;
+  stage: 'new' | 'contacted' | 'qualified' | 'proposal' | 'won' | 'lost';
+  assignedTo: string | null;
+  assignedToName: string | null;
+  notes?: string;
+  createdAt: any;
+  updatedAt: any;
 }
 
 const RichTextWhiteboard: React.FC<{
@@ -208,7 +253,7 @@ export const Projects: React.FC = () => {
 
   // Selected Project view
   const [selectedProject, setSelectedProject] = useState<Project | null>(null);
-  const [projectSubTab, setProjectSubTab] = useState<'overview' | 'tasks' | 'whiteboard' | 'members'>('overview');
+  const [projectSubTab, setProjectSubTab] = useState<'overview' | 'tasks' | 'whiteboard' | 'grid' | 'leads' | 'members'>('overview');
   const [whiteboardMode, setWhiteboardMode] = useState<'notes' | 'canvas'>('notes');
 
   // Tasks in selected project
@@ -230,6 +275,44 @@ export const Projects: React.FC = () => {
   // Whiteboard text state
   const [whiteboardHtml, setWhiteboardHtml] = useState('');
   const [isSavingWhiteboard, setIsSavingWhiteboard] = useState(false);
+
+  // Grid Spreadsheet State (Multi-sheet support)
+  const defaultSheet: ProjectGridSheet = {
+    id: 'sheet_1',
+    name: 'Sheet 1',
+    columns: [
+      { id: 'col_1', name: 'Item / Task', type: 'text' },
+      { id: 'col_2', name: 'Category', type: 'text' },
+      { id: 'col_3', name: 'Quantity', type: 'number' },
+      { id: 'col_4', name: 'Unit Price', type: 'number' },
+      { id: 'col_5', name: 'Notes', type: 'text' }
+    ],
+    rows: [
+      { id: 'row_1', col_1: 'UI Design Specs', col_2: 'Design', col_3: '1', col_4: '500', col_5: 'Approved' },
+      { id: 'row_2', col_1: 'Backend API Integration', col_2: 'Dev', col_3: '1', col_4: '1200', col_5: 'In Progress' }
+    ]
+  };
+
+  const [gridSheets, setGridSheets] = useState<ProjectGridSheet[]>([defaultSheet]);
+  const [activeSheetId, setActiveSheetId] = useState<string>('sheet_1');
+  const [isSavingGrid, setIsSavingGrid] = useState(false);
+
+  const activeSheet = gridSheets.find(s => s.id === activeSheetId) || gridSheets[0] || defaultSheet;
+
+  // Leads / CRM State
+  const [projectLeads, setProjectLeads] = useState<ProjectLead[]>([]);
+  const [showAddLeadModal, setShowAddLeadModal] = useState(false);
+  const [editingLead, setEditingLead] = useState<ProjectLead | null>(null);
+  const [newLeadTitle, setNewLeadTitle] = useState('');
+  const [newLeadClient, setNewLeadClient] = useState('');
+  const [newLeadCompany, setNewLeadCompany] = useState('');
+  const [newLeadEmail, setNewLeadEmail] = useState('');
+  const [newLeadPhone, setNewLeadPhone] = useState('');
+  const [newLeadValue, setNewLeadValue] = useState('');
+  const [newLeadCurrency, setNewLeadCurrency] = useState('USD');
+  const [newLeadStage, setNewLeadStage] = useState<'new' | 'contacted' | 'qualified' | 'proposal' | 'won' | 'lost'>('new');
+  const [newLeadAssignee, setNewLeadAssignee] = useState('');
+  const [newLeadNotes, setNewLeadNotes] = useState('');
 
   useEffect(() => {
     if (!user) return;
@@ -270,7 +353,7 @@ export const Projects: React.FC = () => {
     };
   }, [user]);
 
-  // Real-time listener for tasks & whiteboard when project is selected
+  // Real-time listener for tasks, whiteboard, grid, & leads when project is selected
   useEffect(() => {
     if (!selectedProject) return;
 
@@ -296,9 +379,46 @@ export const Projects: React.FC = () => {
       setProjectTasks(list);
     });
 
+    // Listen to grid data (multi-sheet compatible)
+    const unsubGrid = onSnapshot(doc(db, `projects/${selectedProject.id}/grid`, 'main'), (docSnap) => {
+      if (docSnap.exists()) {
+        const data = docSnap.data();
+        if (data.sheets && data.sheets.length > 0) {
+          setGridSheets(data.sheets);
+          if (!data.sheets.some((s: any) => s.id === activeSheetId)) {
+            setActiveSheetId(data.sheets[0].id);
+          }
+        } else if (data.columns && data.rows) {
+          const legacySheet: ProjectGridSheet = {
+            id: 'sheet_1',
+            name: 'Sheet 1',
+            columns: data.columns,
+            rows: data.rows
+          };
+          setGridSheets([legacySheet]);
+          setActiveSheetId('sheet_1');
+        }
+      }
+    });
+
+    // Listen to project leads
+    const qLeads = query(
+      collection(db, `projects/${selectedProject.id}/leads`),
+      orderBy('createdAt', 'desc')
+    );
+    const unsubLeads = onSnapshot(qLeads, (snapshot) => {
+      const list = snapshot.docs.map(docSnap => ({
+        id: docSnap.id,
+        ...docSnap.data()
+      } as ProjectLead));
+      setProjectLeads(list);
+    });
+
     return () => {
       unsubProjDoc();
       unsubTasks();
+      unsubGrid();
+      unsubLeads();
     };
   }, [selectedProject?.id]);
 
@@ -420,7 +540,6 @@ export const Projects: React.FC = () => {
   const handleSendInvite = async () => {
     if (!user || !selectedProject || !selectedInviteUser) return;
     try {
-      // Check if already in project
       if (selectedProject.members.some(m => m.userId === selectedInviteUser.id)) {
         toast.error('User is already a member or invited to this project');
         return;
@@ -442,7 +561,6 @@ export const Projects: React.FC = () => {
 
       await setDoc(inviteRef, inviteData);
 
-      // Add to project members list as 'invited'
       const updatedMembers = [
         ...selectedProject.members,
         {
@@ -460,7 +578,6 @@ export const Projects: React.FC = () => {
         members: updatedMembers
       });
 
-      // Send in-app notification
       await addDoc(collection(db, `users/${selectedInviteUser.id}/notifications`), {
         message: `You have been invited to join project "${selectedProject.name}" as ${inviteRole.replace('_', ' ')}!`,
         timestamp: serverTimestamp(),
@@ -527,7 +644,6 @@ export const Projects: React.FC = () => {
 
       await setDoc(taskRef, taskData);
 
-      // If assigned to current user, also add to local SQLite task manager with project_id
       if (newTaskAssignee === user.uid) {
         try {
           await addSqliteTask(
@@ -586,7 +702,6 @@ export const Projects: React.FC = () => {
         assignedToName: assigneeName
       });
 
-      // Also add to local SQLite task manager
       try {
         await addSqliteTask(
           `[${selectedProject.name}] ${task.title}`,
@@ -624,6 +739,316 @@ export const Projects: React.FC = () => {
     } finally {
       setIsSavingWhiteboard(false);
     }
+  };
+
+  // --- Multi-Sheet Spreadsheet Grid Handlers ---
+  const handleAddSheet = () => {
+    const newSheetId = `sheet_${Date.now()}`;
+    const newSheetName = `Sheet ${gridSheets.length + 1}`;
+    const newSheet: ProjectGridSheet = {
+      id: newSheetId,
+      name: newSheetName,
+      columns: [
+        { id: 'col_1', name: 'Column 1', type: 'text' },
+        { id: 'col_2', name: 'Column 2', type: 'text' },
+        { id: 'col_3', name: 'Column 3', type: 'number' }
+      ],
+      rows: [
+        { id: `row_${Date.now()}_1`, col_1: '', col_2: '', col_3: '' }
+      ]
+    };
+    const updatedSheets = [...gridSheets, newSheet];
+    setGridSheets(updatedSheets);
+    setActiveSheetId(newSheetId);
+    saveGridToFirestore(updatedSheets);
+  };
+
+  const handleRenameSheet = (sheetId: string, newName: string) => {
+    const updatedSheets = gridSheets.map(s => s.id === sheetId ? { ...s, name: newName } : s);
+    setGridSheets(updatedSheets);
+  };
+
+  const handleDeleteSheet = (sheetId: string, e: React.MouseEvent) => {
+    e.stopPropagation();
+    if (gridSheets.length <= 1) {
+      toast.error('Cannot delete the last sheet');
+      return;
+    }
+    if (!confirm('Delete this sheet?')) return;
+    const updatedSheets = gridSheets.filter(s => s.id !== sheetId);
+    setGridSheets(updatedSheets);
+    if (activeSheetId === sheetId) {
+      setActiveSheetId(updatedSheets[0].id);
+    }
+    saveGridToFirestore(updatedSheets);
+  };
+
+  const handleAddGridColumn = () => {
+    const newColId = `col_${Date.now()}`;
+    const newCol: ProjectGridColumn = {
+      id: newColId,
+      name: `Column ${activeSheet.columns.length + 1}`,
+      type: 'text'
+    };
+    const updatedCols = [...activeSheet.columns, newCol];
+    const updatedRows = activeSheet.rows.map(r => ({ ...r, [newColId]: '' }));
+    const updatedSheets = gridSheets.map(s =>
+      s.id === activeSheet.id ? { ...s, columns: updatedCols, rows: updatedRows } : s
+    );
+    setGridSheets(updatedSheets);
+    saveGridToFirestore(updatedSheets);
+  };
+
+  const handleRenameColumn = (colId: string, newName: string) => {
+    const updatedCols = activeSheet.columns.map(c => c.id === colId ? { ...c, name: newName } : c);
+    const updatedSheets = gridSheets.map(s =>
+      s.id === activeSheet.id ? { ...s, columns: updatedCols } : s
+    );
+    setGridSheets(updatedSheets);
+  };
+
+  const handleDeleteColumn = (colId: string) => {
+    if (activeSheet.columns.length <= 1) {
+      toast.error('Cannot delete the last column');
+      return;
+    }
+    const updatedCols = activeSheet.columns.filter(c => c.id !== colId);
+    const updatedRows = activeSheet.rows.map(r => {
+      const copy = { ...r };
+      delete copy[colId];
+      return copy;
+    });
+    const updatedSheets = gridSheets.map(s =>
+      s.id === activeSheet.id ? { ...s, columns: updatedCols, rows: updatedRows } : s
+    );
+    setGridSheets(updatedSheets);
+    saveGridToFirestore(updatedSheets);
+  };
+
+  const handleAddGridRow = () => {
+    const newRowId = `row_${Date.now()}`;
+    const newRow: ProjectGridRow = { id: newRowId };
+    activeSheet.columns.forEach(c => { newRow[c.id] = ''; });
+    const updatedRows = [...activeSheet.rows, newRow];
+    const updatedSheets = gridSheets.map(s =>
+      s.id === activeSheet.id ? { ...s, rows: updatedRows } : s
+    );
+    setGridSheets(updatedSheets);
+    saveGridToFirestore(updatedSheets);
+  };
+
+  const handleDeleteGridRow = (rowId: string) => {
+    const updatedRows = activeSheet.rows.filter(r => r.id !== rowId);
+    const updatedSheets = gridSheets.map(s =>
+      s.id === activeSheet.id ? { ...s, rows: updatedRows } : s
+    );
+    setGridSheets(updatedSheets);
+    saveGridToFirestore(updatedSheets);
+  };
+
+  const handleCellChange = (rowId: string, colId: string, value: any) => {
+    const updatedRows = activeSheet.rows.map(r => r.id === rowId ? { ...r, [colId]: value } : r);
+    const updatedSheets = gridSheets.map(s =>
+      s.id === activeSheet.id ? { ...s, rows: updatedRows } : s
+    );
+    setGridSheets(updatedSheets);
+  };
+
+  const saveGridToFirestore = async (sheets: ProjectGridSheet[]) => {
+    if (!selectedProject) return;
+    setIsSavingGrid(true);
+    try {
+      await setDoc(doc(db, `projects/${selectedProject.id}/grid`, 'main'), {
+        sheets: sheets,
+        updatedAt: serverTimestamp()
+      });
+      toast.success('Grid saved!');
+    } catch (e) {
+      console.error(e);
+      toast.error('Failed to save grid');
+    } finally {
+      setIsSavingGrid(false);
+    }
+  };
+
+  const exportGridToExcel = (projectName: string, sheets: ProjectGridSheet[]) => {
+    const workbook = XLSX.utils.book_new();
+
+    sheets.forEach((sh, idx) => {
+      const exportData = sh.rows.map(r => {
+        const formatted: any = {};
+        sh.columns.forEach(col => {
+          formatted[col.name] = r[col.id] !== undefined ? r[col.id] : '';
+        });
+        return formatted;
+      });
+
+      const worksheet = XLSX.utils.json_to_sheet(exportData);
+      const sheetName = (sh.name || `Sheet${idx + 1}`).replace(/[\\/*?:[\]]/g, '').slice(0, 30);
+      XLSX.utils.book_append_sheet(workbook, worksheet, sheetName);
+    });
+
+    XLSX.writeFile(workbook, `${projectName.replace(/\s+/g, '_')}_Spreadsheet.xlsx`);
+    toast.success(`Exported ${sheets.length} sheet(s) to Excel!`);
+  };
+
+  const handleImportExcel = (e: React.ChangeEvent<HTMLInputElement>, onImport: (sheets: ProjectGridSheet[]) => void) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+
+    const reader = new FileReader();
+    reader.onload = (evt) => {
+      try {
+        const data = new Uint8Array(evt.target?.result as ArrayBuffer);
+        const workbook = XLSX.read(data, { type: 'array' });
+
+        if (!workbook.SheetNames || workbook.SheetNames.length === 0) {
+          toast.error('File contains no sheets');
+          return;
+        }
+
+        const importedSheets: ProjectGridSheet[] = workbook.SheetNames.map((sheetName, sIdx) => {
+          const worksheet = workbook.Sheets[sheetName];
+          const jsonData = XLSX.utils.sheet_to_json(worksheet, { header: 1 }) as any[][];
+
+          if (!jsonData || jsonData.length === 0) {
+            return {
+              id: `sheet_imp_${Date.now()}_${sIdx}`,
+              name: sheetName,
+              columns: [{ id: 'col_1', name: 'Column 1', type: 'text' }],
+              rows: []
+            };
+          }
+
+          const headers = jsonData[0] as string[];
+          const cols: ProjectGridColumn[] = (headers && headers.length > 0 ? headers : ['Column 1']).map((h, idx) => ({
+            id: `col_${idx + 1}`,
+            name: String(h || `Column ${idx + 1}`),
+            type: 'text'
+          }));
+
+          const rows: ProjectGridRow[] = jsonData.slice(1).map((r, rIdx) => {
+            const rowObj: ProjectGridRow = { id: `row_${Date.now()}_${sIdx}_${rIdx}` };
+            cols.forEach((col, cIdx) => {
+              rowObj[col.id] = r[cIdx] !== undefined ? r[cIdx] : '';
+            });
+            return rowObj;
+          });
+
+          return {
+            id: `sheet_imp_${Date.now()}_${sIdx}`,
+            name: sheetName,
+            columns: cols,
+            rows: rows
+          };
+        });
+
+        onImport(importedSheets);
+        toast.success(`Imported ${importedSheets.length} sheet(s) from Excel!`);
+      } catch (err) {
+        console.error(err);
+        toast.error('Failed to parse Excel file');
+      }
+    };
+    reader.readAsArrayBuffer(file);
+  };
+
+  // --- Leads / CRM Handlers ---
+  const handleSaveLead = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!user || !selectedProject || !newLeadTitle.trim()) return;
+
+    try {
+      const assigneeObj = selectedProject.members.find(m => m.userId === newLeadAssignee);
+      const now = serverTimestamp();
+
+      if (editingLead) {
+        await updateDoc(doc(db, `projects/${selectedProject.id}/leads`, editingLead.id), {
+          title: newLeadTitle.trim(),
+          clientName: newLeadClient.trim(),
+          company: newLeadCompany.trim() || null,
+          email: newLeadEmail.trim() || null,
+          phone: newLeadPhone.trim() || null,
+          value: parseFloat(newLeadValue) || 0,
+          currency: newLeadCurrency.trim() || 'USD',
+          stage: newLeadStage,
+          assignedTo: newLeadAssignee || null,
+          assignedToName: assigneeObj?.displayName || assigneeObj?.email || null,
+          notes: newLeadNotes.trim() || null,
+          updatedAt: now
+        });
+        toast.success('Lead updated');
+      } else {
+        const leadRef = doc(collection(db, `projects/${selectedProject.id}/leads`));
+        const leadData: ProjectLead = {
+          id: leadRef.id,
+          projectId: selectedProject.id,
+          title: newLeadTitle.trim(),
+          clientName: newLeadClient.trim(),
+          company: newLeadCompany.trim() || undefined,
+          email: newLeadEmail.trim() || undefined,
+          phone: newLeadPhone.trim() || undefined,
+          value: parseFloat(newLeadValue) || 0,
+          currency: newLeadCurrency.trim() || 'USD',
+          stage: newLeadStage,
+          assignedTo: newLeadAssignee || null,
+          assignedToName: assigneeObj?.displayName || assigneeObj?.email || null,
+          notes: newLeadNotes.trim() || undefined,
+          createdAt: now,
+          updatedAt: now
+        };
+        await setDoc(leadRef, leadData);
+        toast.success('Lead added to pipeline');
+      }
+
+      setShowAddLeadModal(false);
+      setEditingLead(null);
+      resetLeadForm();
+    } catch (e) {
+      console.error(e);
+      toast.error('Failed to save lead');
+    }
+  };
+
+  const handleUpdateLeadStage = async (leadId: string, newStage: 'new' | 'contacted' | 'qualified' | 'proposal' | 'won' | 'lost') => {
+    if (!selectedProject) return;
+    try {
+      await updateDoc(doc(db, `projects/${selectedProject.id}/leads`, leadId), {
+        stage: newStage,
+        updatedAt: serverTimestamp()
+      });
+      toast.success(`Lead moved to ${newStage.toUpperCase()}`);
+    } catch (e) {
+      toast.error('Failed to update stage');
+    }
+  };
+
+  const handleEditLeadClick = (lead: ProjectLead) => {
+    setEditingLead(lead);
+    setNewLeadTitle(lead.title);
+    setNewLeadClient(lead.clientName);
+    setNewLeadCompany(lead.company || '');
+    setNewLeadEmail(lead.email || '');
+    setNewLeadPhone(lead.phone || '');
+    setNewLeadValue(lead.value ? String(lead.value) : '0');
+    setNewLeadCurrency(lead.currency || 'USD');
+    setNewLeadStage(lead.stage || 'new');
+    setNewLeadAssignee(lead.assignedTo || '');
+    setNewLeadNotes(lead.notes || '');
+    setShowAddLeadModal(true);
+  };
+
+  const resetLeadForm = () => {
+    setNewLeadTitle('');
+    setNewLeadClient('');
+    setNewLeadCompany('');
+    setNewLeadEmail('');
+    setNewLeadPhone('');
+    setNewLeadValue('');
+    setNewLeadCurrency('USD');
+    setNewLeadStage('new');
+    setNewLeadAssignee('');
+    setNewLeadNotes('');
   };
 
   // Helper permission checks
@@ -679,6 +1104,8 @@ export const Projects: React.FC = () => {
             { id: 'overview', label: 'Overview', icon: Layout },
             { id: 'tasks', label: `Tasks (${projectTasks.length})`, icon: CheckCircle2 },
             { id: 'whiteboard', label: 'Team Whiteboard', icon: Palette },
+            { id: 'grid', label: 'Spreadsheet Grid', icon: Table },
+            { id: 'leads', label: `Leads / CRM (${projectLeads.length})`, icon: Briefcase },
             { id: 'members', label: `Team Members (${selectedProject.members.length})`, icon: Users }
           ].map(t => {
             const Icon = t.icon;
@@ -716,6 +1143,10 @@ export const Projects: React.FC = () => {
                   <div>
                     <span className="block text-[10px] uppercase font-bold text-muted-foreground/70">Total Tasks</span>
                     <span className="font-semibold text-foreground">{projectTasks.length}</span>
+                  </div>
+                  <div>
+                    <span className="block text-[10px] uppercase font-bold text-muted-foreground/70">Active Leads</span>
+                    <span className="font-semibold text-primary">{projectLeads.length}</span>
                   </div>
                   <div>
                     <span className="block text-[10px] uppercase font-bold text-muted-foreground/70">Completed</span>
@@ -1026,7 +1457,347 @@ export const Projects: React.FC = () => {
           </div>
         )}
 
-        {/* Sub-tab 4: Members */}
+        {/* Sub-tab 4: Spreadsheet Grid (Multi-sheet) */}
+        {projectSubTab === 'grid' && (
+          <div className="space-y-4">
+            {/* Sheet Tabs Bar */}
+            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 bg-card p-3 rounded-3xl border border-border">
+              <div className="flex items-center gap-1.5 overflow-x-auto no-scrollbar">
+                {gridSheets.map(s => {
+                  const isActive = s.id === activeSheet.id;
+                  return (
+                    <div
+                      key={s.id}
+                      onClick={() => setActiveSheetId(s.id)}
+                      className={`flex items-center gap-2 px-3 py-1.5 rounded-xl text-xs font-bold transition-all cursor-pointer whitespace-nowrap border ${
+                        isActive
+                          ? 'bg-primary/10 text-primary border-primary/30 shadow-sm'
+                          : 'bg-muted/40 text-muted-foreground border-transparent hover:bg-muted'
+                      }`}
+                    >
+                      <input
+                        type="text"
+                        value={s.name}
+                        onChange={(e) => handleRenameSheet(s.id, e.target.value)}
+                        onBlur={() => saveGridToFirestore(gridSheets)}
+                        onClick={(e) => e.stopPropagation()}
+                        className="bg-transparent outline-none w-20 font-bold"
+                      />
+                      {gridSheets.length > 1 && (
+                        <button
+                          onClick={(e) => handleDeleteSheet(s.id, e)}
+                          className="text-muted-foreground hover:text-rose-500 p-0.5 rounded transition-colors"
+                          title="Delete Sheet"
+                        >
+                          <X size={12} />
+                        </button>
+                      )}
+                    </div>
+                  );
+                })}
+
+                <button
+                  onClick={handleAddSheet}
+                  className="flex items-center gap-1 px-3 py-1.5 rounded-xl text-xs font-bold bg-muted hover:bg-muted/80 text-foreground transition-all whitespace-nowrap border border-border/50"
+                >
+                  <Plus size={14} />
+                  New Sheet
+                </button>
+              </div>
+
+              <div className="flex items-center gap-2 shrink-0">
+                <label className="bg-muted hover:bg-muted/80 text-foreground text-xs font-bold px-3 py-2 rounded-xl cursor-pointer flex items-center gap-1.5 transition-all border border-border/50">
+                  <Upload size={14} />
+                  Import Excel
+                  <input
+                    type="file"
+                    accept=".xlsx, .xls, .csv"
+                    className="hidden"
+                    onChange={(e) => handleImportExcel(e, (importedSheets) => {
+                      setGridSheets(importedSheets);
+                      if (importedSheets.length > 0) setActiveSheetId(importedSheets[0].id);
+                      saveGridToFirestore(importedSheets);
+                    })}
+                  />
+                </label>
+
+                <button
+                  onClick={() => exportGridToExcel(selectedProject.name, gridSheets)}
+                  className="bg-muted hover:bg-muted/80 text-foreground text-xs font-bold px-3 py-2 rounded-xl flex items-center gap-1.5 transition-all border border-border/50"
+                >
+                  <Download size={14} />
+                  Export All Sheets (.xlsx)
+                </button>
+
+                <button
+                  onClick={() => saveGridToFirestore(gridSheets)}
+                  disabled={isSavingGrid}
+                  className="bg-primary text-primary-foreground text-xs font-bold px-4 py-2 rounded-xl flex items-center gap-1.5 shadow-md hover:scale-[1.02] transition-all disabled:opacity-50"
+                >
+                  <Save size={14} />
+                  {isSavingGrid ? 'Saving...' : 'Save Grid'}
+                </button>
+              </div>
+            </div>
+
+            {/* Active Sheet Toolbar */}
+            <div className="flex items-center justify-between gap-3 bg-muted/30 p-3 rounded-2xl border border-border text-xs">
+              <div className="flex items-center gap-2">
+                <Table size={16} className="text-primary" />
+                <span className="font-bold text-foreground">{activeSheet.name}</span>
+                <span className="text-[10px] text-muted-foreground">({activeSheet.rows.length} rows, {activeSheet.columns.length} columns)</span>
+              </div>
+
+              <div className="flex items-center gap-2">
+                <button
+                  onClick={handleAddGridColumn}
+                  className="bg-card hover:bg-card/80 text-foreground text-xs font-bold px-3 py-1.5 rounded-xl flex items-center gap-1 transition-all border border-border/60"
+                >
+                  <Plus size={12} />
+                  Add Column
+                </button>
+
+                <button
+                  onClick={handleAddGridRow}
+                  className="bg-card hover:bg-card/80 text-foreground text-xs font-bold px-3 py-1.5 rounded-xl flex items-center gap-1 transition-all border border-border/60"
+                >
+                  <Plus size={12} />
+                  Add Row
+                </button>
+              </div>
+            </div>
+
+            {/* Table View for activeSheet */}
+            <div className="border border-border rounded-3xl overflow-x-auto bg-card shadow-sm">
+              <table className="w-full text-left border-collapse text-xs">
+                <thead>
+                  <tr className="bg-muted/60 border-b border-border">
+                    <th className="p-3 w-10 text-center font-bold text-muted-foreground border-r border-border/40">#</th>
+                    {activeSheet.columns.map((col) => (
+                      <th key={col.id} className="p-3 font-bold border-r border-border/40 min-w-[140px]">
+                        <div className="flex items-center justify-between gap-1">
+                          <input
+                            type="text"
+                            value={col.name}
+                            onChange={(e) => handleRenameColumn(col.id, e.target.value)}
+                            onBlur={() => saveGridToFirestore(gridSheets)}
+                            className="bg-transparent font-bold text-foreground outline-none w-full"
+                          />
+                          {activeSheet.columns.length > 1 && (
+                            <button
+                              onClick={() => handleDeleteColumn(col.id)}
+                              className="text-muted-foreground hover:text-rose-500 p-1 rounded"
+                              title="Delete Column"
+                            >
+                              <X size={12} />
+                            </button>
+                          )}
+                        </div>
+                      </th>
+                    ))}
+                    <th className="p-3 w-12 text-center font-bold text-muted-foreground">Action</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {activeSheet.rows.map((row, rIdx) => (
+                    <tr key={row.id} className="border-b border-border/40 hover:bg-muted/20 transition-colors">
+                      <td className="p-3 text-center font-bold text-muted-foreground border-r border-border/40 bg-muted/20">{rIdx + 1}</td>
+                      {activeSheet.columns.map(col => (
+                        <td key={col.id} className="p-2 border-r border-border/40">
+                          <input
+                            type={col.type === 'number' ? 'number' : 'text'}
+                            value={row[col.id] !== undefined ? row[col.id] : ''}
+                            onChange={(e) => handleCellChange(row.id, col.id, e.target.value)}
+                            placeholder="—"
+                            className="w-full bg-transparent p-1.5 outline-none font-medium text-foreground focus:bg-primary/10 rounded-lg transition-all"
+                          />
+                        </td>
+                      ))}
+                      <td className="p-2 text-center">
+                        <button
+                          onClick={() => handleDeleteGridRow(row.id)}
+                          className="p-1.5 text-muted-foreground hover:text-rose-500 hover:bg-rose-500/10 rounded-lg transition-all"
+                          title="Delete Row"
+                        >
+                          <Trash2 size={13} />
+                        </button>
+                      </td>
+                    </tr>
+                  ))}
+
+                  {/* Column Totals Row */}
+                  <tr className="bg-primary/5 font-extrabold border-t-2 border-primary/20">
+                    <td className="p-3 text-center text-primary border-r border-border/40">Σ</td>
+                    {activeSheet.columns.map(col => {
+                      const numericValues = activeSheet.rows
+                        .map(r => parseFloat(r[col.id]))
+                        .filter(v => !isNaN(v));
+                      const hasNumbers = numericValues.length > 0;
+                      const sum = hasNumbers ? numericValues.reduce((a, b) => a + b, 0) : null;
+
+                      return (
+                        <td key={col.id} className="p-3 border-r border-border/40 text-primary font-bold">
+                          {sum !== null ? `Total: ${sum.toLocaleString()}` : ''}
+                        </td>
+                      );
+                    })}
+                    <td className="p-3" />
+                  </tr>
+                </tbody>
+              </table>
+            </div>
+          </div>
+        )}
+
+        {/* Sub-tab 5: Leads / Sales CRM */}
+        {projectSubTab === 'leads' && (
+          <div className="space-y-6">
+            {/* CRM Metrics Bar */}
+            <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+              <div className="bg-card p-4 rounded-3xl border border-border flex items-center gap-3">
+                <div className="p-3 rounded-2xl bg-primary/10 text-primary">
+                  <Briefcase size={20} />
+                </div>
+                <div>
+                  <p className="text-[10px] uppercase font-bold text-muted-foreground">Pipeline Value</p>
+                  <p className="text-base font-extrabold text-foreground">
+                    {projectLeads.reduce((acc, l) => acc + (Number(l.value) || 0), 0).toLocaleString()}
+                  </p>
+                </div>
+              </div>
+
+              <div className="bg-card p-4 rounded-3xl border border-border flex items-center gap-3">
+                <div className="p-3 rounded-2xl bg-emerald-500/10 text-emerald-500">
+                  <TrendingUp size={20} />
+                </div>
+                <div>
+                  <p className="text-[10px] uppercase font-bold text-muted-foreground">Won Deals</p>
+                  <p className="text-base font-extrabold text-emerald-500">
+                    {projectLeads
+                      .filter(l => l.stage === 'won')
+                      .reduce((acc, l) => acc + (Number(l.value) || 0), 0)
+                      .toLocaleString()}
+                  </p>
+                </div>
+              </div>
+
+              <div className="bg-card p-4 rounded-3xl border border-border flex items-center gap-3">
+                <div className="p-3 rounded-2xl bg-blue-500/10 text-blue-500">
+                  <Users size={20} />
+                </div>
+                <div>
+                  <p className="text-[10px] uppercase font-bold text-muted-foreground">Active Leads</p>
+                  <p className="text-base font-extrabold text-foreground">{projectLeads.length}</p>
+                </div>
+              </div>
+
+              <div className="bg-card p-4 rounded-3xl border border-border flex items-center gap-3">
+                <div className="p-3 rounded-2xl bg-amber-500/10 text-amber-500">
+                  <CheckCircle2 size={20} />
+                </div>
+                <div>
+                  <p className="text-[10px] uppercase font-bold text-muted-foreground">Win Rate</p>
+                  <p className="text-base font-extrabold text-foreground">
+                    {projectLeads.length > 0
+                      ? `${Math.round((projectLeads.filter(l => l.stage === 'won').length / projectLeads.length) * 100)}%`
+                      : '0%'}
+                  </p>
+                </div>
+              </div>
+            </div>
+
+            {/* Lead Pipeline Board Header */}
+            <div className="flex items-center justify-between">
+              <h3 className="font-bold text-base">Sales Lead Pipeline</h3>
+              <button
+                onClick={() => {
+                  setEditingLead(null);
+                  resetLeadForm();
+                  setShowAddLeadModal(true);
+                }}
+                className="bg-primary text-primary-foreground text-xs font-bold px-4 py-2.5 rounded-2xl flex items-center gap-1.5 shadow-md hover:scale-[1.02] transition-all"
+              >
+                <Plus size={16} />
+                Add Lead / Deal
+              </button>
+            </div>
+
+            {/* 6 Stage Kanban Pipeline Columns */}
+            <div className="grid grid-cols-1 md:grid-cols-3 lg:grid-cols-6 gap-3 overflow-x-auto">
+              {[
+                { id: 'new', name: 'New', color: 'border-blue-500/40 text-blue-500 bg-blue-500/10' },
+                { id: 'contacted', name: 'Contacted', color: 'border-cyan-500/40 text-cyan-500 bg-cyan-500/10' },
+                { id: 'qualified', name: 'Qualified', color: 'border-amber-500/40 text-amber-500 bg-amber-500/10' },
+                { id: 'proposal', name: 'Proposal', color: 'border-indigo-500/40 text-indigo-500 bg-indigo-500/10' },
+                { id: 'won', name: 'Won 🎉', color: 'border-emerald-500/40 text-emerald-500 bg-emerald-500/10' },
+                { id: 'lost', name: 'Lost ❌', color: 'border-rose-500/40 text-rose-500 bg-rose-500/10' }
+              ].map(stage => {
+                const stageLeads = projectLeads.filter(l => l.stage === stage.id);
+                const stageValue = stageLeads.reduce((acc, l) => acc + (Number(l.value) || 0), 0);
+
+                return (
+                  <div key={stage.id} className="bg-card p-3 rounded-3xl border border-border space-y-3 min-w-[200px]">
+                    <div className="flex items-center justify-between pb-2 border-b border-border">
+                      <span className={`text-[10px] font-extrabold uppercase px-2 py-0.5 rounded-full ${stage.color}`}>
+                        {stage.name} ({stageLeads.length})
+                      </span>
+                      <span className="text-[10px] font-bold text-muted-foreground">{stageValue > 0 ? stageValue.toLocaleString() : ''}</span>
+                    </div>
+
+                    <div className="space-y-2">
+                      {stageLeads.map(lead => (
+                        <div
+                          key={lead.id}
+                          className="p-3 bg-muted/40 hover:bg-muted/70 border border-border rounded-2xl space-y-2 transition-all"
+                        >
+                          <div className="flex items-start justify-between gap-1">
+                            <h4 className="font-bold text-xs text-foreground">{lead.title}</h4>
+                            <button
+                              onClick={() => handleEditLeadClick(lead)}
+                              className="text-muted-foreground hover:text-primary p-1"
+                            >
+                              <Edit2 size={12} />
+                            </button>
+                          </div>
+
+                          <p className="text-[11px] font-semibold text-foreground">{lead.clientName}</p>
+                          {lead.company && <p className="text-[10px] text-muted-foreground flex items-center gap-1"><Building2 size={10} /> {lead.company}</p>}
+
+                          <div className="pt-2 border-t border-border/40 flex items-center justify-between text-[11px]">
+                            <span className="font-extrabold text-emerald-500">{lead.currency} {lead.value ? lead.value.toLocaleString() : 0}</span>
+                            {lead.assignedToName && <span className="text-[9px] text-muted-foreground">👤 {lead.assignedToName}</span>}
+                          </div>
+
+                          {/* Stage Transition Quick Actions */}
+                          <div className="flex items-center justify-between pt-1 text-[9px] font-bold gap-1">
+                            {stage.id !== 'won' && (
+                              <button
+                                onClick={() => handleUpdateLeadStage(lead.id, 'won')}
+                                className="text-emerald-500 hover:underline"
+                              >
+                                Won ✓
+                              </button>
+                            )}
+                            {stage.id !== 'lost' && (
+                              <button
+                                onClick={() => handleUpdateLeadStage(lead.id, 'lost')}
+                                className="text-rose-500 hover:underline"
+                              >
+                                Lost ✕
+                              </button>
+                            )}
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+          </div>
+        )}
+
+        {/* Sub-tab 6: Members */}
         {projectSubTab === 'members' && (
           <div className="bg-card p-6 rounded-3xl border border-border space-y-6">
             <div className="flex items-center justify-between">
@@ -1193,6 +1964,178 @@ export const Projects: React.FC = () => {
                   </button>
                   <button type="submit" className="flex-1 py-3 bg-primary text-primary-foreground rounded-2xl text-xs font-bold">
                     Create Task
+                  </button>
+                </div>
+              </form>
+            </div>
+          </div>
+        )}
+
+        {/* Modal: Add/Edit Lead */}
+        {showAddLeadModal && (
+          <div className="fixed inset-0 bg-black/60 backdrop-blur-sm z-50 flex items-center justify-center p-4">
+            <div className="bg-card w-full max-w-md rounded-3xl p-6 border border-border space-y-4 animate-in zoom-in-95">
+              <div className="flex items-center justify-between">
+                <h3 className="font-bold text-base">{editingLead ? 'Edit Lead / Deal' : 'Add New Lead / Deal'}</h3>
+                <button onClick={() => setShowAddLeadModal(false)} className="text-muted-foreground hover:bg-muted p-2 rounded-full">
+                  <X size={18} />
+                </button>
+              </div>
+
+              <form onSubmit={handleSaveLead} className="space-y-4">
+                <div>
+                  <label className="text-xs font-bold block mb-1">Deal / Lead Title</label>
+                  <input
+                    type="text"
+                    required
+                    placeholder="E.g. Web App Development Deal"
+                    value={newLeadTitle}
+                    onChange={(e) => setNewLeadTitle(e.target.value)}
+                    className="w-full bg-muted border border-border rounded-2xl p-3 text-xs outline-none focus:ring-2 focus:ring-primary"
+                  />
+                </div>
+
+                <div className="flex gap-3">
+                  <div className="flex-1">
+                    <label className="text-xs font-bold block mb-1">Client Name</label>
+                    <input
+                      type="text"
+                      required
+                      placeholder="John Doe"
+                      value={newLeadClient}
+                      onChange={(e) => setNewLeadClient(e.target.value)}
+                      className="w-full bg-muted border border-border rounded-2xl p-3 text-xs outline-none"
+                    />
+                  </div>
+                  <div className="flex-1">
+                    <label className="text-xs font-bold block mb-1">Company (Optional)</label>
+                    <input
+                      type="text"
+                      placeholder="Acme Corp"
+                      value={newLeadCompany}
+                      onChange={(e) => setNewLeadCompany(e.target.value)}
+                      className="w-full bg-muted border border-border rounded-2xl p-3 text-xs outline-none"
+                    />
+                  </div>
+                </div>
+
+                <div className="flex gap-3">
+                  <div className="flex-[2]">
+                    <label className="text-xs font-bold block mb-1">Deal Value</label>
+                    <input
+                      type="number"
+                      placeholder="50000"
+                      value={newLeadValue}
+                      onChange={(e) => setNewLeadValue(e.target.value)}
+                      className="w-full bg-muted border border-border rounded-2xl p-3 text-xs outline-none font-bold"
+                    />
+                  </div>
+                  <div className="flex-1">
+                    <label className="text-xs font-bold block mb-1">Currency</label>
+                    <input
+                      type="text"
+                      value={newLeadCurrency}
+                      onChange={(e) => setNewLeadCurrency(e.target.value)}
+                      className="w-full bg-muted border border-border rounded-2xl p-3 text-xs outline-none font-bold"
+                    />
+                  </div>
+                </div>
+
+                <div className="flex gap-3">
+                  <div className="flex-1">
+                    <label className="text-xs font-bold block mb-1">Email</label>
+                    <input
+                      type="email"
+                      placeholder="client@acme.com"
+                      value={newLeadEmail}
+                      onChange={(e) => setNewLeadEmail(e.target.value)}
+                      className="w-full bg-muted border border-border rounded-2xl p-3 text-xs outline-none"
+                    />
+                  </div>
+                  <div className="flex-1">
+                    <label className="text-xs font-bold block mb-1">Phone</label>
+                    <input
+                      type="text"
+                      placeholder="+1 234 567 890"
+                      value={newLeadPhone}
+                      onChange={(e) => setNewLeadPhone(e.target.value)}
+                      className="w-full bg-muted border border-border rounded-2xl p-3 text-xs outline-none"
+                    />
+                  </div>
+                </div>
+
+                <div className="flex gap-3">
+                  <div className="flex-1">
+                    <label className="text-xs font-bold block mb-1">Pipeline Stage</label>
+                    <select
+                      value={newLeadStage}
+                      onChange={(e) => setNewLeadStage(e.target.value as any)}
+                      className="w-full bg-muted border border-border rounded-2xl p-3 text-xs outline-none font-bold"
+                    >
+                      <option value="new">New</option>
+                      <option value="contacted">Contacted</option>
+                      <option value="qualified">Qualified</option>
+                      <option value="proposal">Proposal</option>
+                      <option value="won">Won 🎉</option>
+                      <option value="lost">Lost ❌</option>
+                    </select>
+                  </div>
+
+                  <div className="flex-1">
+                    <div className="flex items-center justify-between mb-1">
+                      <label className="text-xs font-bold block">Assignee</label>
+                      {user && (
+                        <button
+                          type="button"
+                          onClick={() => setNewLeadAssignee(user.uid)}
+                          className="text-[10px] font-bold text-primary hover:underline"
+                        >
+                          Assign to me
+                        </button>
+                      )}
+                    </div>
+                    <select
+                      value={newLeadAssignee}
+                      onChange={(e) => setNewLeadAssignee(e.target.value)}
+                      className="w-full bg-muted border border-border rounded-2xl p-3 text-xs outline-none font-bold"
+                    >
+                      <option value="">Unassigned</option>
+                      {user && (
+                        <option value={user.uid}>
+                          👤 Assign to Me ({user.displayName || 'You'})
+                        </option>
+                      )}
+                      {selectedProject.members
+                        .filter(m => m.userId !== user?.uid)
+                        .map(m => (
+                          <option key={m.userId} value={m.userId}>
+                            {m.displayName}
+                          </option>
+                        ))}
+                    </select>
+                  </div>
+                </div>
+
+                <div>
+                  <label className="text-xs font-bold block mb-1">Notes</label>
+                  <textarea
+                    value={newLeadNotes}
+                    onChange={(e) => setNewLeadNotes(e.target.value)}
+                    placeholder="Key discussion points, requirements..."
+                    className="w-full bg-muted border border-border rounded-2xl p-3 text-xs outline-none h-20 resize-none"
+                  />
+                </div>
+
+                <div className="pt-2 flex gap-3">
+                  <button
+                    type="button"
+                    onClick={() => setShowAddLeadModal(false)}
+                    className="flex-1 py-3 bg-muted rounded-2xl text-xs font-bold"
+                  >
+                    Cancel
+                  </button>
+                  <button type="submit" className="flex-1 py-3 bg-primary text-primary-foreground rounded-2xl text-xs font-bold">
+                    {editingLead ? 'Update Lead' : 'Create Lead'}
                   </button>
                 </div>
               </form>

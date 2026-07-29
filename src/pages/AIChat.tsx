@@ -8,6 +8,7 @@ import {
 import { useNavigate } from 'react-router-dom';
 import { useCurrency } from '../contexts/CurrencyContext';
 import { useAuth } from '../contexts/AuthContext';
+import { useApp } from '../contexts/AppContext';
 import { toast } from 'sonner';
 import { v4 as uuidv4 } from 'uuid';
 
@@ -250,6 +251,7 @@ const AIChat: React.FC = () => {
   const navigate = useNavigate();
   const { currency: globalCurrency } = useCurrency();
   const { user } = useAuth();
+  const { userPlan, planLimits } = useApp();
 
   const apiKey = getApiKey() || undefined;
 
@@ -315,6 +317,12 @@ const AIChat: React.FC = () => {
     setShowModelDropdown(false);
     toast.success(`Switched to ${getModelById(modelId)?.name || modelId}`);
   };
+
+  useEffect(() => {
+    if (userPlan === 'standard') {
+      setSelectedModelId('gemma-4-31b');
+    }
+  }, [userPlan]);
 
   // Chat Mode Setting (Thinking vs Fast)
   const [chatMode, setChatMode] = useState<'thinking' | 'fast'>(() => {
@@ -580,6 +588,17 @@ const AIChat: React.FC = () => {
 
   // ── Execute Local Database Query Tools ────────────────────────────────────
   const executeLocalTool = async (name: string, args: any): Promise<any> => {
+    // extra safety net validation
+    const isMutationOp = name.startsWith('add_') || name.startsWith('update_') || name.startsWith('delete_');
+    const isWhatsAppOp = name.includes('whatsapp');
+    
+    if (userPlan === 'standard' && isMutationOp) {
+      return { success: false, error: 'AI Copilot features (mutations) are disabled on the Standard plan. Please upgrade to Pro or Max to enable.' };
+    }
+    if ((userPlan === 'standard' || userPlan === 'pro') && isWhatsAppOp) {
+      return { success: false, error: 'WhatsApp Copilot features are only available on the Max plan. Please upgrade to Max to unlock.' };
+    }
+
     // Check if this is a mutation operation that needs manual approval
     const isMutation = name.startsWith('update_') || name.startsWith('delete_');
     if (isMutation && getApproveMode() === 'manual') {
@@ -904,13 +923,40 @@ const AIChat: React.FC = () => {
     let uploadedUrl = '';
 
     if (hasImage && attachedFile) {
+      if (userPlan === 'standard') {
+        toast.error('Image uploads and receipt parsing are disabled on the Standard plan. Please upgrade to Pro or Max to unlock.');
+        setIsLoading(false);
+        return;
+      }
+
+      // Check Daily Upload Limits for Pro/Max
+      const todayStr = new Date().toISOString().split('T')[0];
+      const savedDate = localStorage.getItem('ai_uploads_date');
+      let uploadCount = Number(localStorage.getItem('ai_uploads_today') || '0');
+      if (savedDate !== todayStr) {
+        uploadCount = 0;
+        localStorage.setItem('ai_uploads_date', todayStr);
+        localStorage.setItem('ai_uploads_today', '0');
+      }
+
+      const maxUploads = planLimits?.maxUploadsPerDay ?? 10;
+      if (maxUploads !== -1 && uploadCount >= maxUploads) {
+        toast.error(`Daily AI upload limit reached (${maxUploads} uploads). Please upgrade your plan for higher limits.`);
+        setIsLoading(false);
+        return;
+      }
+
       setIsUploadingImage(true);
       try {
         uploadedUrl = await uploadToCloudinary(attachedFile, 'ai_receipts');
+        localStorage.setItem('ai_uploads_today', (uploadCount + 1).toString());
         toast.success('Receipt uploaded to cloud!');
       } catch (e: any) {
         console.error('[AIChat] Cloudinary upload failed:', e);
         toast.error(`Cloudinary upload failed: ${e.message || e}`);
+        setIsLoading(false);
+        setIsUploadingImage(false);
+        return;
       } finally {
         setIsUploadingImage(false);
       }
@@ -962,7 +1008,8 @@ const AIChat: React.FC = () => {
           (thoughtChunk) => {
             setStreamingThought(thoughtChunk);
           },
-          chatMode
+          chatMode,
+          userPlan
         );
         lastGeminiRes = geminiRes;
 
@@ -1381,21 +1428,33 @@ const AIChat: React.FC = () => {
 
                   {/* Model Selector Dropdown */}
                   <div className="relative mt-0.5" ref={modelDropdownRef}>
-                    <button
-                      onClick={() => setShowModelDropdown(prev => !prev)}
-                      className="flex items-center gap-1 text-[10px] font-bold uppercase tracking-widest text-muted-foreground hover:text-foreground transition-colors"
-                    >
-                      {snapshotLoading ? (
-                        <><Loader2 size={9} className="animate-spin" /> Syncing data…</>
-                      ) : snapshotError ? (
-                        <span className="text-destructive"><AlertTriangle size={9} className="inline mr-0.5" />Data error</span>
-                      ) : (
-                        <>{getModelById(selectedModelId)?.name || 'Model'} · {snapshot ? new Date(snapshot.generatedAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) : ''}</>
-                      )}
-                      <ChevronDown size={10} />
-                    </button>
+                    {userPlan === 'standard' ? (
+                      <span className="flex items-center gap-1 text-[10px] font-bold uppercase tracking-widest text-muted-foreground/60 cursor-not-allowed">
+                        {snapshotLoading ? (
+                          <><Loader2 size={9} className="animate-spin" /> Syncing data…</>
+                        ) : snapshotError ? (
+                          <span className="text-destructive"><AlertTriangle size={9} className="inline mr-0.5" />Data error</span>
+                        ) : (
+                          <>{getModelById('gemma-4-31b')?.name || 'Gemma 4 31B'} (Standard Lock) · {snapshot ? new Date(snapshot.generatedAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) : ''}</>
+                        )}
+                      </span>
+                    ) : (
+                      <button
+                        onClick={() => setShowModelDropdown(prev => !prev)}
+                        className="flex items-center gap-1 text-[10px] font-bold uppercase tracking-widest text-muted-foreground hover:text-foreground transition-colors"
+                      >
+                        {snapshotLoading ? (
+                          <><Loader2 size={9} className="animate-spin" /> Syncing data…</>
+                        ) : snapshotError ? (
+                          <span className="text-destructive"><AlertTriangle size={9} className="inline mr-0.5" />Data error</span>
+                        ) : (
+                          <>{getModelById(selectedModelId)?.name || 'Model'} · {snapshot ? new Date(snapshot.generatedAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) : ''}</>
+                        )}
+                        <ChevronDown size={10} />
+                      </button>
+                    )}
 
-                    {showModelDropdown && (
+                    {showModelDropdown && userPlan !== 'standard' && (
                       <div className="absolute top-full left-0 mt-1 w-52 bg-card border border-border rounded-xl shadow-xl z-50 py-1.5 animate-in fade-in zoom-in duration-150 origin-top-left">
                         <p className="px-3 py-1 text-[8px] font-bold uppercase tracking-widest text-muted-foreground">Switch Model</p>
                         {models.map(m => {
@@ -1652,7 +1711,7 @@ const AIChat: React.FC = () => {
             <div className="mb-3 p-3 bg-destructive/10 border border-destructive/20 text-destructive rounded-xl text-xs font-semibold flex flex-col sm:flex-row sm:items-center justify-between gap-2">
               <div className="flex items-center gap-2">
                 <AlertTriangle size={14} className="shrink-0" />
-                <span>Gemini API Key is missing. Add <code className="font-mono bg-destructive/10 px-1 rounded">VITE_GEMINI_API_KEY</code> to your <code className="font-mono">.env</code> file or configure a client-side override in Settings.</span>
+                <span>Gemini API Key is missing. Please contact the administrator to assign a Gemini API Key to your account or configure a global fallback key.</span>
               </div>
               <button
                 type="button"

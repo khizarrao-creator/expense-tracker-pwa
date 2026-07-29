@@ -12,8 +12,7 @@ import { toast } from 'sonner';
 import { syncManager } from '../db/SyncManager';
 import ConfirmModal from '../components/ConfirmModal';
 import AdminTransitionOverlay from '../components/AdminTransitionOverlay';
-import { getWhatsAppStatus, logoutWhatsApp, initWhatsApp, type WhatsAppAccount } from '../services/whatsappService';
-import { saveCustomApiKey, clearCustomApiKey, getCustomApiKey, getQuotaUsage, type QuotaStatus } from '../services/ai';
+import { getQuotaUsage, type QuotaStatus } from '../services/ai';
 
 const Settings: React.FC = () => {
   const { currency, setCurrency, currencies } = useCurrency();
@@ -21,7 +20,7 @@ const Settings: React.FC = () => {
   const { theme, setTheme } = useTheme();
   const { forceSync, isSyncing, lastSynced } = useSync();
   const { user, isPro, signOut } = useAuth();
-  const { config: appConfig } = useApp();
+  const { config: appConfig, userPlan, plansConfig, planLimits } = useApp();
 
   const [showClearConfirm, setShowClearConfirm] = useState(false);
   const [showMasterWipeConfirm, setShowMasterWipeConfirm] = useState(false);
@@ -36,16 +35,8 @@ const Settings: React.FC = () => {
   const fileInputRef = useRef<HTMLInputElement>(null);
   const [showAdminTransition, setShowAdminTransition] = useState(false);
 
-  // Custom API Key States
-  const [customApiKey, setCustomApiKey] = useState(() => getCustomApiKey());
-  const [showCustomApiKey, setShowCustomApiKey] = useState(false);
-  const [isSavingApiKey, setIsSavingApiKey] = useState(false);
-
   // AI Quota & Rate Limit States
   const [quotaUsage, setQuotaUsage] = useState<QuotaStatus>(() => getQuotaUsage());
-  const [quotaTier, setQuotaTier] = useState<'free' | 'pay_as_you_go'>(() => {
-    return (localStorage.getItem('ai_quota_tier') as 'free' | 'pay_as_you_go') || 'free';
-  });
 
   // Exchange Settings States
   const [isExchangeSettingsOpen, setIsExchangeSettingsOpen] = useState(false);
@@ -57,12 +48,6 @@ const Settings: React.FC = () => {
   const [testStatus, setTestStatus] = useState<{ success: boolean; message: string } | null>(null);
   const [connectionStatus, setConnectionStatus] = useState<'idle' | 'connected' | 'not_configured'>('idle');
   const [isSavingKeys, setIsSavingKeys] = useState(false);
-
-  // WhatsApp Settings States
-  const [isWhatsAppSettingsOpen, setIsWhatsAppSettingsOpen] = useState(false);
-  const [waAccounts, setWaAccounts] = useState<WhatsAppAccount[]>([]);
-  const [defaultWaAccount, setDefaultWaAccount] = useState<string>('account1');
-  const [loadingWaStatus, setLoadingWaStatus] = useState(false);
 
   // AI Agent Approval Settings States
   const [aiApproveMode, setAiApproveMode] = useState<'auto' | 'manual'>(() => {
@@ -99,81 +84,6 @@ const Settings: React.FC = () => {
     toast.success('Loading conversation session...');
   };
 
-  React.useEffect(() => {
-    const loadDefaultAccount = async () => {
-      const saved = await getConfig('whatsapp_default_account');
-      if (saved) setDefaultWaAccount(saved);
-    };
-    loadDefaultAccount();
-  }, []);
-
-  React.useEffect(() => {
-    if (!isWhatsAppSettingsOpen) return;
-
-    const fetchStatus = async () => {
-      setLoadingWaStatus(true);
-      const res = await getWhatsAppStatus();
-      if (res && res.accounts) {
-        setWaAccounts(res.accounts);
-      }
-      setLoadingWaStatus(false);
-    };
-
-    fetchStatus();
-
-    const interval = setInterval(async () => {
-      const res = await getWhatsAppStatus();
-      if (res && res.accounts) {
-        setWaAccounts(res.accounts);
-      }
-    }, 3000);
-
-    return () => clearInterval(interval);
-  }, [isWhatsAppSettingsOpen]);
-
-  const handleSetDefaultWaAccount = async (accountId: string) => {
-    try {
-      await setConfig('whatsapp_default_account', accountId);
-      setDefaultWaAccount(accountId);
-      toast.success(`Default WhatsApp account set`);
-    } catch (e) {
-      toast.error('Failed to save default account');
-    }
-  };
-
-  const handleDisconnectWa = async (accountId: string) => {
-    if (!confirm('Are you sure you want to unlink this WhatsApp account?')) return;
-    toast.loading('Unlinking device...', { id: 'wa-logout' });
-    const success = await logoutWhatsApp(accountId);
-    toast.dismiss('wa-logout');
-    if (success) {
-      toast.success('WhatsApp account unlinked');
-      const res = await getWhatsAppStatus();
-      if (res && res.accounts) {
-        setWaAccounts(res.accounts);
-      }
-    } else {
-      toast.error('Failed to unlink WhatsApp account');
-    }
-  };
-
-  const [initializingWaId, setInitializingWaId] = useState<string | null>(null);
-
-  const handleInitWa = async (accountId: string) => {
-    setInitializingWaId(accountId);
-    const success = await initWhatsApp(accountId);
-    if (success) {
-      toast.success('Initializing pairing process...');
-      const res = await getWhatsAppStatus();
-      if (res && res.accounts) {
-        setWaAccounts(res.accounts);
-      }
-    } else {
-      toast.error('Failed to start WhatsApp link');
-    }
-    setInitializingWaId(null);
-  };
-
   const handleThemeChange = (newTheme: 'light' | 'dark' | 'eye-comfort' | 'system' | 'system-comfort') => {
     setTheme(newTheme);
     const names = {
@@ -184,16 +94,6 @@ const Settings: React.FC = () => {
       'system-comfort': 'System Light/Comfort'
     };
     toast.success(`${names[newTheme]} theme applied`);
-  };
-
-  const handleTierChange = (tier: 'free' | 'pay_as_you_go') => {
-    localStorage.setItem('ai_quota_tier', tier);
-    setQuotaTier(tier);
-    if (tier === 'pay_as_you_go') {
-      toast.info('Estimates set to Pay-As-You-Go. Note: These limits only apply if your API key is upgraded in Google AI Studio.');
-    } else {
-      toast.success('Estimates configured for Free Tier.');
-    }
   };
 
   React.useEffect(() => {
@@ -355,31 +255,7 @@ const Settings: React.FC = () => {
     }
   };
 
-  const handleSaveApiKey = () => {
-    setIsSavingApiKey(true);
-    try {
-      saveCustomApiKey(customApiKey.trim());
-      toast.success('Gemini API Key override updated');
-    } catch (e) {
-      toast.error('Failed to update API Key');
-    } finally {
-      setIsSavingApiKey(false);
-    }
-  };
 
-  const handleClearApiKey = () => {
-    if (!confirm('Are you sure you want to remove the API Key override?')) return;
-    setIsSavingApiKey(true);
-    try {
-      clearCustomApiKey();
-      setCustomApiKey('');
-      toast.success('API Key override removed. Falling back to default system key.');
-    } catch (e) {
-      toast.error('Failed to remove API Key override');
-    } finally {
-      setIsSavingApiKey(false);
-    }
-  };
 
   const exportCSV = async () => {
     try {
@@ -793,7 +669,7 @@ const Settings: React.FC = () => {
           </button>
 
           <button
-            onClick={() => setIsWhatsAppSettingsOpen(true)}
+            onClick={() => navigate('/whatsapp?tab=settings')}
             className="w-full flex items-center justify-between p-4 rounded-xl border border-border hover:bg-muted transition-colors text-left group"
           >
             <div className="flex items-center gap-3">
@@ -845,54 +721,7 @@ const Settings: React.FC = () => {
             </button>
           </div>
 
-          {/* Client-Side API Key Override */}
-          <div className="pt-4 border-t border-border/50 space-y-3">
-            <div>
-              <label className="block text-xs font-bold uppercase tracking-widest text-muted-foreground mb-2 ml-1">
-                Gemini API Key Client-Side Override
-              </label>
-              <p className="text-xs text-muted-foreground mb-3 leading-relaxed">
-                Provide your own Gemini API Key to run AI features directly in your browser. This overrides any default host key and is stored locally on this device.
-              </p>
-              <div className="flex gap-2">
-                <div className="relative flex-1">
-                  <div className="absolute left-3.5 top-1/2 -translate-y-1/2 text-muted-foreground">
-                    <Key size={16} />
-                  </div>
-                  <input
-                    type={showCustomApiKey ? 'text' : 'password'}
-                    value={customApiKey}
-                    onChange={(e) => setCustomApiKey(e.target.value)}
-                    placeholder="Enter your Gemini API Key..."
-                    className="w-full pl-11 pr-10 py-2.5 bg-background/50 border border-border rounded-xl focus:outline-none focus:ring-2 focus:ring-primary outline-none transition-all text-sm font-mono text-foreground"
-                  />
-                  <button
-                    type="button"
-                    onClick={() => setShowCustomApiKey(!showCustomApiKey)}
-                    className="absolute right-3.5 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground transition-colors"
-                  >
-                    {showCustomApiKey ? <EyeOff size={16} /> : <Eye size={16} />}
-                  </button>
-                </div>
-                <button
-                  onClick={handleSaveApiKey}
-                  disabled={isSavingApiKey}
-                  className="px-5 py-2.5 bg-primary text-primary-foreground rounded-xl font-bold hover:shadow-lg hover:opacity-95 transition-all disabled:opacity-50 text-xs shadow-md shrink-0"
-                >
-                  Save
-                </button>
-                {localStorage.getItem('user_gemini_api_key') && (
-                  <button
-                    onClick={handleClearApiKey}
-                    disabled={isSavingApiKey}
-                    className="px-4 py-2.5 bg-destructive/10 text-destructive rounded-xl font-bold hover:bg-destructive/20 transition-all disabled:opacity-50 text-xs shrink-0"
-                  >
-                    Clear
-                  </button>
-                )}
-              </div>
-            </div>
-          </div>
+
 
           <div className="pt-4 border-t border-border/50">
             <button
@@ -917,174 +746,116 @@ const Settings: React.FC = () => {
         </div>
       </div>
 
-      {/* AI Quota & Rate Limit Tracker Card */}
+      {/* AI Plan Quota Tracker Card */}
       <div className="bg-card p-6 rounded-2xl shadow-sm border border-border space-y-6">
         <div className="flex items-center justify-between border-b border-border pb-4">
           <h2 className="text-lg font-semibold flex items-center gap-2">
-            <LayoutList size={20} className="text-primary" />
-            AI Quota & Rate Limit Tracker
+            <Sparkles size={20} className="text-primary" />
+            AI Plan Quota Tracker
           </h2>
-          <a
-            href="https://aistudio.google.com/rate-limit"
-            target="_blank"
-            rel="noopener noreferrer"
+          <button
+            onClick={() => navigate('/upgrade')}
             className="text-xs text-primary font-bold hover:underline flex items-center gap-1 bg-primary/5 px-2.5 py-1.5 rounded-lg border border-primary/10 transition-all hover:bg-primary/10"
           >
-            Google AI Studio Limits <ChevronRight size={12} />
-          </a>
+            Manage Subscription <ChevronRight size={12} />
+          </button>
         </div>
 
-        {/* Custom description */}
-        <p className="text-xs text-muted-foreground leading-relaxed">
-          Google AI Studio limits are applied per API key. Below is an estimated real-time log of requests made from this browser. Toggle your tier to update the limit thresholds.
-        </p>
+        {/* Current Plan Details */}
+        {(() => {
+          const currentPlan = plansConfig[userPlan] || {
+            name: userPlan.toUpperCase(),
+            price: 0,
+            currency: 'PKR',
+            billingCycle: 'forever',
+            features: [],
+            limits: { aiCallsPerDay: 0, maxTransactions: 10000 },
+            badgeIcon: 'shield',
+            badgeColor: '#6B7280'
+          };
+          
+          const maxCalls = planLimits?.aiCallsPerDay || 0;
+          const isCallsUnlimited = maxCalls === -1;
 
-        {/* Tier Selector Buttons */}
-        <div className="space-y-2">
-          <div className="flex gap-2 p-1 bg-muted/30 rounded-xl border border-border/50">
-            <button
-              type="button"
-              onClick={() => handleTierChange('free')}
-              className={`flex-1 py-2 text-xs font-bold rounded-lg transition-all ${
-                quotaTier === 'free'
-                  ? 'bg-card text-foreground border border-border shadow-sm font-black'
-                  : 'text-muted-foreground hover:text-foreground'
-              }`}
-            >
-              Free Tier
-            </button>
-            <button
-              type="button"
-              onClick={() => handleTierChange('pay_as_you_go')}
-              className={`flex-1 py-2 text-xs font-bold rounded-lg transition-all ${
-                quotaTier === 'pay_as_you_go'
-                  ? 'bg-card text-foreground border border-border shadow-sm font-black'
-                  : 'text-muted-foreground hover:text-foreground'
-              }`}
-            >
-              Pay-As-You-Go
-            </button>
-          </div>
-          {quotaTier === 'pay_as_you_go' && (
-            <p className="text-[10px] text-amber-500 font-semibold px-1 leading-normal flex items-start gap-1">
-              <span>⚠️</span>
-              <span>These limits only apply if you have linked a billing account on Google AI Studio. Otherwise, your requests will still be capped at Free Tier limits.</span>
-            </p>
-          )}
-        </div>
-
-        {/* Limits Metrics progress bars */}
-        <div className="space-y-4">
-          {/* Requests Per Minute (RPM) */}
-          <div className="space-y-1.5">
-            <div className="flex justify-between text-xs font-bold">
-              <span className="text-foreground">Requests Per Minute (RPM)</span>
-              <span className="text-muted-foreground">
-                {quotaUsage.rpm} / {quotaTier === 'free' ? 15 : 1000} requests
-              </span>
-            </div>
-            <div className="h-2 w-full bg-muted/60 rounded-full overflow-hidden border border-border/20">
-              <div
-                className={`h-full transition-all duration-500 rounded-full ${
-                  quotaUsage.rpm >= (quotaTier === 'free' ? 12 : 800)
-                    ? 'bg-red-500 shadow-[0_0_8px_rgba(239,68,68,0.4)]'
-                    : quotaUsage.rpm >= (quotaTier === 'free' ? 8 : 500)
-                    ? 'bg-amber-500 shadow-[0_0_8px_rgba(245,158,11,0.4)]'
-                    : 'bg-primary'
-                }`}
-                style={{
-                  width: `${Math.min(100, (quotaUsage.rpm / (quotaTier === 'free' ? 15 : 1000)) * 100)}%`
-                }}
-              />
-            </div>
-            <p className="text-[10px] text-muted-foreground/80">
-              Sliding 60-second window. Resets automatically.
-            </p>
-          </div>
-
-          {/* Tokens Per Minute (TPM) */}
-          <div className="space-y-1.5">
-            <div className="flex justify-between text-xs font-bold">
-              <span className="text-foreground">Estimated Tokens Per Minute (TPM)</span>
-              <span className="text-muted-foreground">
-                {quotaUsage.tpm.toLocaleString()} / {quotaTier === 'free' ? '1,000,000' : '4,000,000'} TPM
-              </span>
-            </div>
-            <div className="h-2 w-full bg-muted/60 rounded-full overflow-hidden border border-border/20">
-              <div
-                className={`h-full transition-all duration-500 rounded-full ${
-                  quotaUsage.tpm >= (quotaTier === 'free' ? 800000 : 3200000)
-                    ? 'bg-red-500 shadow-[0_0_8px_rgba(239,68,68,0.4)]'
-                    : quotaUsage.tpm >= (quotaTier === 'free' ? 500000 : 2000000)
-                    ? 'bg-amber-500 shadow-[0_0_8px_rgba(245,158,11,0.4)]'
-                    : 'bg-emerald-500'
-                }`}
-                style={{
-                  width: `${Math.min(100, (quotaUsage.tpm / (quotaTier === 'free' ? 1000000 : 4000000)) * 100)}%`
-                }}
-              />
-            </div>
-            <p className="text-[10px] text-muted-foreground/80">
-              Estimated tokens (1 token ≈ 4 characters).
-            </p>
-          </div>
-
-          {/* Requests Per Day (RPD) */}
-          <div className="space-y-1.5">
-            <div className="flex justify-between text-xs font-bold">
-              <span className="text-foreground">Requests Per Day (RPD)</span>
-              <span className="text-muted-foreground">
-                {quotaUsage.rpd} / {quotaTier === 'free' ? 1500 : 'Unlimited'} requests
-              </span>
-            </div>
-            {quotaTier === 'free' ? (
-              <div className="h-2 w-full bg-muted/60 rounded-full overflow-hidden border border-border/20">
-                <div
-                  className={`h-full transition-all duration-500 rounded-full ${
-                    quotaUsage.rpd >= 1200
-                      ? 'bg-red-500 shadow-[0_0_8px_rgba(239,68,68,0.4)]'
-                      : quotaUsage.rpd >= 800
-                      ? 'bg-amber-500 shadow-[0_0_8px_rgba(245,158,11,0.4)]'
-                      : 'bg-indigo-500'
-                  }`}
-                  style={{
-                    width: `${Math.min(100, (quotaUsage.rpd / 1500) * 100)}%`
-                  }}
-                />
+          return (
+            <div className="space-y-6">
+              <div className="flex items-center justify-between p-4 bg-muted/30 border border-border/50 rounded-2xl">
+                <div className="flex items-center gap-3">
+                  <div 
+                    className="w-10 h-10 rounded-xl flex items-center justify-center text-white font-bold"
+                    style={{ backgroundColor: currentPlan.badgeColor || '#3B82F6' }}
+                  >
+                    <Sparkles size={20} />
+                  </div>
+                  <div>
+                    <h3 className="font-bold text-sm text-foreground flex items-center gap-2">
+                      {currentPlan.name} Plan
+                      <span className="text-[10px] uppercase font-bold px-2 py-0.5 rounded-full bg-primary/10 text-primary border border-primary/20">
+                        Active
+                      </span>
+                    </h3>
+                    <p className="text-xs text-muted-foreground mt-0.5">
+                      {currentPlan.price > 0 ? `${currentPlan.price} ${currentPlan.currency} / ${currentPlan.billingCycle}` : 'Free Forever'}
+                    </p>
+                  </div>
+                </div>
+                
+                <div className="text-right">
+                  <span className="text-xs font-bold text-muted-foreground uppercase block tracking-wider">Transaction Limit</span>
+                  <span className="text-sm font-black text-foreground">
+                    {currentPlan.limits?.maxTransactions === -1 ? 'Unlimited' : `${currentPlan.limits?.maxTransactions?.toLocaleString()}`}
+                  </span>
+                </div>
               </div>
-            ) : (
-              <div className="h-2 w-full bg-muted/30 border border-dashed border-border rounded-full flex items-center justify-center text-[9px] text-muted-foreground font-bold">
-                No Daily Cap on Pay-As-You-Go
-              </div>
-            )}
-            <p className="text-[10px] text-muted-foreground/80">
-              Resets at midnight local time.
-            </p>
-          </div>
-        </div>
 
-        {/* Reference Rates Table */}
-        <div className="bg-muted/20 border border-border rounded-xl p-4 space-y-3">
-          <h3 className="text-xs font-bold text-foreground">Standard AI Studio Rate Limits (Free Tier)</h3>
-          <div className="text-[11px] leading-relaxed space-y-2 text-muted-foreground">
-            <div className="flex justify-between border-b border-border/30 pb-1.5">
-              <span className="font-semibold text-foreground">Gemini 2.5 Flash</span>
-              <span>15 RPM / 1M TPM / 1,500 RPD</span>
+              {/* Progress Bar for Daily AI Calls */}
+              <div className="space-y-2">
+                <div className="flex justify-between text-xs font-bold">
+                  <span className="text-foreground">Daily AI Copilot Calls</span>
+                  <span className="text-muted-foreground">
+                    {isCallsUnlimited 
+                      ? `${quotaUsage.rpd} / Unlimited calls` 
+                      : `${quotaUsage.rpd} / ${maxCalls} calls`
+                    }
+                  </span>
+                </div>
+                
+                {maxCalls > 0 ? (
+                  <div className="h-2.5 w-full bg-muted/60 rounded-full overflow-hidden border border-border/20">
+                    <div
+                      className={`h-full transition-all duration-500 rounded-full ${
+                        !isCallsUnlimited && quotaUsage.rpd >= maxCalls * 0.8
+                          ? 'bg-red-500 shadow-[0_0_8px_rgba(239,68,68,0.4)]'
+                          : !isCallsUnlimited && quotaUsage.rpd >= maxCalls * 0.5
+                          ? 'bg-amber-500 shadow-[0_0_8px_rgba(245,158,11,0.4)]'
+                          : 'bg-primary'
+                      }`}
+                      style={{
+                        width: `${isCallsUnlimited ? 100 : Math.min(100, (quotaUsage.rpd / maxCalls) * 100)}%`
+                      }}
+                    />
+                  </div>
+                ) : (
+                  <div className="bg-destructive/5 border border-destructive/15 p-4 rounded-xl space-y-3 text-center">
+                    <p className="text-xs text-destructive font-semibold">
+                      AI Copilot is disabled on the Standard Plan.
+                    </p>
+                    <button
+                      onClick={() => navigate('/upgrade')}
+                      className="px-4 py-2 bg-destructive/10 hover:bg-destructive/20 text-destructive text-xs font-bold rounded-xl transition-all"
+                    >
+                      Upgrade Subscription to Unlock
+                    </button>
+                  </div>
+                )}
+                
+                <p className="text-[10px] text-muted-foreground/80 leading-normal">
+                  Daily quota resets automatically at midnight local time.
+                </p>
+              </div>
             </div>
-            <div className="flex justify-between border-b border-border/30 pb-1.5">
-              <span className="font-semibold text-foreground">Gemini 3.1 Flash Lite</span>
-              <span>30 RPM / 1M TPM / 1,500 RPD</span>
-            </div>
-            <div className="flex justify-between border-b border-border/30 pb-1.5">
-              <span className="font-semibold text-foreground">Gemini 3.5 Pro</span>
-              <span>2 RPM / 32K TPM / 50 RPD</span>
-            </div>
-            <div className="flex justify-between">
-              <span className="font-semibold text-foreground">Gemma 2 (All versions)</span>
-              <span>15 RPM / 1M TPM / 1,500 RPD</span>
-            </div>
-          </div>
-        </div>
+          );
+        })()}
       </div>
 
       <div className="bg-card p-6 rounded-2xl shadow-sm border border-border">
@@ -1441,124 +1212,7 @@ const Settings: React.FC = () => {
         </div>
       )}
 
-      {/* WhatsApp Connections Modal */}
-      {isWhatsAppSettingsOpen && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/80 backdrop-blur-sm animate-in fade-in duration-300">
-          <div className="bg-card w-full max-w-lg rounded-3xl p-6 border border-border shadow-2xl space-y-6 animate-in zoom-in duration-300 relative max-h-[90vh] overflow-y-auto">
-            <div className="flex justify-between items-center pb-4 border-b border-border">
-              <div>
-                <h2 className="text-xl font-bold">WhatsApp Linked Devices</h2>
-                <p className="text-xs text-muted-foreground">Link and manage up to 3 accounts to send in-system reminders</p>
-              </div>
-              <button
-                onClick={() => setIsWhatsAppSettingsOpen(false)}
-                className="p-2 text-muted-foreground hover:bg-muted rounded-full transition-colors"
-              >
-                <X size={20} />
-              </button>
-            </div>
 
-            {loadingWaStatus && waAccounts.length === 0 ? (
-              <div className="py-8 text-center space-y-2">
-                <div className="w-8 h-8 border-4 border-primary border-t-transparent rounded-full animate-spin mx-auto"></div>
-                <p className="text-xs text-muted-foreground">Checking connection status...</p>
-              </div>
-            ) : (
-              <div className="space-y-4">
-                {waAccounts.map((acc) => {
-                  const isDefault = defaultWaAccount === acc.id;
-
-                  return (
-                    <div key={acc.id} className="p-4 bg-muted/20 border border-border rounded-2xl space-y-3">
-                      <div className="flex items-center justify-between">
-                        <div className="flex items-center gap-2">
-                          <MessageSquare className={acc.status === 'connected' ? 'text-emerald-500' : 'text-muted-foreground'} size={18} />
-                          <div>
-                            <span className="text-sm font-bold block text-foreground">{acc.name}</span>
-                            <span className="text-[10px] text-muted-foreground font-mono uppercase">{acc.id}</span>
-                          </div>
-                        </div>
-                        <div className="flex items-center gap-2">
-                          <span className={`px-2 py-0.5 rounded text-[9px] font-black uppercase tracking-wider ${acc.status === 'connected' ? 'bg-emerald-500/10 text-emerald-500' :
-                            acc.status === 'qr' ? 'bg-amber-500/10 text-amber-500' :
-                              acc.status === 'connecting' ? 'bg-blue-500/10 text-blue-500' :
-                                'bg-muted text-muted-foreground'
-                            }`}>
-                            {acc.status === 'connected' ? 'Connected' :
-                              acc.status === 'qr' ? 'Action Required' :
-                                acc.status === 'connecting' ? 'Connecting...' :
-                                  'Disconnected'}
-                          </span>
-                        </div>
-                      </div>
-
-                      {/* Display QR code if pairing is required */}
-                      {acc.status === 'qr' && acc.qrCodeUrl && (
-                        <div className="flex flex-col items-center justify-center p-4 bg-white rounded-xl border border-border shadow-sm">
-                          <img src={acc.qrCodeUrl} alt="WhatsApp QR Code" className="w-48 h-48" />
-                          <p className="text-[10px] text-black font-semibold mt-2 text-center">
-                            Open WhatsApp on your phone → Linked Devices → Link a Device.
-                          </p>
-                          <p className="text-[9px] text-muted-foreground text-center mt-1">
-                            The QR code will automatically refresh as scanned.
-                          </p>
-                        </div>
-                      )}
-
-                      {acc.status === 'connecting' && (
-                        <div className="py-2 text-center text-xs text-muted-foreground animate-pulse">
-                          Establishing connection with WhatsApp servers...
-                        </div>
-                      )}
-
-                      <div className="flex items-center justify-between pt-2 border-t border-border/40">
-                        {acc.status === 'connected' ? (
-                          <>
-                            <button
-                              onClick={() => handleSetDefaultWaAccount(acc.id)}
-                              className={`flex items-center gap-1.5 text-xs font-bold px-3 py-1.5 rounded-lg border transition-all ${isDefault
-                                ? 'bg-primary/10 border-primary text-primary'
-                                : 'bg-muted border-transparent text-muted-foreground hover:bg-muted/80'
-                                }`}
-                            >
-                              {isDefault ? '✓ Default Account' : 'Set as Default'}
-                            </button>
-                            <button
-                              onClick={() => handleDisconnectWa(acc.id)}
-                              className="text-xs font-bold text-destructive hover:bg-destructive/10 px-3 py-1.5 rounded-lg transition-colors border border-transparent hover:border-destructive/10"
-                            >
-                              Disconnect Device
-                            </button>
-                          </>
-                        ) : (
-                          <div className="w-full flex items-center justify-between gap-4">
-                            <span className="text-[10px] text-muted-foreground leading-normal italic">
-                              {acc.status === 'qr' ? 'Scan the QR code above using your phone to link.' : 'Account is currently unlinked.'}
-                            </span>
-                            {acc.status === 'disconnected' && (
-                              <button
-                                onClick={() => handleInitWa(acc.id)}
-                                disabled={initializingWaId !== null}
-                                className="px-3 py-1.5 bg-emerald-500 hover:bg-emerald-600 disabled:opacity-50 text-white font-bold rounded-lg text-[10px] transition-colors shrink-0"
-                              >
-                                {initializingWaId === acc.id ? 'Generating...' : 'Generate QR Code'}
-                              </button>
-                            )}
-                          </div>
-                        )}
-                      </div>
-                    </div>
-                  );
-                })}
-              </div>
-            )}
-
-            <p className="text-[10px] text-center text-muted-foreground italic leading-normal">
-              Note: Linking your personal device relies on WhatsApp Web multi-device mode. Accounts will automatically stay connected in the background.
-            </p>
-          </div>
-        </div>
-      )}
 
       {isLogsOpen && (
         <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/80 backdrop-blur-sm animate-in fade-in duration-300">

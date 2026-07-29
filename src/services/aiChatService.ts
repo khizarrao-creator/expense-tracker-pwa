@@ -710,13 +710,43 @@ const AGENT_TOOLS = [
   }
 ];
 
+export const getToolsForPlan = (plan: string = 'standard') => {
+  const allDeclarations = AGENT_TOOLS[0].functionDeclarations;
+  
+  let filtered = allDeclarations;
+  if (plan === 'standard') {
+    // Standard: Read-only tools only. No mutations, no WhatsApp.
+    const allowedNames = [
+      'get_transactions',
+      'get_categories',
+      'get_loans',
+      'get_loan_parties'
+    ];
+    filtered = allDeclarations.filter(tool => allowedNames.includes(tool.name));
+  } else if (plan === 'pro') {
+    // Pro: All ledger tools. No WhatsApp.
+    filtered = allDeclarations.filter(tool => !tool.name.includes('whatsapp'));
+  } else {
+    // Max: All tools.
+    filtered = allDeclarations;
+  }
+  
+  if (filtered.length === 0) return undefined;
+  return [
+    {
+      functionDeclarations: filtered
+    }
+  ];
+};
+
 export const sendToGemini = async (
   messages: ChatMessage[],
   snapshot: FinancialSnapshot,
   currencyCode: string,
   currencySymbol: string,
   _apiKey?: string,
-  mode?: 'thinking' | 'fast'
+  mode?: 'thinking' | 'fast',
+  userPlan?: string
 ): Promise<GeminiResponse> => {
   const systemInstruction = buildSystemInstruction(snapshot, currencyCode, currencySymbol);
   const modelChain = buildModelChain();
@@ -767,7 +797,10 @@ export const sendToGemini = async (
 
       if (!isGemma) {
         body.systemInstruction = { parts: [{ text: systemInstruction }] };
-        body.tools = AGENT_TOOLS;
+        const planTools = getToolsForPlan(userPlan);
+        if (planTools) {
+          body.tools = planTools;
+        }
         body.generationConfig.thinkingConfig = {
           thinkingBudget: mode === 'fast' ? 0 : 2048
         };
@@ -934,7 +967,8 @@ export const sendToGeminiStream = async (
   onChunk: (text: string) => void,
   _apiKey?: string,
   onThoughtChunk?: (text: string) => void,
-  mode?: 'thinking' | 'fast'
+  mode?: 'thinking' | 'fast',
+  userPlan?: string
 ): Promise<GeminiResponse> => {
   const systemInstruction = buildSystemInstruction(snapshot, currencyCode, currencySymbol);
   const modelChain = buildModelChain();
@@ -985,7 +1019,10 @@ export const sendToGeminiStream = async (
 
       if (!isGemma) {
         body.systemInstruction = { parts: [{ text: systemInstruction }] };
-        body.tools = AGENT_TOOLS;
+        const planTools = getToolsForPlan(userPlan);
+        if (planTools) {
+          body.tools = planTools;
+        }
         body.generationConfig.thinkingConfig = {
           thinkingBudget: mode === 'fast' ? 0 : 2048
         };

@@ -1,5 +1,6 @@
 /* eslint-disable react-hooks/exhaustive-deps */
 import React, { useState, useEffect, useRef, useCallback } from 'react';
+import { useSearchParams } from 'react-router-dom';
 import { 
   Search, 
   Send, 
@@ -40,7 +41,14 @@ import {
 import { addLoanParty, getLoanParties, type LoanParty } from '../db/queries';
 
 const WhatsApp: React.FC = () => {
-  const [activeTab, setActiveTab] = useState<'chats' | 'statuses' | 'settings'>('chats');
+  const [searchParams] = useSearchParams();
+  const [activeTab, setActiveTab] = useState<'chats' | 'statuses' | 'settings'>(() => {
+    const tab = searchParams.get('tab');
+    if (tab === 'chats' || tab === 'statuses' || tab === 'settings') {
+      return tab;
+    }
+    return 'chats';
+  });
   const [accounts, setAccounts] = useState<WhatsAppAccount[]>([
     { id: 'account1', name: 'Primary Account', status: 'disconnected', qrCodeUrl: null, hasCreds: false },
     { id: 'account2', name: 'Secondary Account', status: 'disconnected', qrCodeUrl: null, hasCreds: false },

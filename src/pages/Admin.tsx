@@ -693,7 +693,7 @@ const Admin: React.FC = () => {
       
       const enteredHash = await hashPassword(password.trim());
       
-      if (username.trim() === dbUsername && enteredHash === dbPasswordHash) {
+      if (username.trim().toLowerCase() === dbUsername.toLowerCase() && enteredHash === dbPasswordHash) {
         setAdminUsername(dbUsername);
         setIsAuthorized(true);
         localStorage.setItem('admin_authorized', 'true');

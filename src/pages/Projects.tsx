@@ -573,6 +573,43 @@ export const Projects: React.FC = () => {
     }
   };
 
+  const handleAssignTaskToMe = async (task: ProjectTask, e: React.MouseEvent) => {
+    e.stopPropagation();
+    if (!user || !selectedProject) return;
+
+    try {
+      const userMemberObj = selectedProject.members.find(m => m.userId === user.uid);
+      const assigneeName = userMemberObj?.displayName || user.displayName || user.email || 'You';
+
+      await updateDoc(doc(db, `projects/${selectedProject.id}/tasks`, task.id), {
+        assignedTo: user.uid,
+        assignedToName: assigneeName
+      });
+
+      // Also add to local SQLite task manager
+      try {
+        await addSqliteTask(
+          `[${selectedProject.name}] ${task.title}`,
+          task.description || '',
+          task.status,
+          null,
+          null,
+          0,
+          5,
+          task.priority,
+          'Work',
+          task.id
+        );
+      } catch (sqliteErr) {
+        console.warn('SQLite task sync warning:', sqliteErr);
+      }
+
+      toast.success('Task assigned to you');
+    } catch (err) {
+      toast.error('Failed to assign task');
+    }
+  };
+
   const handleSaveWhiteboard = async () => {
     if (!selectedProject) return;
     setIsSavingWhiteboard(true);
@@ -827,7 +864,17 @@ export const Projects: React.FC = () => {
                         </div>
                         {t.description && <p className="text-[11px] text-muted-foreground line-clamp-2">{t.description}</p>}
                         <div className="flex items-center justify-between pt-2 border-t border-border/40 text-[10px] text-muted-foreground">
-                          <span>{t.assignedToName ? `👤 ${t.assignedToName}` : 'Unassigned'}</span>
+                          <div className="flex items-center gap-1.5 flex-wrap">
+                            <span>{t.assignedToName ? `👤 ${t.assignedToName}` : 'Unassigned'}</span>
+                            {t.assignedTo !== user?.uid && (
+                              <button
+                                onClick={(e) => handleAssignTaskToMe(t, e)}
+                                className="text-[9px] font-bold text-primary hover:underline px-1.5 py-0.5 rounded bg-primary/10 transition-all"
+                              >
+                                Assign to me
+                              </button>
+                            )}
+                          </div>
                           <span className="font-bold text-primary">Start →</span>
                         </div>
                       </div>
@@ -860,7 +907,17 @@ export const Projects: React.FC = () => {
                         </div>
                         {t.description && <p className="text-[11px] text-muted-foreground line-clamp-2">{t.description}</p>}
                         <div className="flex items-center justify-between pt-2 border-t border-blue-500/20 text-[10px] text-muted-foreground">
-                          <span>{t.assignedToName ? `👤 ${t.assignedToName}` : 'Unassigned'}</span>
+                          <div className="flex items-center gap-1.5 flex-wrap">
+                            <span>{t.assignedToName ? `👤 ${t.assignedToName}` : 'Unassigned'}</span>
+                            {t.assignedTo !== user?.uid && (
+                              <button
+                                onClick={(e) => handleAssignTaskToMe(t, e)}
+                                className="text-[9px] font-bold text-primary hover:underline px-1.5 py-0.5 rounded bg-primary/10 transition-all"
+                              >
+                                Assign to me
+                              </button>
+                            )}
+                          </div>
                           <span className="font-bold text-emerald-500">Complete ✓</span>
                         </div>
                       </div>
@@ -890,7 +947,17 @@ export const Projects: React.FC = () => {
                           <CheckCircle2 size={14} className="text-emerald-500 shrink-0" />
                         </div>
                         <div className="flex items-center justify-between pt-2 border-t border-border/40 text-[10px] text-muted-foreground">
-                          <span>{t.assignedToName ? `👤 ${t.assignedToName}` : 'Unassigned'}</span>
+                          <div className="flex items-center gap-1.5 flex-wrap">
+                            <span>{t.assignedToName ? `👤 ${t.assignedToName}` : 'Unassigned'}</span>
+                            {t.assignedTo !== user?.uid && (
+                              <button
+                                onClick={(e) => handleAssignTaskToMe(t, e)}
+                                className="text-[9px] font-bold text-primary hover:underline px-1.5 py-0.5 rounded bg-primary/10 transition-all"
+                              >
+                                Assign to me
+                              </button>
+                            )}
+                          </div>
                           <span>Reopen ↺</span>
                         </div>
                       </div>
@@ -1082,18 +1149,36 @@ export const Projects: React.FC = () => {
                   </div>
 
                   <div className="flex-1">
-                    <label className="text-xs font-bold block mb-1">Assign To</label>
+                    <div className="flex items-center justify-between mb-1">
+                      <label className="text-xs font-bold block">Assign To</label>
+                      {user && (
+                        <button
+                          type="button"
+                          onClick={() => setNewTaskAssignee(user.uid)}
+                          className="text-[10px] font-bold text-primary hover:underline"
+                        >
+                          Assign to me
+                        </button>
+                      )}
+                    </div>
                     <select
                       value={newTaskAssignee}
                       onChange={(e) => setNewTaskAssignee(e.target.value)}
                       className="w-full bg-muted border border-border rounded-2xl p-3 text-xs outline-none font-bold"
                     >
                       <option value="">Unassigned</option>
-                      {selectedProject.members.map(m => (
-                        <option key={m.userId} value={m.userId}>
-                          {m.displayName}
+                      {user && (
+                        <option value={user.uid}>
+                          👤 Assign to Me ({user.displayName || 'You'})
                         </option>
-                      ))}
+                      )}
+                      {selectedProject.members
+                        .filter(m => m.userId !== user?.uid)
+                        .map(m => (
+                          <option key={m.userId} value={m.userId}>
+                            {m.displayName}
+                          </option>
+                        ))}
                     </select>
                   </div>
                 </div>

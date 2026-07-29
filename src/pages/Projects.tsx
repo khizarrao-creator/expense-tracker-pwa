@@ -246,7 +246,7 @@ const RichTextWhiteboard: React.FC<{
 
 export const Projects: React.FC = () => {
   const { user } = useAuth();
-  const { isSidebarHidden, setIsSidebarHidden } = useApp();
+  const { isSidebarHidden, setIsSidebarHidden, config } = useApp();
 
   useEffect(() => {
     return () => {
@@ -1507,7 +1507,7 @@ export const Projects: React.FC = () => {
             ) : (
               <div className="w-full h-[550px] border border-border rounded-3xl overflow-hidden bg-card relative">
                 {TldrawComponent ? (
-                  <TldrawComponent />
+                  <TldrawComponent licenseKey={config.tldrawLicenseKey || import.meta.env.VITE_TLDRAW_LICENSE_KEY || ''} />
                 ) : (
                   <div className="flex flex-col items-center justify-center h-full space-y-4 p-8 text-center">
                     <Palette size={48} className="text-primary animate-pulse" />

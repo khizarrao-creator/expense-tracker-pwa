@@ -34,6 +34,7 @@ export interface GlobalConfig {
   fallbackModelId?: string;
   globalSystemInstruction?: string;
   exchangeRate?: number; // USD to PKR rate: e.g. 280 (1 USD = 280 PKR)
+  tldrawLicenseKey?: string;
 }
 
 interface AppContextType {

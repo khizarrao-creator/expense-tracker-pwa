@@ -153,6 +153,7 @@ interface GlobalConfig {
   fallbackApiKey?: string;
   fallbackModelId?: string;
   globalSystemInstruction?: string;
+  tldrawLicenseKey?: string;
 }
 
 interface SystemStats {
@@ -380,7 +381,8 @@ const Admin: React.FC = () => {
     ],
     fallbackApiKey: '',
     fallbackModelId: 'gemini-2.5-flash',
-    globalSystemInstruction: ''
+    globalSystemInstruction: '',
+    tldrawLicenseKey: ''
   });
 
   const [hasBackup, setHasBackup] = useState(false);
@@ -2348,6 +2350,17 @@ const Admin: React.FC = () => {
                         <option value="gemini-robotics-er-1.6-preview">Gemini Robotics ER 1.6 Preview</option>
                       </select>
                     </div>
+                  </div>
+
+                  <div className="space-y-1">
+                    <label className="text-[10px] font-bold uppercase text-muted-foreground ml-1">Tldraw Production License Key</label>
+                    <input
+                      type="text"
+                      value={globalSettings.tldrawLicenseKey || ''}
+                      onChange={(e) => setGlobalSettings({ ...globalSettings, tldrawLicenseKey: e.target.value })}
+                      placeholder="Enter tldraw license key for production..."
+                      className="w-full bg-muted border-none rounded-xl p-3 outline-none focus:ring-2 focus:ring-primary text-xs font-semibold"
+                    />
                   </div>
 
                   <div className="space-y-1">

@@ -1,21 +1,6 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { useAuth } from '../contexts/AuthContext';
-import { db } from '../firebase';
-import {
-  collection,
-  doc,
-  getDocs,
-  getDoc,
-  setDoc,
-  updateDoc,
-  addDoc,
-  deleteDoc,
-  onSnapshot,
-  query,
-  where,
-  orderBy,
-  serverTimestamp
-} from 'firebase/firestore';
+import { supabase, isSupabaseConfigured } from '../supabase';
 import {
   FolderKanban,
   Plus,
@@ -101,7 +86,7 @@ export interface ProjectTask {
   projectId: string;
   title: string;
   description: string;
-  status: 'pending' | 'in_progress' | 'completed';
+  status: 'pending' | 'in_progress' | 'completed' | 'in-progress' | 'done';
   priority: 'low' | 'medium' | 'high';
   assignedTo: string | null;
   assignedToName: string | null;
@@ -317,148 +302,208 @@ export const Projects: React.FC = () => {
   const [newLeadNotes, setNewLeadNotes] = useState('');
 
   useEffect(() => {
-    if (!user) return;
-
-    // Listen to projects where user is a member
-    const qProjects = collection(db, 'projects');
-    const unsubProjects = onSnapshot(qProjects, (snapshot) => {
-      const allList = snapshot.docs.map(docSnap => ({
-        id: docSnap.id,
-        ...docSnap.data()
-      } as Project));
-
-      // Filter projects where user.uid is in members list
-      const userProjects = allList.filter(p =>
-        p.members && p.members.some(m => m.userId === user.uid && m.status === 'active')
-      );
-      setProjects(userProjects);
+    if (!user || !isSupabaseConfigured) {
       setLoading(false);
-    });
+      return;
+    }
 
-    // Listen to pending invites for current user
-    const qInvites = query(
-      collection(db, 'project_invites'),
-      where('invitedUserId', '==', user.uid),
-      where('status', '==', 'pending')
-    );
-    const unsubInvites = onSnapshot(qInvites, (snapshot) => {
-      const list = snapshot.docs.map(docSnap => ({
-        id: docSnap.id,
-        ...docSnap.data()
-      } as ProjectInvite));
-      setInvites(list);
-    });
+    const loadProjectsAndInvites = async () => {
+      // 1. Fetch projects where user is owner or member
+      const { data: memberRows } = await supabase.from('project_members').select('project_id').eq('user_id', user.uid);
+      const memberProjIds = (memberRows || []).map(r => r.project_id);
 
-    return () => {
-      unsubProjects();
-      unsubInvites();
+      if (memberProjIds.length > 0) {
+        const { data: projs } = await supabase.from('projects').select('*').in('id', memberProjIds);
+        const { data: members } = await supabase.from('project_members').select('*').in('project_id', memberProjIds);
+
+        const projectList: Project[] = (projs || []).map(p => {
+          const pMembers = (members || []).filter(m => m.project_id === p.id).map(m => ({
+            userId: m.user_id,
+            email: m.email,
+            displayName: m.display_name || m.email,
+            photoURL: m.photo_url || '',
+            role: m.role || 'member',
+            joinedAt: m.joined_at,
+            status: 'active' as const
+          }));
+
+          return {
+            id: p.id,
+            name: p.name,
+            description: p.description || '',
+            createdBy: p.owner_id,
+            createdByName: 'Owner',
+            createdAt: p.created_at,
+            updatedAt: p.updated_at,
+            status: 'active',
+            whiteboardText: '',
+            members: pMembers
+          };
+        });
+
+        setProjects(projectList);
+      } else {
+        setProjects([]);
+      }
+
+      // 2. Fetch pending invites
+      const { data: inviteRows } = await supabase
+        .from('project_invites')
+        .select('*')
+        .eq('invited_email', user.email || '')
+        .eq('status', 'pending');
+
+      setInvites((inviteRows || []).map(i => ({
+        id: i.id,
+        projectId: i.project_id,
+        projectName: i.project_name || 'Project',
+        invitedBy: i.invited_by,
+        invitedByName: i.invited_by_name || 'Lead',
+        invitedUserId: user.uid,
+        invitedUserEmail: i.invited_email,
+        role: 'member',
+        status: 'pending',
+        createdAt: i.created_at
+      })));
+
+      setLoading(false);
     };
+
+    loadProjectsAndInvites();
+
+    const projChannel = supabase.channel(`user-projects-${user.uid}`)
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'projects' }, () => loadProjectsAndInvites())
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'project_members' }, () => loadProjectsAndInvites())
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'project_invites' }, () => loadProjectsAndInvites())
+      .subscribe();
+
+    return () => { supabase.removeChannel(projChannel); };
   }, [user]);
 
-  // Real-time listener for tasks, whiteboard, grid, & leads when project is selected
+  // Real-time listener for tasks, grid, & leads when project is selected
   useEffect(() => {
-    if (!selectedProject) return;
+    if (!selectedProject || !isSupabaseConfigured) return;
 
-    // Refresh selected project details
-    const unsubProjDoc = onSnapshot(doc(db, 'projects', selectedProject.id), (docSnap) => {
-      if (docSnap.exists()) {
-        const updated = { id: docSnap.id, ...docSnap.data() } as Project;
-        setSelectedProject(updated);
-        setWhiteboardHtml(updated.whiteboardText || '');
-      }
-    });
+    const loadProjectSubItems = async () => {
+      // 1. Fetch tasks
+      const { data: taskRows } = await supabase
+        .from('project_tasks')
+        .select('*')
+        .eq('project_id', selectedProject.id)
+        .order('created_at', { ascending: false });
 
-    // Listen to project tasks
-    const qTasks = query(
-      collection(db, `projects/${selectedProject.id}/tasks`),
-      orderBy('createdAt', 'desc')
-    );
-    const unsubTasks = onSnapshot(qTasks, (snapshot) => {
-      const list = snapshot.docs.map(docSnap => ({
-        id: docSnap.id,
-        ...docSnap.data()
-      } as ProjectTask));
-      setProjectTasks(list);
-    });
+      setProjectTasks((taskRows || []).map(t => ({
+        id: t.id,
+        projectId: t.project_id,
+        title: t.title,
+        description: t.description || '',
+        status: t.status as any,
+        priority: t.priority as any,
+        assignedTo: t.assigned_to,
+        assignedToName: t.assigned_name,
+        createdBy: t.created_by,
+        createdByName: 'User',
+        dueDate: t.due_date,
+        createdAt: t.created_at
+      })));
 
-    // Listen to grid data (multi-sheet compatible)
-    const unsubGrid = onSnapshot(doc(db, `projects/${selectedProject.id}/grid`, 'main'), (docSnap) => {
-      if (docSnap.exists()) {
-        const data = docSnap.data();
-        if (data.sheets && data.sheets.length > 0) {
-          setGridSheets(data.sheets);
-          if (!data.sheets.some((s: any) => s.id === activeSheetId)) {
-            setActiveSheetId(data.sheets[0].id);
-          }
-        } else if (data.columns && data.rows) {
-          const legacySheet: ProjectGridSheet = {
-            id: 'sheet_1',
-            name: 'Sheet 1',
-            columns: data.columns,
-            rows: data.rows
-          };
-          setGridSheets([legacySheet]);
-          setActiveSheetId('sheet_1');
+      // 2. Fetch Grid sheets
+      const { data: sheetRows } = await supabase
+        .from('grid_sheets')
+        .select('*')
+        .eq('project_id', selectedProject.id)
+        .order('sheet_order', { ascending: true });
+
+      if (sheetRows && sheetRows.length > 0) {
+        const sheets: ProjectGridSheet[] = sheetRows.map(s => ({
+          id: s.id,
+          name: s.sheet_name,
+          columns: s.columns || [],
+          rows: s.rows || []
+        }));
+        setGridSheets(sheets);
+        if (!sheets.some(s => s.id === activeSheetId)) {
+          setActiveSheetId(sheets[0].id);
         }
       }
-    });
 
-    // Listen to project leads
-    const qLeads = query(
-      collection(db, `projects/${selectedProject.id}/leads`),
-      orderBy('createdAt', 'desc')
-    );
-    const unsubLeads = onSnapshot(qLeads, (snapshot) => {
-      const list = snapshot.docs.map(docSnap => ({
-        id: docSnap.id,
-        ...docSnap.data()
-      } as ProjectLead));
-      setProjectLeads(list);
-    });
+      // 3. Fetch Leads
+      const { data: leadRows } = await supabase
+        .from('project_leads')
+        .select('*')
+        .eq('project_id', selectedProject.id)
+        .order('created_at', { ascending: false });
 
-    return () => {
-      unsubProjDoc();
-      unsubTasks();
-      unsubGrid();
-      unsubLeads();
+      setProjectLeads((leadRows || []).map(l => ({
+        id: l.id,
+        projectId: l.project_id,
+        title: l.title,
+        clientName: l.client_name || '',
+        company: l.company || '',
+        email: l.email || '',
+        phone: l.phone || '',
+        value: l.value || 0,
+        currency: l.currency || 'PKR',
+        stage: l.stage as any,
+        assignedTo: l.assigned_to,
+        assignedToName: l.assigned_name,
+        notes: l.notes || '',
+        createdAt: l.created_at,
+        updatedAt: l.updated_at
+      })));
     };
+
+    loadProjectSubItems();
+
+    const subChannel = supabase.channel(`project-sub-${selectedProject.id}`)
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'project_tasks', filter: `project_id=eq.${selectedProject.id}` }, () => loadProjectSubItems())
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'grid_sheets', filter: `project_id=eq.${selectedProject.id}` }, () => loadProjectSubItems())
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'project_leads', filter: `project_id=eq.${selectedProject.id}` }, () => loadProjectSubItems())
+      .subscribe();
+
+    return () => { supabase.removeChannel(subChannel); };
   }, [selectedProject?.id]);
 
   const handleCreateProject = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!user || !newProjectName.trim()) return;
+    if (!user || !newProjectName.trim() || !isSupabaseConfigured) return;
 
     try {
-      const projectRef = doc(collection(db, 'projects'));
-      const newProjData: Project = {
-        id: projectRef.id,
+      const { data: newProj, error: pErr } = await supabase.from('projects').insert({
         name: newProjectName.trim(),
         description: newProjectDesc.trim(),
-        createdBy: user.uid,
-        createdByName: user.displayName || user.email || 'Admin',
-        createdAt: serverTimestamp(),
-        updatedAt: serverTimestamp(),
-        status: 'active',
-        whiteboardText: `<h2>${newProjectName} - Whiteboard</h2><p>Welcome! Team Lead can post notes, milestones, and instructions here.</p>`,
-        members: [
-          {
-            userId: user.uid,
-            email: user.email || '',
-            displayName: user.displayName || user.email || 'Owner',
-            photoURL: user.photoURL || '',
-            role: 'line_manager',
-            joinedAt: new Date().toISOString(),
-            status: 'active'
-          }
-        ]
-      };
+        color: '#3B82F6',
+        owner_id: user.uid,
+      }).select().single();
 
-      await setDoc(projectRef, newProjData);
+      if (pErr) throw pErr;
+
+      await supabase.from('project_members').insert({
+        project_id: newProj.id,
+        user_id: user.uid,
+        email: user.email || '',
+        display_name: user.displayName || user.email || 'Owner',
+        photo_url: user.photoURL || '',
+        role: 'owner'
+      });
+
+      // Default sheet
+      await supabase.from('grid_sheets').insert({
+        project_id: newProj.id,
+        sheet_name: 'Sheet 1',
+        sheet_order: 0,
+        columns: [
+          { id: 'col_1', name: 'Column 1', type: 'text' },
+          { id: 'col_2', name: 'Column 2', type: 'text' },
+          { id: 'col_3', name: 'Column 3', type: 'number' }
+        ],
+        rows: [{ id: `row_${Date.now()}_1`, col_1: '', col_2: '', col_3: '' }]
+      });
+
       toast.success('Project created successfully!');
       setShowCreateModal(false);
       setNewProjectName('');
       setNewProjectDesc('');
-      setSelectedProject(newProjData);
     } catch (err) {
       console.error(err);
       toast.error('Failed to create project');
@@ -466,39 +511,21 @@ export const Projects: React.FC = () => {
   };
 
   const handleAcceptInvite = async (invite: ProjectInvite) => {
-    if (!user) return;
+    if (!user || !isSupabaseConfigured) return;
     try {
-      const projRef = doc(db, 'projects', invite.projectId);
-      const projSnap = await getDoc(projRef);
+      await supabase.from('project_members').upsert({
+        project_id: invite.projectId,
+        user_id: user.uid,
+        email: user.email || '',
+        display_name: user.displayName || user.email || 'User',
+        photo_url: user.photoURL || '',
+        role: 'member'
+      }, { onConflict: 'project_id,user_id' });
 
-      if (projSnap.exists()) {
-        const projData = projSnap.data() as Project;
-        const existingMembers = projData.members || [];
-        
-        const updatedMembers = existingMembers.map(m =>
-          m.userId === user.uid ? { ...m, status: 'active' as const } : m
-        );
-
-        if (!updatedMembers.some(m => m.userId === user.uid)) {
-          updatedMembers.push({
-            userId: user.uid,
-            email: user.email || '',
-            displayName: user.displayName || user.email || 'User',
-            photoURL: user.photoURL || '',
-            role: invite.role,
-            joinedAt: new Date().toISOString(),
-            status: 'active'
-          });
-        }
-
-        await updateDoc(projRef, { members: updatedMembers });
-      }
-
-      // Update invite status
-      await updateDoc(doc(db, 'project_invites', invite.id), {
+      await supabase.from('project_invites').update({
         status: 'accepted',
-        respondedAt: serverTimestamp()
-      });
+        responded_at: new Date().toISOString()
+      }).eq('id', invite.id);
 
       toast.success(`Joined project ${invite.projectName}!`);
     } catch (err) {
@@ -508,11 +535,12 @@ export const Projects: React.FC = () => {
   };
 
   const handleDeclineInvite = async (invite: ProjectInvite) => {
+    if (!isSupabaseConfigured) return;
     try {
-      await updateDoc(doc(db, 'project_invites', invite.id), {
-        status: 'declined',
-        respondedAt: serverTimestamp()
-      });
+      await supabase.from('project_invites').update({
+        status: 'rejected',
+        responded_at: new Date().toISOString()
+      }).eq('id', invite.id);
       toast.info('Invitation declined');
     } catch (err) {
       console.error(err);
@@ -521,15 +549,16 @@ export const Projects: React.FC = () => {
   };
 
   const handleSearchUsers = async () => {
-    if (!inviteEmailSearch.trim()) return;
+    if (!inviteEmailSearch.trim() || !isSupabaseConfigured) return;
     setIsSearchingUsers(true);
     try {
-      const snap = await getDocs(collection(db, 'registered_users'));
-      const list = snap.docs.map(d => ({ id: d.id, ...d.data() }));
       const term = inviteEmailSearch.trim().toLowerCase();
-      const filtered = list.filter((u: any) =>
-        u.email?.toLowerCase().includes(term) || u.displayName?.toLowerCase().includes(term)
-      );
+      const { data } = await supabase.from('users').select('*').or(`email.ilike.%${term}%,display_name.ilike.%${term}%`);
+      const filtered = (data || []).map((u: any) => ({
+        id: u.id,
+        email: u.email,
+        displayName: u.display_name
+      }));
       setSearchResults(filtered);
     } catch (e) {
       console.error(e);
@@ -540,50 +569,20 @@ export const Projects: React.FC = () => {
   };
 
   const handleSendInvite = async () => {
-    if (!user || !selectedProject || !selectedInviteUser) return;
+    if (!user || !selectedProject || !selectedInviteUser || !isSupabaseConfigured) return;
     try {
-      if (selectedProject.members.some(m => m.userId === selectedInviteUser.id)) {
-        toast.error('User is already a member or invited to this project');
-        return;
-      }
-
-      const inviteRef = doc(collection(db, 'project_invites'));
-      const inviteData: ProjectInvite = {
-        id: inviteRef.id,
-        projectId: selectedProject.id,
-        projectName: selectedProject.name,
-        invitedBy: user.uid,
-        invitedByName: user.displayName || user.email || 'Team Lead',
-        invitedUserId: selectedInviteUser.id,
-        invitedUserEmail: selectedInviteUser.email,
-        role: inviteRole,
-        status: 'pending',
-        createdAt: serverTimestamp()
-      };
-
-      await setDoc(inviteRef, inviteData);
-
-      const updatedMembers = [
-        ...selectedProject.members,
-        {
-          userId: selectedInviteUser.id,
-          email: selectedInviteUser.email,
-          displayName: selectedInviteUser.displayName || selectedInviteUser.email,
-          photoURL: selectedInviteUser.photoURL || '',
-          role: inviteRole,
-          joinedAt: new Date().toISOString(),
-          status: 'invited' as const
-        }
-      ];
-
-      await updateDoc(doc(db, 'projects', selectedProject.id), {
-        members: updatedMembers
+      await supabase.from('project_invites').insert({
+        project_id: selectedProject.id,
+        project_name: selectedProject.name,
+        invited_email: selectedInviteUser.email,
+        invited_by: user.uid,
+        invited_by_name: user.displayName || user.email || 'Team Lead',
+        status: 'pending'
       });
 
-      await addDoc(collection(db, `users/${selectedInviteUser.id}/notifications`), {
-        message: `You have been invited to join project "${selectedProject.name}" as ${inviteRole.replace('_', ' ')}!`,
-        timestamp: serverTimestamp(),
-        read: false
+      await supabase.from('notifications').insert({
+        user_id: selectedInviteUser.id,
+        message: `You have been invited to join project "${selectedProject.name}"!`
       });
 
       toast.success(`Invite sent to ${selectedInviteUser.email}`);
@@ -598,12 +597,9 @@ export const Projects: React.FC = () => {
   };
 
   const handleUpdateMemberRole = async (targetUserId: string, newRole: 'member' | 'team_lead' | 'line_manager') => {
-    if (!selectedProject) return;
+    if (!selectedProject || !isSupabaseConfigured) return;
     try {
-      const updatedMembers = selectedProject.members.map(m =>
-        m.userId === targetUserId ? { ...m, role: newRole } : m
-      );
-      await updateDoc(doc(db, 'projects', selectedProject.id), { members: updatedMembers });
+      await supabase.from('project_members').update({ role: newRole }).eq('project_id', selectedProject.id).eq('user_id', targetUserId);
       toast.success('Member role updated');
     } catch (e) {
       toast.error('Failed to update role');
@@ -611,10 +607,9 @@ export const Projects: React.FC = () => {
   };
 
   const handleRemoveMember = async (targetUserId: string) => {
-    if (!selectedProject || !confirm('Remove this member from the project?')) return;
+    if (!selectedProject || !confirm('Remove this member from the project?') || !isSupabaseConfigured) return;
     try {
-      const updatedMembers = selectedProject.members.filter(m => m.userId !== targetUserId);
-      await updateDoc(doc(db, 'projects', selectedProject.id), { members: updatedMembers });
+      await supabase.from('project_members').delete().eq('project_id', selectedProject.id).eq('user_id', targetUserId);
       toast.success('Member removed');
     } catch (e) {
       toast.error('Failed to remove member');
@@ -623,30 +618,24 @@ export const Projects: React.FC = () => {
 
   const handleCreateProjectTask = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!user || !selectedProject || !newTaskTitle.trim()) return;
+    if (!user || !selectedProject || !newTaskTitle.trim() || !isSupabaseConfigured) return;
 
     try {
-      const taskRef = doc(collection(db, `projects/${selectedProject.id}/tasks`));
       const assigneeObj = selectedProject.members.find(m => m.userId === newTaskAssignee);
-
-      const taskData: ProjectTask = {
-        id: taskRef.id,
-        projectId: selectedProject.id,
+      const { data: newTask, error: tErr } = await supabase.from('project_tasks').insert({
+        project_id: selectedProject.id,
         title: newTaskTitle.trim(),
         description: newTaskDesc.trim(),
         status: 'pending',
         priority: newTaskPriority,
-        assignedTo: newTaskAssignee || null,
-        assignedToName: assigneeObj?.displayName || assigneeObj?.email || null,
-        createdBy: user.uid,
-        createdByName: user.displayName || user.email || 'User',
-        dueDate: null,
-        createdAt: serverTimestamp()
-      };
+        assigned_to: newTaskAssignee || null,
+        assigned_name: assigneeObj?.displayName || assigneeObj?.email || null,
+        created_by: user.uid
+      }).select().single();
 
-      await setDoc(taskRef, taskData);
+      if (tErr) throw tErr;
 
-      if (newTaskAssignee === user.uid) {
+      if (newTaskAssignee === user.uid && newTask) {
         try {
           await addSqliteTask(
             `[${selectedProject.name}] ${newTaskTitle.trim()}`,
@@ -658,7 +647,7 @@ export const Projects: React.FC = () => {
             5,
             newTaskPriority,
             'Work',
-            taskRef.id
+            newTask.id
           );
         } catch (sqliteErr) {
           console.warn('SQLite task sync warning:', sqliteErr);
@@ -677,15 +666,16 @@ export const Projects: React.FC = () => {
   };
 
   const handleToggleTaskStatus = async (task: ProjectTask) => {
-    if (!selectedProject) return;
-    const nextStatus: 'pending' | 'in_progress' | 'completed' =
-      task.status === 'pending' ? 'in_progress' : task.status === 'in_progress' ? 'completed' : 'pending';
+    if (!selectedProject || !isSupabaseConfigured) return;
+    const nextStatus: 'pending' | 'in-progress' | 'done' =
+      task.status === 'pending' ? 'in-progress' : task.status === 'in-progress' ? 'done' : 'pending';
 
     try {
-      await updateDoc(doc(db, `projects/${selectedProject.id}/tasks`, task.id), {
-        status: nextStatus
-      });
-      toast.success(`Task status updated to ${nextStatus.replace('_', ' ')}`);
+      await supabase.from('project_tasks').update({
+        status: nextStatus,
+        updated_at: new Date().toISOString()
+      }).eq('id', task.id);
+      toast.success(`Task status updated to ${nextStatus.replace('-', ' ')}`);
     } catch (e) {
       toast.error('Failed to update status');
     }
@@ -693,22 +683,23 @@ export const Projects: React.FC = () => {
 
   const handleAssignTaskToMe = async (task: ProjectTask, e: React.MouseEvent) => {
     e.stopPropagation();
-    if (!user || !selectedProject) return;
+    if (!user || !selectedProject || !isSupabaseConfigured) return;
 
     try {
       const userMemberObj = selectedProject.members.find(m => m.userId === user.uid);
       const assigneeName = userMemberObj?.displayName || user.displayName || user.email || 'You';
 
-      await updateDoc(doc(db, `projects/${selectedProject.id}/tasks`, task.id), {
-        assignedTo: user.uid,
-        assignedToName: assigneeName
-      });
+      await supabase.from('project_tasks').update({
+        assigned_to: user.uid,
+        assigned_name: assigneeName,
+        updated_at: new Date().toISOString()
+      }).eq('id', task.id);
 
       try {
         await addSqliteTask(
           `[${selectedProject.name}] ${task.title}`,
           task.description || '',
-          task.status,
+          task.status === 'done' ? 'completed' : task.status === 'in-progress' ? 'in_progress' : (task.status as 'pending' | 'in_progress' | 'completed'),
           null,
           null,
           0,
@@ -728,13 +719,13 @@ export const Projects: React.FC = () => {
   };
 
   const handleSaveWhiteboard = async () => {
-    if (!selectedProject) return;
+    if (!selectedProject || !isSupabaseConfigured) return;
     setIsSavingWhiteboard(true);
     try {
-      await updateDoc(doc(db, 'projects', selectedProject.id), {
-        whiteboardText: whiteboardHtml,
-        updatedAt: serverTimestamp()
-      });
+      await supabase.from('projects').update({
+        description: whiteboardHtml,
+        updated_at: new Date().toISOString()
+      }).eq('id', selectedProject.id);
       toast.success('Whiteboard saved!');
     } catch (e) {
       toast.error('Failed to save whiteboard');
@@ -857,13 +848,21 @@ export const Projects: React.FC = () => {
   };
 
   const saveGridToFirestore = async (sheets: ProjectGridSheet[]) => {
-    if (!selectedProject) return;
+    if (!selectedProject || !isSupabaseConfigured) return;
     setIsSavingGrid(true);
     try {
-      await setDoc(doc(db, `projects/${selectedProject.id}/grid`, 'main'), {
-        sheets: sheets,
-        updatedAt: serverTimestamp()
-      });
+      for (let idx = 0; idx < sheets.length; idx++) {
+        const sh = sheets[idx];
+        await supabase.from('grid_sheets').upsert({
+          id: sh.id.startsWith('sheet_') && sh.id.length > 30 ? undefined : sh.id,
+          project_id: selectedProject.id,
+          sheet_name: sh.name,
+          sheet_order: idx,
+          columns: sh.columns,
+          rows: sh.rows,
+          updated_at: new Date().toISOString()
+        });
+      }
       toast.success('Grid saved!');
     } catch (e) {
       console.error(e);
@@ -958,49 +957,33 @@ export const Projects: React.FC = () => {
   // --- Leads / CRM Handlers ---
   const handleSaveLead = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!user || !selectedProject || !newLeadTitle.trim()) return;
+    if (!user || !selectedProject || !newLeadTitle.trim() || !isSupabaseConfigured) return;
 
     try {
       const assigneeObj = selectedProject.members.find(m => m.userId === newLeadAssignee);
       const assigneeName = assigneeObj?.displayName || assigneeObj?.email || (newLeadAssignee === user.uid ? (user.displayName || user.email || 'You') : null);
-      const now = serverTimestamp();
+
+      const leadPayload = {
+        project_id: selectedProject.id,
+        title: newLeadTitle.trim(),
+        client_name: newLeadClient.trim(),
+        company: newLeadCompany.trim() || '',
+        email: newLeadEmail.trim() || '',
+        phone: newLeadPhone.trim() || '',
+        value: parseFloat(newLeadValue) || 0,
+        currency: newLeadCurrency.trim() || 'PKR',
+        stage: newLeadStage,
+        assigned_to: newLeadAssignee || null,
+        assigned_name: assigneeName,
+        notes: newLeadNotes.trim() || '',
+        updated_at: new Date().toISOString()
+      };
 
       if (editingLead) {
-        await updateDoc(doc(db, `projects/${selectedProject.id}/leads`, editingLead.id), {
-          title: newLeadTitle.trim(),
-          clientName: newLeadClient.trim(),
-          company: newLeadCompany.trim() || null,
-          email: newLeadEmail.trim() || null,
-          phone: newLeadPhone.trim() || null,
-          value: parseFloat(newLeadValue) || 0,
-          currency: newLeadCurrency.trim() || 'USD',
-          stage: newLeadStage,
-          assignedTo: newLeadAssignee || null,
-          assignedToName: assigneeName,
-          notes: newLeadNotes.trim() || null,
-          updatedAt: now
-        });
+        await supabase.from('project_leads').update(leadPayload).eq('id', editingLead.id);
         toast.success('Lead updated');
       } else {
-        const leadRef = doc(collection(db, `projects/${selectedProject.id}/leads`));
-        const leadData = {
-          id: leadRef.id,
-          projectId: selectedProject.id,
-          title: newLeadTitle.trim(),
-          clientName: newLeadClient.trim(),
-          company: newLeadCompany.trim() || null,
-          email: newLeadEmail.trim() || null,
-          phone: newLeadPhone.trim() || null,
-          value: parseFloat(newLeadValue) || 0,
-          currency: newLeadCurrency.trim() || 'USD',
-          stage: newLeadStage,
-          assignedTo: newLeadAssignee || null,
-          assignedToName: assigneeName,
-          notes: newLeadNotes.trim() || null,
-          createdAt: now,
-          updatedAt: now
-        };
-        await setDoc(leadRef, leadData);
+        await supabase.from('project_leads').insert(leadPayload);
         toast.success('Lead added to pipeline');
       }
 
@@ -1014,12 +997,12 @@ export const Projects: React.FC = () => {
   };
 
   const handleUpdateLeadStage = async (leadId: string, newStage: 'new' | 'contacted' | 'qualified' | 'proposal' | 'won' | 'lost') => {
-    if (!selectedProject) return;
+    if (!selectedProject || !isSupabaseConfigured) return;
     try {
-      await updateDoc(doc(db, `projects/${selectedProject.id}/leads`, leadId), {
+      await supabase.from('project_leads').update({
         stage: newStage,
-        updatedAt: serverTimestamp()
-      });
+        updated_at: new Date().toISOString()
+      }).eq('id', leadId);
       toast.success(`Lead moved to ${newStage.toUpperCase()}`);
     } catch (e) {
       toast.error('Failed to update stage');
@@ -1087,9 +1070,9 @@ export const Projects: React.FC = () => {
 
   const handleDeleteLead = async (leadId: string, e: React.MouseEvent) => {
     e.stopPropagation();
-    if (!selectedProject || !confirm('Delete this lead from pipeline?')) return;
+    if (!selectedProject || !confirm('Delete this lead from pipeline?') || !isSupabaseConfigured) return;
     try {
-      await deleteDoc(doc(db, `projects/${selectedProject.id}/leads`, leadId));
+      await supabase.from('project_leads').delete().eq('id', leadId);
       toast.success('Lead deleted');
     } catch (err) {
       toast.error('Failed to delete lead');

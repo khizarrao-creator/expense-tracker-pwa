@@ -1,8 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useApp } from '../contexts/AppContext';
-import { doc, getDoc } from 'firebase/firestore';
-import { db } from '../firebase';
+import { supabase, isSupabaseConfigured } from '../supabase';
 import { Card } from '../components/ui/Card';
 import { Button } from '../components/ui/Button';
 import { Input } from '../components/ui/Input';
@@ -37,22 +36,25 @@ export const Upgrade: React.FC = () => {
   const [submitting, setSubmitting] = useState<boolean>(false);
   const [coords, setCoords] = useState<{ lat: number; lng: number } | null>(null);
 
-  // Load active payment accounts
+  // Load active payment accounts from Supabase
   const loadPaymentAccounts = async () => {
     setLoadingAccounts(true);
     try {
-      const docRef = doc(db, 'system', 'payment_accounts');
-      const docSnap = await getDoc(docRef);
-      if (docSnap.exists() && docSnap.data().accounts) {
-        const active = docSnap.data().accounts.filter((acc: any) => acc.isActive);
-        // Sort by displayOrder
-        active.sort((a: any, b: any) => (a.displayOrder || 0) - (b.displayOrder || 0));
+      if (isSupabaseConfigured) {
+        const { data } = await supabase.from('payment_accounts').select('*').eq('is_active', true).order('display_order', { ascending: true });
+        const active = (data || []).map((acc: any) => ({
+          id: acc.id,
+          method: acc.method,
+          holderName: acc.holder_name,
+          accountNumber: acc.account_number,
+          iban: acc.iban,
+          qrCodeUrl: acc.qr_code_url,
+          instructions: acc.instructions
+        }));
         setPaymentAccounts(active);
         if (active.length > 0) {
           setSelectedAccountId(active[0].id);
         }
-      } else {
-        setPaymentAccounts([]);
       }
     } catch (e) {
       console.error('Failed to load payment accounts:', e);

@@ -128,6 +128,7 @@ interface UserProfile {
   disabledFeatures?: string[];
   plan?: string;
   planExpiresAt?: any;
+  geminiApiKey?: string;
 }
 
 interface AdminLog {
@@ -362,6 +363,8 @@ const Admin: React.FC = () => {
 
   const [selectedUserForFeatures, setSelectedUserForFeatures] = useState<UserProfile | null>(null);
   const [userDisabledFeatures, setUserDisabledFeatures] = useState<string[]>([]);
+  const [userGeminiApiKey, setUserGeminiApiKey] = useState('');
+  const [showUserGeminiApiKey, setShowUserGeminiApiKey] = useState(false);
 
   const handleUpdateAdminPassword = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -541,7 +544,7 @@ const Admin: React.FC = () => {
         'tasks', 'loans', 'events', 'fuel', 'reports',
         'subscriptions', 'projects'
       ],
-      limits: { aiCallsPerDay: 0, maxTransactions: 10000 },
+      limits: { aiCallsPerDay: 0, maxTransactions: 10000, maxUploadsPerDay: 0 },
       badgeIcon: 'shield',
       badgeColor: '#6B7280',
       displayOrder: 1
@@ -557,7 +560,7 @@ const Admin: React.FC = () => {
         'tasks', 'loans', 'events', 'fuel', 'reports',
         'subscriptions', 'ai-chat', 'projects'
       ],
-      limits: { aiCallsPerDay: 50, maxTransactions: 50000 },
+      limits: { aiCallsPerDay: 50, maxTransactions: 50000, maxUploadsPerDay: 10 },
       badgeIcon: 'zap',
       badgeColor: '#3B82F6',
       displayOrder: 2
@@ -573,7 +576,7 @@ const Admin: React.FC = () => {
         'tasks', 'loans', 'events', 'fuel', 'reports',
         'subscriptions', 'ai-chat', 'whatsapp', 'investments', 'projects'
       ],
-      limits: { aiCallsPerDay: 150, maxTransactions: -1 },
+      limits: { aiCallsPerDay: 150, maxTransactions: -1, maxUploadsPerDay: 30 },
       badgeIcon: 'crown',
       badgeColor: '#F59E0B',
       displayOrder: 3
@@ -586,7 +589,7 @@ const Admin: React.FC = () => {
     currency: 'PKR',
     billingCycle: 'monthly',
     features: [] as string[],
-    limits: { aiCallsPerDay: 50, maxTransactions: 50000 },
+    limits: { aiCallsPerDay: 50, maxTransactions: 50000, maxUploadsPerDay: 10 },
     badgeIcon: 'zap',
     badgeColor: '#3B82F6',
     displayOrder: 1
@@ -1049,8 +1052,12 @@ const Admin: React.FC = () => {
   useEffect(() => {
     if (selectedUserForFeatures) {
       setUserDisabledFeatures(selectedUserForFeatures.disabledFeatures || []);
+      setUserGeminiApiKey(selectedUserForFeatures.geminiApiKey || '');
+      setShowUserGeminiApiKey(false);
     } else {
       setUserDisabledFeatures([]);
+      setUserGeminiApiKey('');
+      setShowUserGeminiApiKey(false);
     }
   }, [selectedUserForFeatures]);
 
@@ -1067,9 +1074,13 @@ const Admin: React.FC = () => {
         admin: adminUsername || 'admin'
       });
 
-      setUsers(users.map(u => u.id === selectedUserForFeatures.id ? { ...u, disabledFeatures: userDisabledFeatures } : u));
+      setUsers(users.map(u => u.id === selectedUserForFeatures.id ? { 
+        ...u, 
+        disabledFeatures: userDisabledFeatures,
+        geminiApiKey: userGeminiApiKey.trim()
+      } : u));
       setSelectedUserForFeatures(null);
-      toast.success('User features updated successfully');
+      toast.success('User features and API key override updated successfully');
     } catch (e) {
       toast.error('Failed to update user features');
     }
@@ -1883,6 +1894,12 @@ const Admin: React.FC = () => {
                                     <span className="text-muted-foreground font-medium">Plan Level:</span>
                                     <span className={`font-bold px-2 py-0.5 rounded-full text-[9px] uppercase ${u.isPro ? 'bg-amber-500/10 text-amber-500' : 'bg-muted text-muted-foreground'}`}>
                                       {u.isPro ? 'Pro Member' : 'Standard'}
+                                    </span>
+                                  </div>
+                                  <div className="flex justify-between items-center">
+                                    <span className="text-muted-foreground font-medium">Gemini Key:</span>
+                                    <span className={`font-bold px-2 py-0.5 rounded-full text-[9px] uppercase ${u.geminiApiKey ? 'bg-emerald-500/10 text-emerald-500' : 'bg-muted text-muted-foreground'}`}>
+                                      {u.geminiApiKey ? 'Configured' : 'Not Set'}
                                     </span>
                                   </div>
                                 </div>
@@ -3442,6 +3459,9 @@ const Admin: React.FC = () => {
                                 Daily AI rate limit: <strong className="text-foreground">{details.limits.aiCallsPerDay} calls</strong>
                               </p>
                               <p className="text-[10px] text-muted-foreground leading-normal">
+                                Daily AI Upload limit: <strong className="text-foreground">{details.limits.maxUploadsPerDay ?? 0} uploads</strong>
+                              </p>
+                              <p className="text-[10px] text-muted-foreground leading-normal">
                                 Max Local Txs: <strong className="text-foreground">{details.limits.maxTransactions === -1 ? 'Unlimited' : details.limits.maxTransactions}</strong>
                               </p>
                             </div>
@@ -3471,7 +3491,7 @@ const Admin: React.FC = () => {
                                   currency: details.currency || 'PKR',
                                   billingCycle: details.billingCycle,
                                   features: details.features || [],
-                                  limits: details.limits || { aiCallsPerDay: 50, maxTransactions: 50000 },
+                                  limits: details.limits || { aiCallsPerDay: 50, maxTransactions: 50000, maxUploadsPerDay: 10 },
                                   badgeIcon: details.badgeIcon || 'zap',
                                   badgeColor: details.badgeColor || '#3B82F6',
                                   displayOrder: details.displayOrder
@@ -3531,7 +3551,7 @@ const Admin: React.FC = () => {
                     />
                   </div>
 
-                  <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
+                  <div className="grid grid-cols-1 sm:grid-cols-4 gap-4">
                     <Input
                       label="Daily AI Call limit"
                       type="number"
@@ -3539,6 +3559,16 @@ const Admin: React.FC = () => {
                       onChange={e => setPlanForm({ 
                         ...planForm, 
                         limits: { ...planForm.limits, aiCallsPerDay: Number(e.target.value) } 
+                      })}
+                      required
+                    />
+                    <Input
+                      label="Max Uploads limit"
+                      type="number"
+                      value={(planForm.limits as any).maxUploadsPerDay ?? 0}
+                      onChange={e => setPlanForm({ 
+                        ...planForm, 
+                        limits: { ...planForm.limits, maxUploadsPerDay: Number(e.target.value) } 
                       })}
                       required
                     />
@@ -4057,6 +4087,35 @@ const Admin: React.FC = () => {
                     </div>
                   );
                 })}
+              </div>
+
+              {/* Gemini API Key Override */}
+              <div className="pt-6 border-t border-border/60 space-y-3">
+                <div>
+                  <label className="block text-xs font-bold uppercase tracking-widest text-muted-foreground mb-2">
+                    User Gemini API Key Override
+                  </label>
+                  <p className="text-[10px] text-muted-foreground mb-3 leading-relaxed">
+                    Set a custom Gemini API Key specifically for this user. This overrides the global fallback key and the VITE_GEMINI_API_KEY environment variable. Leave blank to inherit system defaults.
+                  </p>
+                  
+                  <div className="relative">
+                    <input
+                      type={showUserGeminiApiKey ? 'text' : 'password'}
+                      value={userGeminiApiKey}
+                      onChange={(e) => setUserGeminiApiKey(e.target.value)}
+                      placeholder="Inherit system defaults (no override)..."
+                      className="w-full pl-4 pr-10 py-3 bg-muted border border-border/40 rounded-xl focus:outline-none focus:ring-2 focus:ring-primary outline-none transition-all text-xs font-mono text-foreground"
+                    />
+                    <button
+                      type="button"
+                      onClick={() => setShowUserGeminiApiKey(!showUserGeminiApiKey)}
+                      className="absolute right-3 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground transition-colors"
+                    >
+                      {showUserGeminiApiKey ? <EyeOff size={14} /> : <Eye size={14} />}
+                    </button>
+                  </div>
+                </div>
               </div>
             </div>
 

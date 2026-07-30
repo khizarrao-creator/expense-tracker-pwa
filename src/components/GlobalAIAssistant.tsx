@@ -6,6 +6,7 @@ import {
 } from 'lucide-react';
 import { useCurrency } from '../contexts/CurrencyContext';
 import { useAuth } from '../contexts/AuthContext';
+import { useApp } from '../contexts/AppContext';
 import { toast } from 'sonner';
 import { v4 as uuidv4 } from 'uuid';
 
@@ -151,6 +152,7 @@ export const GlobalAIAssistant: React.FC = () => {
   const location = useLocation();
   const { currency: globalCurrency } = useCurrency();
   const { user } = useAuth();
+  const { userPlan, planLimits } = useApp();
 
   const apiKey = getApiKey() || undefined;
 
@@ -202,6 +204,12 @@ export const GlobalAIAssistant: React.FC = () => {
     setShowModelDropdown(false);
     toast.success(`Switched to ${getModelById(modelId)?.name || modelId}`);
   };
+
+  useEffect(() => {
+    if (userPlan === 'standard') {
+      setSelectedModelId('gemma-4-31b');
+    }
+  }, [userPlan]);
 
   useEffect(() => {
     const handleClick = (e: MouseEvent) => {
@@ -398,6 +406,17 @@ export const GlobalAIAssistant: React.FC = () => {
 
   // ── Execute Local Database Query Tools ────────────────────────────────────
   const executeLocalTool = async (name: string, args: any): Promise<any> => {
+    // extra safety net validation
+    const isMutationOp = name.startsWith('add_') || name.startsWith('update_') || name.startsWith('delete_');
+    const isWhatsAppOp = name.includes('whatsapp');
+    
+    if (userPlan === 'standard' && isMutationOp) {
+      return { success: false, error: 'AI Copilot features (mutations) are disabled on the Standard plan. Please upgrade to Pro or Max to enable.' };
+    }
+    if ((userPlan === 'standard' || userPlan === 'pro') && isWhatsAppOp) {
+      return { success: false, error: 'WhatsApp Copilot features are only available on the Max plan. Please upgrade to Max to unlock.' };
+    }
+
     const isMutation = name.startsWith('update_') || name.startsWith('delete_');
     if (isMutation && getApproveMode() === 'manual') {
       const approved = await new Promise<boolean>((resolve) => {
@@ -678,12 +697,39 @@ export const GlobalAIAssistant: React.FC = () => {
     let uploadedUrl = '';
 
     if (hasImage && attachedFile) {
+      if (userPlan === 'standard') {
+        toast.error('Image uploads and receipt parsing are disabled on the Standard plan. Please upgrade to Pro or Max to unlock.');
+        setIsLoading(false);
+        return;
+      }
+
+      // Check Daily Upload Limits for Pro/Max
+      const todayStr = new Date().toISOString().split('T')[0];
+      const savedDate = localStorage.getItem('ai_uploads_date');
+      let uploadCount = Number(localStorage.getItem('ai_uploads_today') || '0');
+      if (savedDate !== todayStr) {
+        uploadCount = 0;
+        localStorage.setItem('ai_uploads_date', todayStr);
+        localStorage.setItem('ai_uploads_today', '0');
+      }
+
+      const maxUploads = planLimits?.maxUploadsPerDay ?? 10;
+      if (maxUploads !== -1 && uploadCount >= maxUploads) {
+        toast.error(`Daily AI upload limit reached (${maxUploads} uploads). Please upgrade your plan for higher limits.`);
+        setIsLoading(false);
+        return;
+      }
+
       setIsUploadingImage(true);
       try {
         uploadedUrl = await uploadToCloudinary(attachedFile, 'ai_receipts');
+        localStorage.setItem('ai_uploads_today', (uploadCount + 1).toString());
       } catch (e: any) {
         console.error('[GlobalAI] Cloudinary upload failed:', e);
         toast.error(`Image upload failed: ${e.message || e}`);
+        setIsLoading(false);
+        setIsUploadingImage(false);
+        return;
       } finally {
         setIsUploadingImage(false);
       }
@@ -735,7 +781,8 @@ export const GlobalAIAssistant: React.FC = () => {
           (thoughtChunk) => {
             setStreamingThought(thoughtChunk);
           },
-          chatMode
+          chatMode,
+          userPlan
         );
         lastGeminiRes = geminiRes;
 
@@ -899,19 +946,25 @@ export const GlobalAIAssistant: React.FC = () => {
                 <Sparkles size={14} className="animate-pulse" />
               </div>
               <div>
-                <h4 className="text-xs font-bold text-foreground leading-none">AI Copilot Widget</h4>
+                <h4 className="text-xs font-bold text-foreground leading-none">Chat With AI</h4>
 
                 {/* Model Selector */}
                 <div className="relative" ref={modelDropdownRef}>
-                  <button
-                    onClick={() => setShowModelDropdown(prev => !prev)}
-                    className="flex items-center gap-0.5 text-[8px] text-muted-foreground mt-0.5 uppercase tracking-widest font-semibold hover:text-foreground transition-colors"
-                  >
-                    {getModelById(selectedModelId)?.name || 'Model'}
-                    <ChevronDown size={8} />
-                  </button>
+                  {userPlan === 'standard' ? (
+                    <span className="flex items-center gap-0.5 text-[8px] text-muted-foreground/60 mt-0.5 uppercase tracking-widest font-semibold cursor-not-allowed">
+                      {getModelById('gemma-4-31b')?.name || 'Gemma 4 31B'} (Standard Lock)
+                    </span>
+                  ) : (
+                    <button
+                      onClick={() => setShowModelDropdown(prev => !prev)}
+                      className="flex items-center gap-0.5 text-[8px] text-muted-foreground mt-0.5 uppercase tracking-widest font-semibold hover:text-foreground transition-colors"
+                    >
+                      {getModelById(selectedModelId)?.name || 'Model'}
+                      <ChevronDown size={8} />
+                    </button>
+                  )}
 
-                  {showModelDropdown && (
+                  {showModelDropdown && userPlan !== 'standard' && (
                     <div className="absolute top-full left-0 mt-1 w-44 bg-card border border-border rounded-xl shadow-xl z-50 py-1 animate-in fade-in zoom-in duration-150 origin-top-left">
                       <p className="px-3 py-1 text-[7px] font-bold uppercase tracking-widest text-muted-foreground">Switch Model</p>
                       {models.map(m => {
@@ -921,8 +974,8 @@ export const GlobalAIAssistant: React.FC = () => {
                             key={m.id}
                             onClick={() => handleModelSelect(m.id)}
                             className={`w-full text-left px-3 py-1.5 text-[10px] font-medium transition-colors flex items-center justify-between gap-2 ${isActive
-                                ? 'bg-primary/5 text-primary'
-                                : 'text-foreground hover:bg-muted/50'
+                              ? 'bg-primary/5 text-primary'
+                              : 'text-foreground hover:bg-muted/50'
                               }`}
                           >
                             <span className="truncate">{m.name}</span>

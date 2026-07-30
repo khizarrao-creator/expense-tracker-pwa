@@ -178,24 +178,47 @@ export const Subscription: React.FC = () => {
                 <ul className="space-y-1.5 leading-relaxed text-foreground/80">
                   <li className="flex items-center gap-1.5">
                     <CheckCircle2 size={12} className="text-success" />
-                    Core Ledger (Expenses, Accounts)
+                    <span>
+                      {currentPlanDetails?.limits?.maxTransactions === -1 
+                        ? 'Unlimited Local Transactions' 
+                        : `Up to ${currentPlanDetails?.limits?.maxTransactions?.toLocaleString() || '10,000'} Transactions`}
+                    </span>
                   </li>
-                  <li className="flex items-center gap-1.5">
-                    <CheckCircle2 size={12} className="text-success" />
-                    Savings Goals & Reminders
-                  </li>
-                  {currentPlanDetails?.features.includes('ai-chat') && (
-                    <li className="flex items-center gap-1.5 font-semibold text-brand">
-                      <CheckCircle2 size={12} className="text-brand" />
-                      AI Financial Copilot ({currentPlanDetails.limits.aiCallsPerDay} calls/day)
-                    </li>
-                  )}
-                  {currentPlanDetails?.features.includes('whatsapp') && (
-                    <li className="flex items-center gap-1.5 font-semibold text-warning">
-                      <CheckCircle2 size={12} className="text-warning" />
-                      WhatsApp Copilot Bridge
-                    </li>
-                  )}
+                  
+                  {[
+                    { id: 'transactions', name: 'Core Ledger (Transactions & Categories)' },
+                    { id: 'goals', name: 'Savings Goals & Reminders' },
+                    { id: 'reports', name: 'Dynamic Spending Heatmap & Analytics' },
+                    { id: 'ai-chat', name: 'AI Financial Copilot', isAi: true },
+                    { id: 'whatsapp', name: 'WhatsApp Copilot Bridge', isWa: true },
+                    { id: 'investments', name: 'MEXC Crypto Portfolio Integration', isCrypto: true }
+                  ].map((item) => {
+                    const hasFeature = currentPlanDetails?.features?.includes(item.id);
+                    if (!hasFeature) return null;
+                    
+                    let textColor = 'text-foreground/80';
+                    let iconColor = 'text-success';
+                    let labelSuffix = '';
+                    
+                    if (item.isAi) {
+                      textColor = 'font-semibold text-brand';
+                      iconColor = 'text-brand';
+                      labelSuffix = ` (${currentPlanDetails?.limits?.aiCallsPerDay || 0} calls/day)`;
+                    } else if (item.isWa) {
+                      textColor = 'font-semibold text-warning';
+                      iconColor = 'text-warning';
+                    } else if (item.isCrypto) {
+                      textColor = 'font-semibold text-warning';
+                      iconColor = 'text-warning';
+                    }
+                    
+                    return (
+                      <li key={item.id} className={`flex items-center gap-1.5 ${textColor}`}>
+                        <CheckCircle2 size={12} className={iconColor} />
+                        <span>{item.name}{labelSuffix}</span>
+                      </li>
+                    );
+                  })}
                 </ul>
               </div>
 

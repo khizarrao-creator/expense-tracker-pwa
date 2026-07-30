@@ -1332,7 +1332,7 @@ app.post('/api/ai/chat', verifyFirebaseToken, aiRateLimit, async (req, res) => {
   const apiKey = process.env.GEMINI_API_KEY;
 
   if (!apiKey) {
-    return res.status(500).json({ success: false, error: 'Gemini API key is not configured on the server.' });
+    return res.status(500).json({ success: false, error: 'AI Service is not working for your account. Please contact support, or upgrade for better limits.' });
   }
 
   try {

@@ -4,6 +4,7 @@ import { toast } from 'sonner';
 import { ShieldAlert, Info, X, AlertTriangle } from 'lucide-react';
 import { useAuth } from './AuthContext';
 import { useLocation } from 'react-router-dom';
+import { refreshProviderConfig } from '../services/ai';
 
 export interface PlanDetails {
   name: string;
@@ -11,7 +12,7 @@ export interface PlanDetails {
   currency: string;
   billingCycle: string;
   features: string[];
-  limits: { aiCallsPerDay: number; maxTransactions: number };
+  limits: { aiCallsPerDay: number; maxTransactions: number; maxUploadsPerDay?: number };
   badgeIcon: string;
   badgeColor: string;
   displayOrder: number;
@@ -43,7 +44,9 @@ interface AppContextType {
   planExpiresAt: Date | null;
   plansConfig: Record<string, PlanDetails>;
   planFeatures: string[];
-  planLimits: { aiCallsPerDay: number; maxTransactions: number };
+  planLimits: { aiCallsPerDay: number; maxTransactions: number; maxUploadsPerDay?: number };
+  isSidebarHidden: boolean;
+  setIsSidebarHidden: (hidden: boolean) => void;
 }
 
 const AppContext = createContext<AppContextType | undefined>(undefined);
@@ -85,7 +88,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         'tasks', 'loans', 'events', 'fuel', 'reports',
         'subscriptions', 'projects'
       ],
-      limits: { aiCallsPerDay: 0, maxTransactions: 10000 },
+      limits: { aiCallsPerDay: 0, maxTransactions: 10000, maxUploadsPerDay: 0 },
       badgeIcon: 'shield',
       badgeColor: '#6B7280',
       displayOrder: 1
@@ -101,7 +104,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         'tasks', 'loans', 'events', 'fuel', 'reports',
         'subscriptions', 'ai-chat', 'projects'
       ],
-      limits: { aiCallsPerDay: 50, maxTransactions: 50000 },
+      limits: { aiCallsPerDay: 50, maxTransactions: 50000, maxUploadsPerDay: 10 },
       badgeIcon: 'zap',
       badgeColor: '#3B82F6',
       displayOrder: 2
@@ -117,7 +120,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         'tasks', 'loans', 'events', 'fuel', 'reports',
         'subscriptions', 'ai-chat', 'whatsapp', 'investments', 'projects'
       ],
-      limits: { aiCallsPerDay: 150, maxTransactions: -1 },
+      limits: { aiCallsPerDay: 150, maxTransactions: -1, maxUploadsPerDay: 30 },
       badgeIcon: 'crown',
       badgeColor: '#F59E0B',
       displayOrder: 3
@@ -136,6 +139,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
   const [plansConfig, setPlansConfig] = useState<Record<string, PlanDetails>>(DEFAULT_PLANS);
   const [userPlan, setUserPlan] = useState<string>('standard');
   const [planExpiresAt, setPlanExpiresAt] = useState<Date | null>(null);
+  const [isSidebarHidden, setIsSidebarHidden] = useState(false);
 
   // Load plans from Supabase
   useEffect(() => {
@@ -316,7 +320,9 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       planExpiresAt,
       plansConfig,
       planFeatures,
-      planLimits
+      planLimits,
+      isSidebarHidden,
+      setIsSidebarHidden
     }}>
       {config.emergencyMessage && showEmergency && (
         <div className="fixed inset-0 z-[200] flex items-center justify-center p-4 bg-black/80 backdrop-blur-sm animate-in fade-in duration-300">

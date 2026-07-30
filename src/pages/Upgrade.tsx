@@ -16,7 +16,7 @@ import { toast } from 'sonner';
 
 export const Upgrade: React.FC = () => {
   const navigate = useNavigate();
-  const { userPlan, plansConfig, config } = useApp();
+  const { userPlan, plansConfig, config, planExpiresAt } = useApp();
   const exchangeRate = config.exchangeRate || 280; // 1 USD = 280 PKR default
 
   // Steps: 1 = Plan Selection, 2 = Payment Method, 3 = Submit Proof
@@ -111,6 +111,10 @@ export const Upgrade: React.FC = () => {
       setAmountPaid(plan.price.toString()); // default amount in PKR
     }
     
+    if (userPlan === 'max' && planId === 'pro') {
+      toast.info('Downgrading to Pro: Your Pro plan features will be queued and take effect after your current Max subscription expires.');
+    }
+    
     setStep(2);
   };
 
@@ -183,7 +187,7 @@ export const Upgrade: React.FC = () => {
 
       {/* STEP 1: Plan Selection */}
       {step === 1 && (
-        <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
+        <div className="grid grid-cols-1 md:grid-cols-3 gap-6 items-stretch">
           {Object.entries(plansConfig)
             .sort((a, b) => (a[1].displayOrder || 0) - (b[1].displayOrder || 0))
             .map(([planId, details]) => {
@@ -196,9 +200,11 @@ export const Upgrade: React.FC = () => {
                 <Card
                   key={planId}
                   variant={isCurrent ? 'elevated' : 'default'}
-                  className={`flex flex-col justify-between h-full border ${
-                    isCurrent ? 'border-primary shadow-lg ring-1 ring-primary' : 'border-border/80'
-                  } p-6 relative`}
+                  className={`flex flex-col justify-between h-full border transition-all duration-300 hover:-translate-y-1.5 hover:shadow-xl ${
+                    isCurrent 
+                      ? 'border-primary bg-primary/[0.01] shadow-lg shadow-primary/5 ring-1 ring-primary/40' 
+                      : 'border-border/80 hover:border-primary/30'
+                  } p-6 relative rounded-3xl overflow-hidden`}
                 >
                   {isCurrent && (
                     <Badge variant="info" className="absolute top-4 right-4" size="sm" dot pulse>
@@ -206,97 +212,105 @@ export const Upgrade: React.FC = () => {
                     </Badge>
                   )}
 
-                  <div className="space-y-4">
+                  <div className="space-y-5">
                     <div className="space-y-1.5">
                       <div className="flex items-center gap-2">
-                        {isMax ? <Crown size={20} className="text-warning" /> : isPro ? <Zap size={20} className="text-brand" /> : <Shield size={20} className="text-muted-foreground" />}
-                        <h3 className="font-extrabold text-lg text-foreground">{details.name}</h3>
+                        {isMax ? <Crown size={20} className="text-warning fill-warning/10" /> : isPro ? <Zap size={20} className="text-brand fill-brand/10" /> : <Shield size={20} className="text-muted-foreground" />}
+                        <h3 className="font-extrabold text-lg text-foreground tracking-tight">{details.name}</h3>
                       </div>
-                      <p className="text-[10px] text-muted-foreground leading-normal">
+                      <p className="text-[10px] text-muted-foreground leading-normal min-h-[30px]">
                         {isFree ? 'Essential tools for budgeting' : isPro ? 'Advanced tracking and smart AI insights' : 'Unlimited operations and cross-channel sync'}
                       </p>
                     </div>
 
-                    <div className="py-2 border-y border-border/40">
-                      <span className="text-3xl font-black text-foreground">
-                        {getPlanUSDPrice(planId)}
-                      </span>
-                      <span className="text-xs text-muted-foreground font-semibold">
-                        /{details.billingCycle === 'monthly' ? 'mo' : details.billingCycle}
-                      </span>
+                    <div className="py-3 border-y border-border/40">
+                      <div className="flex items-baseline gap-1">
+                        <span className="text-3xl font-black text-foreground tracking-tight">
+                          {getPlanUSDPrice(planId)}
+                        </span>
+                        <span className="text-xs text-muted-foreground font-bold">
+                          /{details.billingCycle === 'monthly' ? 'mo' : details.billingCycle}
+                        </span>
+                      </div>
                       {!isFree && (
                         <p className="text-[10px] text-muted-foreground font-semibold mt-1">
-                          Approx. {details.price} PKR / month (Exchange Rate: ${exchangeRate})
+                          Approx. {details.price} PKR / month (Exchange Rate: 1 USD = {exchangeRate} PKR)
                         </p>
                       )}
                     </div>
 
                     <ul className="space-y-2.5 text-xs text-foreground/80">
-                      {details.features.includes('transactions') && (
-                        <li className="flex items-start gap-2">
-                          <Check size={14} className="text-success shrink-0 mt-0.5" />
-                          <span>Core Ledger (Transactions, Categories)</span>
-                        </li>
-                      )}
+                      {/* Transactions Limit */}
                       <li className="flex items-start gap-2">
                         <Check size={14} className="text-success shrink-0 mt-0.5" />
                         <span>
-                          {details.limits.maxTransactions === -1 
+                          {details.limits?.maxTransactions === -1 
                             ? 'Unlimited Local Transactions' 
-                            : `Up to ${details.limits.maxTransactions.toLocaleString()} txs`}
+                            : `Up to ${details.limits?.maxTransactions?.toLocaleString() || '10,000'} Transactions`}
                         </span>
                       </li>
-                      <li className="flex items-start gap-2">
-                        <Check size={14} className="text-success shrink-0 mt-0.5" />
-                        <span>Savings Goals & Reminders</span>
-                      </li>
-                      <li className="flex items-start gap-2">
-                        <Check size={14} className="text-success shrink-0 mt-0.5" />
-                        <span>Dynamic Spending Heatmap</span>
-                      </li>
-                      {details.features.includes('ai-chat') ? (
-                        <li className="flex items-start gap-2 font-bold text-brand">
-                          <Zap size={14} className="text-brand shrink-0 mt-0.5 fill-brand/10" />
-                          <span>AI Financial Copilot ({details.limits.aiCallsPerDay} calls/day)</span>
-                        </li>
-                      ) : (
-                        <li className="flex items-start gap-2 opacity-40 line-through">
-                          <Check size={14} className="shrink-0 mt-0.5" />
-                          <span>AI Financial Copilot</span>
-                        </li>
-                      )}
-                      {details.features.includes('whatsapp') ? (
-                        <li className="flex items-start gap-2 font-bold text-warning">
-                          <Crown size={14} className="text-warning shrink-0 mt-0.5 fill-warning/10" />
-                          <span>WhatsApp Copilot Link</span>
-                        </li>
-                      ) : (
-                        <li className="flex items-start gap-2 opacity-40 line-through">
-                          <Check size={14} className="shrink-0 mt-0.5" />
-                          <span>WhatsApp Copilot Link</span>
-                        </li>
-                      )}
-                      {details.features.includes('investments') ? (
-                        <li className="flex items-start gap-2 font-bold text-warning">
-                          <Crown size={14} className="text-warning shrink-0 mt-0.5 fill-warning/10" />
-                          <span>MEXC Crypto Portfolio Integration</span>
-                        </li>
-                      ) : (
-                        <li className="flex items-start gap-2 opacity-40 line-through">
-                          <Check size={14} className="shrink-0 mt-0.5" />
-                          <span>MEXC Crypto Integration</span>
-                        </li>
-                      )}
+                      
+                      {/* Dynamic Features List */}
+                      {[
+                        { id: 'transactions', name: 'Core Ledger (Transactions & Categories)' },
+                        { id: 'goals', name: 'Savings Goals & Reminders' },
+                        { id: 'reports', name: 'Dynamic Spending Heatmap & Analytics' },
+                        { id: 'ai-chat', name: 'AI Financial Copilot', isAi: true },
+                        { id: 'whatsapp', name: 'WhatsApp Copilot Link', isWa: true },
+                        { id: 'investments', name: 'MEXC Crypto Portfolio Integration', isCrypto: true }
+                      ].map((item) => {
+                        const hasFeature = details.features?.includes(item.id);
+                        
+                        if (hasFeature) {
+                          if (item.isAi) {
+                            return (
+                              <li key={item.id} className="flex items-start gap-2 font-bold text-brand">
+                                <Zap size={14} className="text-brand shrink-0 mt-0.5 fill-brand/10" />
+                                <span>{item.name} ({details.limits?.aiCallsPerDay || 0} calls/day)</span>
+                              </li>
+                            );
+                          }
+                          if (item.isWa) {
+                            return (
+                              <li key={item.id} className="flex items-start gap-2 font-bold text-warning">
+                                <Crown size={14} className="text-warning shrink-0 mt-0.5 fill-warning/10" />
+                                <span>{item.name}</span>
+                              </li>
+                            );
+                          }
+                          if (item.isCrypto) {
+                            return (
+                              <li key={item.id} className="flex items-start gap-2 font-bold text-warning">
+                                <Crown size={14} className="text-warning shrink-0 mt-0.5 fill-warning/10" />
+                                <span>{item.name}</span>
+                              </li>
+                            );
+                          }
+                          return (
+                            <li key={item.id} className="flex items-start gap-2">
+                              <Check size={14} className="text-success shrink-0 mt-0.5" />
+                              <span>{item.name}</span>
+                            </li>
+                          );
+                        } else {
+                          return (
+                            <li key={item.id} className="flex items-start gap-2 opacity-40 line-through">
+                              <Check size={14} className="shrink-0 mt-0.5" />
+                              <span>{item.name}</span>
+                            </li>
+                          );
+                        }
+                      })}
                     </ul>
                   </div>
 
                   <div className="pt-6 mt-6 border-t border-border/40">
                     {isCurrent ? (
-                      <Button variant="outline" fullWidth disabled>
+                      <Button variant="outline" fullWidth disabled className="rounded-2xl font-bold">
                         Currently Subscribed
                       </Button>
                     ) : isFree ? (
-                      <Button variant="outline" fullWidth disabled>
+                      <Button variant="outline" fullWidth disabled className="rounded-2xl font-bold">
                         Free Tier
                       </Button>
                     ) : (
@@ -305,6 +319,7 @@ export const Upgrade: React.FC = () => {
                         fullWidth
                         onClick={() => handleSelectPlan(planId)}
                         rightIcon={<ArrowRight size={14} />}
+                        className="rounded-2xl font-extrabold hover:shadow-lg hover:shadow-primary/10 transition-all"
                       >
                         Select {details.name}
                       </Button>
@@ -341,6 +356,18 @@ export const Upgrade: React.FC = () => {
                 </div>
                 <PlanBadge plan={selectedPlanId as any} />
               </div>
+
+              {userPlan === 'max' && selectedPlanId === 'pro' && (
+                <div className="bg-amber-500/10 border border-amber-500/20 p-4 rounded-xl flex items-start gap-3 mt-4 animate-in fade-in duration-200">
+                  <Info className="text-amber-500 shrink-0 mt-0.5" size={16} />
+                  <div className="space-y-1">
+                    <p className="text-xs font-bold text-amber-500 uppercase tracking-wide">Downgrade Request Queue</p>
+                    <p className="text-[11px] text-muted-foreground leading-normal">
+                      You are currently subscribed to the <strong>Max Plan</strong>. Purchasing a <strong>Pro Plan</strong> will be scheduled to take effect once your current Max subscription expires{planExpiresAt ? ` on ${planExpiresAt.toLocaleDateString()}` : ''}. You will retain Max features until the expiration date.
+                    </p>
+                  </div>
+                </div>
+              )}
 
               {step === 2 && (
                 <div className="space-y-6">

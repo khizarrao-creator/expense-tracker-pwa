@@ -65,69 +65,141 @@ async function migrate() {
     for (const uid of uids) {
       const uDir = path.join(usersSubDir, uid);
 
-      // Transactions
-      const txFile = path.join(uDir, 'users_' + uid + '_transactions.json');
-      if (fs.existsSync(txFile)) {
-        const txs = JSON.parse(fs.readFileSync(txFile, 'utf8'));
-        console.log(`[User ${uid}] Migrating ${txs.length} transactions...`);
-        for (const t of txs) {
-          await supabase.from('user_transactions').upsert({
-            id: t.id || t._id,
-            user_id: uid,
-            type: t.type,
-            amount: t.amount,
-            category: t.category || null,
-            subcategory: t.subcategory || null,
-            description: t.description || null,
-            date: t.date,
-            payment_method: t.payment_method || '',
-            account_id: t.account_id || null,
-            to_account_id: t.to_account_id || null,
-            event_id: t.event_id || null,
-            device_id: t.deviceId || null,
-            created_at: t.created_at || new Date().toISOString(),
-            updated_at: t.updated_at || new Date().toISOString()
-          });
+      // Helper to process generic collection files
+      const processUserCollection = async (subName: string, tableName: string, mapFn: (item: any) => any) => {
+        const file = path.join(uDir, `users_${uid}_${subName}.json`);
+        if (fs.existsSync(file)) {
+          const items = JSON.parse(fs.readFileSync(file, 'utf8'));
+          if (items.length > 0) {
+            console.log(`[User ${uid}] Migrating ${items.length} ${subName}...`);
+            for (const item of items) {
+              const payload = mapFn(item);
+              if (payload) {
+                await supabase.from(tableName).upsert(payload);
+              }
+            }
+          }
         }
-      }
+      };
+
+      // Transactions
+      await processUserCollection('transactions', 'user_transactions', t => ({
+        id: t.id || t._id,
+        user_id: uid,
+        type: t.type,
+        amount: t.amount,
+        category: t.category || null,
+        subcategory: t.subcategory || null,
+        description: t.description || null,
+        date: t.date,
+        payment_method: t.payment_method || '',
+        account_id: t.account_id || null,
+        to_account_id: t.to_account_id || null,
+        event_id: t.event_id || null,
+        device_id: t.deviceId || null,
+        created_at: t.created_at || new Date().toISOString(),
+        updated_at: t.updated_at || new Date().toISOString()
+      }));
 
       // Accounts
-      const accFile = path.join(uDir, 'users_' + uid + '_accounts.json');
-      if (fs.existsSync(accFile)) {
-        const accs = JSON.parse(fs.readFileSync(accFile, 'utf8'));
-        for (const a of accs) {
-          await supabase.from('user_accounts').upsert({
-            id: a.id || a._id,
-            user_id: uid,
-            name: a.name,
-            type: a.type,
-            initial_balance: a.initial_balance || 0,
-            color: a.color || null,
-            device_id: a.deviceId || null,
-            created_at: a.created_at || new Date().toISOString(),
-            updated_at: a.updated_at || new Date().toISOString()
-          });
-        }
-      }
+      await processUserCollection('accounts', 'user_accounts', a => ({
+        id: a.id || a._id,
+        user_id: uid,
+        name: a.name,
+        type: a.type,
+        initial_balance: a.initial_balance || 0,
+        color: a.color || null,
+        device_id: a.deviceId || null,
+        created_at: a.created_at || new Date().toISOString(),
+        updated_at: a.updated_at || new Date().toISOString()
+      }));
 
       // Categories
-      const catFile = path.join(uDir, 'users_' + uid + '_categories.json');
-      if (fs.existsSync(catFile)) {
-        const cats = JSON.parse(fs.readFileSync(catFile, 'utf8'));
-        for (const c of cats) {
-          await supabase.from('user_categories').upsert({
-            id: c.id || c._id,
-            user_id: uid,
-            name: c.name,
-            type: c.type,
-            icon: c.icon || '',
-            parent_id: c.parent_id || null,
-            device_id: c.deviceId || null,
-            created_at: c.created_at || new Date().toISOString(),
-            updated_at: c.updated_at || new Date().toISOString()
-          });
-        }
-      }
+      await processUserCollection('categories', 'user_categories', c => ({
+        id: c.id || c._id,
+        user_id: uid,
+        name: c.name,
+        type: c.type,
+        icon: c.icon || '',
+        parent_id: c.parent_id || null,
+        device_id: c.deviceId || null,
+        created_at: c.created_at || new Date().toISOString(),
+        updated_at: c.updated_at || new Date().toISOString()
+      }));
+
+      // Goals
+      await processUserCollection('goals', 'user_goals', g => ({
+        id: g.id || g._id,
+        user_id: uid,
+        name: g.name,
+        target_amount: g.target_amount || 0,
+        category_id: g.category_id || null,
+        deadline: g.deadline || null,
+        linked_accounts: g.linked_accounts || null,
+        device_id: g.deviceId || null,
+        created_at: g.created_at || new Date().toISOString(),
+        updated_at: g.updated_at || new Date().toISOString()
+      }));
+
+      // Investments
+      await processUserCollection('investments', 'user_investments', i => ({
+        id: i.id || i._id,
+        user_id: uid,
+        name: i.name || 'Unnamed Investment',
+        type: i.type || 'Crypto',
+        units: i.units || 0,
+        average_buy_price: i.average_buy_price || 0,
+        current_price: i.current_price || 0,
+        device_id: i.deviceId || null,
+        created_at: i.created_at || new Date().toISOString(),
+        updated_at: i.updated_at || new Date().toISOString()
+      }));
+
+      // Reminders
+      await processUserCollection('reminders', 'user_reminders', r => ({
+        id: r.id || r._id,
+        user_id: uid,
+        title: r.title,
+        amount: r.amount || null,
+        due_date: r.due_date || null,
+        frequency: r.frequency || null,
+        category_id: r.category_id || null,
+        status: r.status || 'pending',
+        device_id: r.deviceId || null,
+        created_at: r.created_at || new Date().toISOString(),
+        updated_at: r.updated_at || new Date().toISOString()
+      }));
+
+      // Tasks
+      await processUserCollection('tasks', 'user_tasks', tk => ({
+        id: tk.id || tk._id,
+        user_id: uid,
+        title: tk.title,
+        description: tk.description || '',
+        status: tk.status || 'pending',
+        due_date: tk.due_date || null,
+        priority: tk.priority || 'medium',
+        category: tk.category || null,
+        device_id: tk.deviceId || null,
+        created_at: tk.created_at || new Date().toISOString(),
+        updated_at: tk.updated_at || new Date().toISOString()
+      }));
+
+      // Loans
+      await processUserCollection('loans', 'user_loans', l => ({
+        id: l.id || l._id,
+        user_id: uid,
+        direction: l.direction,
+        party_id: l.party_id,
+        amount: l.amount,
+        description: l.description || null,
+        date: l.date,
+        due_date: l.due_date || null,
+        status: l.status || 'open',
+        device_id: l.deviceId || null,
+        created_at: l.created_at || new Date().toISOString(),
+        updated_at: l.updated_at || new Date().toISOString()
+      }));
     }
   }
 

@@ -8,6 +8,8 @@
     "dev:all": "concurrently \"vite\" \"node whatsapp-server/server.js\"",
     "start": "node whatsapp-server/server.js",
     "build": "tsc -b && vite build",
+    "db:backup": "npx tsx scripts/backup-firestore.ts",
+    "db:migrate": "npx tsx scripts/migrate-to-supabase.ts",
     "lint": "eslint .",
     "preview": "vite preview"
   },

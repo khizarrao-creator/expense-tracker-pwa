@@ -171,10 +171,41 @@ class SyncManager {
       await runWithBindings(`UPDATE sync_queue SET type = 'config_update' WHERE type = 'confi_add'`);
     } catch (e) { }
 
+    await this.pullInitialDataForUser(this.userId);
     await this.repairMissingSyncItems();
     await this.reconcileWithServer();
     await this.processQueue();
     this.setupListeners();
+  }
+
+  public async pullInitialDataForUser(userId?: string) {
+    const targetUid = userId || this.userId;
+    if (!targetUid || !isSupabaseConfigured) return;
+
+    console.log(`[SyncManager] Pulling cloud data cache for user: ${targetUid}...`);
+
+    for (const [colName, tableName] of Object.entries(COLLECTION_TO_TABLE_MAP)) {
+      try {
+        const { data, error } = await supabase
+          .from(tableName)
+          .select('*')
+          .eq('user_id', targetUid);
+
+        if (error || !data) continue;
+
+        if (data.length > 0) {
+          console.log(`[SyncManager] Caching ${data.length} ${colName} for user ${targetUid}`);
+          for (const row of data) {
+            await this.updateLocalCache(colName, row);
+          }
+        }
+      } catch (err) {
+        console.warn(`[SyncManager] Failed to pull ${colName} for ${targetUid}:`, err);
+      }
+    }
+
+    console.log(`[SyncManager] Pull complete for user: ${targetUid}`);
+    window.dispatchEvent(new CustomEvent('app-sync-complete'));
   }
 
   private async reconcileWithServer() {
@@ -702,6 +733,17 @@ class SyncManager {
   }
 
   public async performOperation(type: string, payload: any, localAction: () => Promise<any>) {
+    const isSimulating = localStorage.getItem('simulated_user_id') !== null;
+    const isReadOnly = localStorage.getItem('simulated_read_only') !== 'false';
+
+    if (isSimulating && isReadOnly) {
+      try {
+        const { toast } = await import('sonner');
+        toast.warning('🔒 Read-Only Safeguard Active: Edits/deletions are disabled during simulation mode. Toggle Read-Only OFF in the top bar to allow edits.');
+      } catch (e) { }
+      return;
+    }
+
     await localAction();
 
     if (this.isOnline && this.userId && isSupabaseConfigured) {

@@ -7,14 +7,18 @@ interface SyncContextType {
   isSyncing: boolean;
   isOnline: boolean;
   lastSynced: Date | null;
+  activeDataSource: 'firestore' | 'supabase';
   forceSync: () => Promise<void>;
+  setDataSource: (source: 'firestore' | 'supabase') => void;
 }
 
 const SyncContext = createContext<SyncContextType>({
   isSyncing: false,
   isOnline: navigator.onLine,
   lastSynced: null,
+  activeDataSource: (localStorage.getItem('active_data_source') as any) || 'firestore',
   forceSync: async () => {},
+  setDataSource: () => {},
 });
 
 export const useSync = () => useContext(SyncContext);
@@ -24,6 +28,14 @@ export const SyncProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
   const [isSyncing, setIsSyncing] = useState(false);
   const [isOnline, setIsOnline] = useState(navigator.onLine);
   const [lastSynced, setLastSynced] = useState<Date | null>(null);
+  const [activeDataSource, setActiveDataSource] = useState<'firestore' | 'supabase'>(
+    () => (localStorage.getItem('active_data_source') as 'firestore' | 'supabase') || 'firestore'
+  );
+
+  const setDataSource = (source: 'firestore' | 'supabase') => {
+    localStorage.setItem('active_data_source', source);
+    setActiveDataSource(source);
+  };
 
   useEffect(() => {
     syncManager.setUserId(user?.uid || null);
@@ -59,7 +71,7 @@ export const SyncProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
   };
 
   return (
-    <SyncContext.Provider value={{ isSyncing, isOnline, lastSynced, forceSync }}>
+    <SyncContext.Provider value={{ isSyncing, isOnline, lastSynced, activeDataSource, forceSync, setDataSource }}>
       {children}
     </SyncContext.Provider>
   );

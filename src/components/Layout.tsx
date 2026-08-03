@@ -6,6 +6,7 @@ import { useSync } from '../contexts/SyncContext';
 import ConfirmModal from './ConfirmModal';
 import { GlobalAIAssistant } from './GlobalAIAssistant';
 import { useApp } from '../contexts/AppContext';
+import { SyncProgressBar } from './SyncProgressBar';
 
 const Layout: React.FC = () => {
   const { signOut } = useAuth();
@@ -87,6 +88,7 @@ const Layout: React.FC = () => {
 
       {/* Main Content Area */}
       <main className="flex-1 flex flex-col h-screen overflow-hidden">
+        <SyncProgressBar />
         {/* Mobile Header */}
         <header className={`${isSidebarHidden ? 'hidden' : 'md:hidden'} bg-card/90 backdrop-blur-md border-b border-border/80 p-4 flex items-center justify-between z-10 sticky top-0 shadow-[0_1px_3px_rgba(0,0,0,0.02)]`}>
           <div className="flex flex-col">

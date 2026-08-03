@@ -10,6 +10,7 @@ import { useAuth } from '../contexts/AuthContext';
 import { useApp } from '../contexts/AppContext';
 import { toast } from 'sonner';
 import { syncManager } from '../db/SyncManager';
+import { userMigrationSyncManager } from '../services/UserMigrationSyncManager';
 import ConfirmModal from '../components/ConfirmModal';
 import AdminTransitionOverlay from '../components/AdminTransitionOverlay';
 import { getQuotaUsage, type QuotaStatus } from '../services/ai';
@@ -18,7 +19,7 @@ const Settings: React.FC = () => {
   const { currency, setCurrency, currencies } = useCurrency();
   const navigate = useNavigate();
   const { theme, setTheme } = useTheme();
-  const { forceSync, isSyncing, lastSynced } = useSync();
+  const { forceSync, isSyncing, lastSynced, activeDataSource, setDataSource } = useSync();
   const { user, isPro, signOut } = useAuth();
   const { config: appConfig, userPlan, plansConfig, planLimits } = useApp();
 
@@ -646,6 +647,87 @@ const Settings: React.FC = () => {
           </div>
           <ChevronRight size={20} className="text-muted-foreground group-hover:translate-x-1 transition-transform" />
         </button>
+      </div>
+
+      {/* Cloud Migration & Data Source Switcher */}
+      <div className="bg-card p-6 rounded-2xl shadow-sm border border-border space-y-4">
+        <div className="flex items-center justify-between border-b border-border pb-4">
+          <div>
+            <h2 className="text-lg font-semibold flex items-center gap-2">
+              <CloudSync size={20} className="text-primary" />
+              Cloud Database & Migration Engine
+            </h2>
+            <p className="text-xs text-muted-foreground mt-0.5">
+              Sync user records to Supabase and switch active data engines seamlessly.
+            </p>
+          </div>
+        </div>
+
+        <div className="space-y-4">
+          {/* Sync Button Action */}
+          <div className="p-4 bg-muted/30 border border-border/60 rounded-xl flex items-center justify-between gap-3">
+            <div>
+              <h3 className="text-sm font-bold text-foreground">Sync My User Data to Supabase</h3>
+              <p className="text-xs text-muted-foreground mt-0.5">
+                Reconciles all your transactions, accounts, categories, and goals to Supabase PostgreSQL.
+              </p>
+            </div>
+            <button
+              onClick={async () => {
+                if (!user) {
+                  toast.error('You must be logged in to perform sync.');
+                  return;
+                }
+                const success = await userMigrationSyncManager.syncUserData(user.uid, user.email || 'user@example.com');
+                if (success) {
+                  toast.success('Sync complete! You can now switch active data engine to Supabase PostgreSQL.');
+                }
+              }}
+              className="px-4 py-2 bg-primary text-primary-foreground text-xs font-bold rounded-lg shadow-sm hover:opacity-95 transition-all shrink-0 flex items-center gap-1.5"
+            >
+              <CloudSync size={14} />
+              Sync to Supabase
+            </button>
+          </div>
+
+          {/* Data Source Switcher Toggle */}
+          <div>
+            <label className="block text-xs font-bold uppercase tracking-widest text-muted-foreground mb-2">
+              Active Cloud Data Engine
+            </label>
+            <div className="grid grid-cols-2 gap-3">
+              <button
+                onClick={() => {
+                  setDataSource('firestore');
+                  toast.info('Active data engine switched to Firestore (Legacy Cloud)');
+                }}
+                className={`p-3.5 rounded-xl border-2 flex flex-col items-center justify-center transition-all ${
+                  activeDataSource === 'firestore'
+                    ? 'border-amber-500 bg-amber-500/10 text-amber-500 font-bold shadow-sm'
+                    : 'border-border text-muted-foreground hover:bg-muted'
+                }`}
+              >
+                <span className="text-xs font-extrabold uppercase tracking-wider">Firestore (Legacy Cloud)</span>
+                <span className="text-[10px] opacity-80 mt-0.5">Read/Write from Firestore</span>
+              </button>
+
+              <button
+                onClick={() => {
+                  setDataSource('supabase');
+                  toast.success('Active data engine switched to Supabase PostgreSQL');
+                }}
+                className={`p-3.5 rounded-xl border-2 flex flex-col items-center justify-center transition-all ${
+                  activeDataSource === 'supabase'
+                    ? 'border-emerald-500 bg-emerald-500/10 text-emerald-500 font-bold shadow-sm'
+                    : 'border-border text-muted-foreground hover:bg-muted'
+                }`}
+              >
+                <span className="text-xs font-extrabold uppercase tracking-wider">Supabase (PostgreSQL)</span>
+                <span className="text-[10px] opacity-80 mt-0.5">Read/Write from Supabase</span>
+              </button>
+            </div>
+          </div>
+        </div>
       </div>
 
       {/* Exchange Integration Card */}

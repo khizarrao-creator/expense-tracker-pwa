@@ -410,7 +410,7 @@ CREATE TABLE IF NOT EXISTS user_vehicle_reminders (
 -- ----------------------------------------------------------------------------
 
 CREATE TABLE IF NOT EXISTS projects (
-  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  id TEXT PRIMARY KEY,
   name TEXT NOT NULL,
   description TEXT DEFAULT '',
   color TEXT DEFAULT '#3B82F6',
@@ -420,20 +420,20 @@ CREATE TABLE IF NOT EXISTS projects (
 );
 
 CREATE TABLE IF NOT EXISTS project_members (
-  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-  project_id UUID NOT NULL REFERENCES projects(id) ON DELETE CASCADE,
+  id TEXT PRIMARY KEY DEFAULT gen_random_uuid()::text,
+  project_id TEXT NOT NULL REFERENCES projects(id) ON DELETE CASCADE,
   user_id TEXT NOT NULL,
   email TEXT NOT NULL,
   display_name TEXT,
   photo_url TEXT,
-  role TEXT DEFAULT 'member' CHECK (role IN ('owner', 'admin', 'member')),
+  role TEXT DEFAULT 'member' CHECK (role IN ('owner', 'admin', 'member', 'team_lead', 'line_manager')),
   joined_at TIMESTAMPTZ DEFAULT NOW(),
   UNIQUE(project_id, user_id)
 );
 
 CREATE TABLE IF NOT EXISTS project_invites (
-  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-  project_id UUID NOT NULL REFERENCES projects(id) ON DELETE CASCADE,
+  id TEXT PRIMARY KEY DEFAULT gen_random_uuid()::text,
+  project_id TEXT NOT NULL REFERENCES projects(id) ON DELETE CASCADE,
   project_name TEXT,
   invited_email TEXT NOT NULL,
   invited_by TEXT NOT NULL,
@@ -444,8 +444,8 @@ CREATE TABLE IF NOT EXISTS project_invites (
 );
 
 CREATE TABLE IF NOT EXISTS project_tasks (
-  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-  project_id UUID NOT NULL REFERENCES projects(id) ON DELETE CASCADE,
+  id TEXT PRIMARY KEY DEFAULT gen_random_uuid()::text,
+  project_id TEXT NOT NULL REFERENCES projects(id) ON DELETE CASCADE,
   title TEXT NOT NULL,
   description TEXT DEFAULT '',
   status TEXT DEFAULT 'pending' CHECK (status IN ('pending', 'in-progress', 'done')),
@@ -459,8 +459,8 @@ CREATE TABLE IF NOT EXISTS project_tasks (
 );
 
 CREATE TABLE IF NOT EXISTS grid_sheets (
-  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-  project_id UUID NOT NULL REFERENCES projects(id) ON DELETE CASCADE,
+  id TEXT PRIMARY KEY DEFAULT gen_random_uuid()::text,
+  project_id TEXT NOT NULL REFERENCES projects(id) ON DELETE CASCADE,
   sheet_name TEXT NOT NULL DEFAULT 'Sheet 1',
   sheet_order INT DEFAULT 0,
   columns JSONB DEFAULT '[]',
@@ -469,8 +469,8 @@ CREATE TABLE IF NOT EXISTS grid_sheets (
 );
 
 CREATE TABLE IF NOT EXISTS project_leads (
-  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-  project_id UUID NOT NULL REFERENCES projects(id) ON DELETE CASCADE,
+  id TEXT PRIMARY KEY DEFAULT gen_random_uuid()::text,
+  project_id TEXT NOT NULL REFERENCES projects(id) ON DELETE CASCADE,
   title TEXT NOT NULL,
   client_name TEXT DEFAULT '',
   company TEXT DEFAULT '',

@@ -1,29 +1,33 @@
-import { initializeApp } from 'firebase/app';
-import { getFirestore, collection, getDocs } from 'firebase/firestore';
-import { getAuth, signInWithEmailAndPassword } from 'firebase/auth';
+import { initializeApp, cert, getApps } from 'firebase-admin/app';
+import { getFirestore } from 'firebase-admin/firestore';
 import * as fs from 'fs';
 import * as path from 'path';
 import dotenv from 'dotenv';
 
 dotenv.config();
 
-const firebaseConfig = {
-  apiKey: process.env.VITE_FIREBASE_API_KEY,
-  authDomain: process.env.VITE_FIREBASE_AUTH_DOMAIN,
-  projectId: process.env.VITE_FIREBASE_PROJECT_ID,
-  storageBucket: process.env.VITE_FIREBASE_STORAGE_BUCKET,
-  messagingSenderId: process.env.VITE_FIREBASE_MESSAGING_SENDER_ID,
-  appId: process.env.VITE_FIREBASE_APP_ID
-};
+const projectId = process.env.VITE_FIREBASE_PROJECT_ID || 'expense-tracker-2006';
 
-if (!firebaseConfig.apiKey) {
-  console.error('Error: VITE_FIREBASE_API_KEY missing in .env file!');
-  process.exit(1);
+// Check if service account file exists, else use default init
+const serviceAccountPath = path.join(process.cwd(), 'serviceAccountKey.json');
+
+if (!getApps().length) {
+  if (fs.existsSync(serviceAccountPath)) {
+    const serviceAccount = JSON.parse(fs.readFileSync(serviceAccountPath, 'utf8'));
+    initializeApp({
+      credential: cert(serviceAccount),
+      projectId: projectId
+    });
+    console.log('[Backup] Initialized Firebase Admin SDK with serviceAccountKey.json');
+  } else {
+    initializeApp({
+      projectId: projectId
+    });
+    console.log(`[Backup] Initialized Firebase Admin SDK for project ${projectId}`);
+  }
 }
 
-const app = initializeApp(firebaseConfig);
-const db = getFirestore(app);
-const auth = getAuth(app);
+const db = getFirestore();
 
 const timestamp = new Date().toISOString().replace(/[:.]/g, '-');
 const backupDir = path.join(process.cwd(), 'backups', `firestore-export-${timestamp}`);
@@ -32,8 +36,8 @@ fs.mkdirSync(backupDir, { recursive: true });
 
 async function exportCollection(colName: string, subPath: string = '') {
   try {
-    const colRef = collection(db, colName);
-    const snap = await getDocs(colRef);
+    const colRef = db.collection(colName);
+    const snap = await colRef.get();
     const docs = snap.docs.map(doc => ({
       _id: doc.id,
       ...doc.data()
@@ -55,23 +59,10 @@ async function exportCollection(colName: string, subPath: string = '') {
 async function runBackup() {
   console.log(`Starting Firestore Backup into: ${backupDir}`);
 
-  // Attempt login with admin email if provided or try direct fetch
-  const adminEmail = process.env.ADMIN_EMAIL || process.env.SMTP_USER || 'khizarraoworks@gmail.com';
-  const adminPassword = process.env.ADMIN_PASSWORD;
-
-  if (adminPassword) {
-    try {
-      await signInWithEmailAndPassword(auth, adminEmail, adminPassword);
-      console.log(`[Backup] Authenticated as ${adminEmail}`);
-    } catch (e: any) {
-      console.warn(`[Backup] Firebase auth login skipped/failed: ${e.message}`);
-    }
-  }
-
   // 1. Export System Config Documents
   const systemDocsData: Record<string, any> = {};
   try {
-    const snap = await getDocs(collection(db, 'system'));
+    const snap = await db.collection('system').get();
     snap.docs.forEach(doc => {
       systemDocsData[doc.id] = doc.data();
     });
@@ -119,3 +110,4 @@ runBackup().catch(err => {
   console.error('Backup script error:', err);
   process.exit(1);
 });
+

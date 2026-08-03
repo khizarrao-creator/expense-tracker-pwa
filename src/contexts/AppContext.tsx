@@ -4,7 +4,6 @@ import { toast } from 'sonner';
 import { ShieldAlert, Info, X, AlertTriangle } from 'lucide-react';
 import { useAuth } from './AuthContext';
 import { useLocation } from 'react-router-dom';
-import { refreshProviderConfig } from '../services/ai';
 
 export interface PlanDetails {
   name: string;

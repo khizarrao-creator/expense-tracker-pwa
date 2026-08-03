@@ -651,7 +651,7 @@ class SyncManager {
     try {
       const { data } = await supabase.from('users').select('id').eq('id', this.userId).maybeSingle();
       if (!data) {
-        await supabase.from('users').upsert({
+        const userObj = {
           id: this.userId,
           email: localStorage.getItem('userEmail') || `${this.userId}@user.app`,
           display_name: localStorage.getItem('userName') || 'User',
@@ -659,7 +659,24 @@ class SyncManager {
           plan: 'standard',
           created_at: new Date().toISOString(),
           updated_at: new Date().toISOString()
-        });
+        };
+        const { error } = await supabase.from('users').upsert(userObj, { onConflict: 'id' });
+        if (error && error.code === '23503') {
+          // Missing plan in plans table - seed default plan and retry
+          await supabase.from('plans').upsert({
+            id: 'standard',
+            name: 'Standard',
+            price: 0,
+            currency: 'PKR',
+            billing_cycle: 'forever',
+            features: ['transactions', 'accounts', 'categories', 'dashboard', 'goals', 'reminders', 'calculator', 'converter', 'tasks', 'loans', 'events', 'fuel', 'reports', 'subscriptions', 'projects'],
+            limits: { aiCallsPerDay: 0, maxTransactions: 10000, maxUploadsPerDay: 0 },
+            badge_icon: 'shield',
+            badge_color: '#6B7280',
+            display_order: 1
+          }, { onConflict: 'id' });
+          await supabase.from('users').upsert(userObj, { onConflict: 'id' });
+        }
       }
     } catch (e) {
       console.warn('[SyncManager] ensureUserRecordExists warning:', e);

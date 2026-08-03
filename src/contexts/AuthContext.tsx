@@ -87,7 +87,7 @@ export const AuthProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
             ip = data.ip;
           } catch (e) { }
 
-          await supabase.from('users').upsert({
+          const userPayload = {
             id: currentUser.uid,
             email: currentUser.email || '',
             display_name: currentUser.displayName || null,
@@ -95,7 +95,23 @@ export const AuthProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
             last_login: new Date().toISOString(),
             last_ip: ip,
             updated_at: new Date().toISOString()
-          }, { onConflict: 'id' });
+          };
+          const { error } = await supabase.from('users').upsert(userPayload, { onConflict: 'id' });
+          if (error && error.code === '23503') {
+            await supabase.from('plans').upsert({
+              id: 'standard',
+              name: 'Standard',
+              price: 0,
+              currency: 'PKR',
+              billing_cycle: 'forever',
+              features: ['transactions', 'accounts', 'categories', 'dashboard', 'goals', 'reminders', 'calculator', 'converter', 'tasks', 'loans', 'events', 'fuel', 'reports', 'subscriptions', 'projects'],
+              limits: { aiCallsPerDay: 0, maxTransactions: 10000, maxUploadsPerDay: 0 },
+              badge_icon: 'shield',
+              badge_color: '#6B7280',
+              display_order: 1
+            }, { onConflict: 'id' });
+            await supabase.from('users').upsert(userPayload, { onConflict: 'id' });
+          }
         } catch (e) {
           console.warn('Failed to register user in directory:', e);
         }

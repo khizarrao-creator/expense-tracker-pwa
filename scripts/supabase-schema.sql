@@ -31,6 +31,15 @@ CREATE TABLE IF NOT EXISTS plans (
   display_order INT DEFAULT 0
 );
 
+-- Seed default plans
+INSERT INTO plans (id, name, price, currency, billing_cycle, features, limits, badge_icon, badge_color, display_order)
+VALUES 
+  ('standard', 'Standard', 0, 'PKR', 'forever', ARRAY['transactions', 'accounts', 'categories', 'dashboard', 'goals', 'reminders', 'calculator', 'converter', 'tasks', 'loans', 'events', 'fuel', 'reports', 'subscriptions', 'projects'], '{"aiCallsPerDay": 0, "maxTransactions": 10000, "maxUploadsPerDay": 0}'::jsonb, 'shield', '#6B7280', 1),
+  ('pro', 'Pro', 600, 'PKR', 'monthly', ARRAY['transactions', 'accounts', 'categories', 'dashboard', 'goals', 'reminders', 'calculator', 'converter', 'tasks', 'loans', 'events', 'fuel', 'reports', 'subscriptions', 'ai-chat', 'projects'], '{"aiCallsPerDay": 50, "maxTransactions": 50000, "maxUploadsPerDay": 10}'::jsonb, 'zap', '#3B82F6', 2),
+  ('max', 'Max', 1000, 'PKR', 'monthly', ARRAY['transactions', 'accounts', 'categories', 'dashboard', 'goals', 'reminders', 'calculator', 'converter', 'tasks', 'loans', 'events', 'fuel', 'reports', 'subscriptions', 'ai-chat', 'whatsapp', 'investments', 'projects'], '{"aiCallsPerDay": 150, "maxTransactions": -1, "maxUploadsPerDay": 30}'::jsonb, 'crown', '#F59E0B', 3)
+ON CONFLICT (id) DO NOTHING;
+
+
 -- Payment Receiving Accounts (Admin manual payment methods)
 CREATE TABLE IF NOT EXISTS payment_accounts (
   id TEXT PRIMARY KEY,

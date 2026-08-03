@@ -1,5 +1,6 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { useAuth } from '../contexts/AuthContext';
+import { useApp } from '../contexts/AppContext';
 import { supabase, isSupabaseConfigured } from '../supabase';
 import {
   FolderKanban,
@@ -631,7 +632,7 @@ export const Projects: React.FC = () => {
     if (!user || !selectedProject || !newTaskTitle.trim() || !isSupabaseConfigured) return;
 
     try {
-      const assigneeObj = selectedProject.members.find(m => m.userId === newTaskAssignee);
+      const assigneeObj = selectedProject.members.find((m: { userId: any; }) => m.userId === newTaskAssignee);
       const { data: newTask, error: tErr } = await supabase.from('project_tasks').insert({
         project_id: selectedProject.id,
         title: newTaskTitle.trim(),
@@ -696,7 +697,7 @@ export const Projects: React.FC = () => {
     if (!user || !selectedProject || !isSupabaseConfigured) return;
 
     try {
-      const userMemberObj = selectedProject.members.find(m => m.userId === user.uid);
+      const userMemberObj = selectedProject.members.find((m: { userId: any; }) => m.userId === user.uid);
       const assigneeName = userMemberObj?.displayName || user.displayName || user.email || 'You';
 
       await supabase.from('project_tasks').update({
@@ -1160,11 +1161,10 @@ export const Projects: React.FC = () => {
               <button
                 key={t.id}
                 onClick={() => setProjectSubTab(t.id as any)}
-                className={`py-3 px-6 text-sm font-semibold border-b-2 transition-all flex items-center gap-2 whitespace-nowrap ${
-                  projectSubTab === t.id
-                    ? 'border-primary text-primary'
-                    : 'border-transparent text-muted-foreground hover:text-foreground'
-                }`}
+                className={`py-3 px-6 text-sm font-semibold border-b-2 transition-all flex items-center gap-2 whitespace-nowrap ${projectSubTab === t.id
+                  ? 'border-primary text-primary'
+                  : 'border-transparent text-muted-foreground hover:text-foreground'
+                  }`}
               >
                 <Icon size={16} />
                 {t.label}
@@ -1232,15 +1232,14 @@ export const Projects: React.FC = () => {
                               t.status === 'completed'
                                 ? 'text-emerald-500'
                                 : t.status === 'in_progress'
-                                ? 'text-blue-500 animate-pulse'
-                                : 'text-muted-foreground'
+                                  ? 'text-blue-500 animate-pulse'
+                                  : 'text-muted-foreground'
                             }
                           />
                           <div>
                             <p
-                              className={`text-xs font-semibold ${
-                                t.status === 'completed' ? 'line-through text-muted-foreground' : 'text-foreground'
-                              }`}
+                              className={`text-xs font-semibold ${t.status === 'completed' ? 'line-through text-muted-foreground' : 'text-foreground'
+                                }`}
                             >
                               {t.title}
                             </p>
@@ -1250,13 +1249,12 @@ export const Projects: React.FC = () => {
                           </div>
                         </div>
                         <span
-                          className={`text-[9px] font-bold px-2 py-0.5 rounded-full uppercase ${
-                            t.priority === 'high'
-                              ? 'bg-rose-500/10 text-rose-500'
-                              : t.priority === 'medium'
+                          className={`text-[9px] font-bold px-2 py-0.5 rounded-full uppercase ${t.priority === 'high'
+                            ? 'bg-rose-500/10 text-rose-500'
+                            : t.priority === 'medium'
                               ? 'bg-amber-500/10 text-amber-500'
                               : 'bg-sky-500/10 text-sky-500'
-                          }`}
+                            }`}
                         >
                           {t.priority}
                         </span>
@@ -1284,13 +1282,12 @@ export const Projects: React.FC = () => {
                         )}
                       </div>
                       <span
-                        className={`text-[9px] font-bold px-2 py-0.5 rounded-full uppercase ${
-                          m.role === 'line_manager'
-                            ? 'bg-amber-500/10 text-amber-500'
-                            : m.role === 'team_lead'
+                        className={`text-[9px] font-bold px-2 py-0.5 rounded-full uppercase ${m.role === 'line_manager'
+                          ? 'bg-amber-500/10 text-amber-500'
+                          : m.role === 'team_lead'
                             ? 'bg-blue-500/10 text-blue-500'
                             : 'bg-muted text-muted-foreground'
-                        }`}
+                          }`}
                       >
                         {m.role.replace('_', ' ')}
                       </span>
@@ -1453,17 +1450,15 @@ export const Projects: React.FC = () => {
               <div className="flex items-center gap-2 bg-muted p-1 rounded-2xl border border-border">
                 <button
                   onClick={() => setWhiteboardMode('notes')}
-                  className={`px-4 py-1.5 rounded-xl text-xs font-bold transition-all ${
-                    whiteboardMode === 'notes' ? 'bg-card text-foreground shadow-sm' : 'text-muted-foreground'
-                  }`}
+                  className={`px-4 py-1.5 rounded-xl text-xs font-bold transition-all ${whiteboardMode === 'notes' ? 'bg-card text-foreground shadow-sm' : 'text-muted-foreground'
+                    }`}
                 >
                   Rich Notes Notepad
                 </button>
                 <button
                   onClick={() => setWhiteboardMode('canvas')}
-                  className={`px-4 py-1.5 rounded-xl text-xs font-bold transition-all ${
-                    whiteboardMode === 'canvas' ? 'bg-card text-foreground shadow-sm' : 'text-muted-foreground'
-                  }`}
+                  className={`px-4 py-1.5 rounded-xl text-xs font-bold transition-all ${whiteboardMode === 'canvas' ? 'bg-card text-foreground shadow-sm' : 'text-muted-foreground'
+                    }`}
                 >
                   Interactive Drawing Canvas
                 </button>
@@ -1516,11 +1511,10 @@ export const Projects: React.FC = () => {
                     <div
                       key={s.id}
                       onClick={() => setActiveSheetId(s.id)}
-                      className={`flex items-center gap-2 px-3 py-1.5 rounded-xl text-xs font-bold transition-all cursor-pointer whitespace-nowrap border ${
-                        isActive
-                          ? 'bg-primary/10 text-primary border-primary/30 shadow-sm'
-                          : 'bg-muted/40 text-muted-foreground border-transparent hover:bg-muted'
-                      }`}
+                      className={`flex items-center gap-2 px-3 py-1.5 rounded-xl text-xs font-bold transition-all cursor-pointer whitespace-nowrap border ${isActive
+                        ? 'bg-primary/10 text-primary border-primary/30 shadow-sm'
+                        : 'bg-muted/40 text-muted-foreground border-transparent hover:bg-muted'
+                        }`}
                     >
                       <input
                         type="text"
@@ -2273,11 +2267,10 @@ export const Projects: React.FC = () => {
                       <div
                         key={u.id}
                         onClick={() => setSelectedInviteUser(u)}
-                        className={`p-2.5 rounded-xl border flex items-center justify-between cursor-pointer text-xs ${
-                          selectedInviteUser?.id === u.id
-                            ? 'border-primary bg-primary/10 text-primary font-bold'
-                            : 'border-border bg-card'
-                        }`}
+                        className={`p-2.5 rounded-xl border flex items-center justify-between cursor-pointer text-xs ${selectedInviteUser?.id === u.id
+                          ? 'border-primary bg-primary/10 text-primary font-bold'
+                          : 'border-border bg-card'
+                          }`}
                       >
                         <div>
                           <p className="font-bold">{u.displayName || 'App User'}</p>
@@ -2355,11 +2348,10 @@ export const Projects: React.FC = () => {
       <div className="flex border-b border-border">
         <button
           onClick={() => setActiveTab('projects')}
-          className={`py-3 px-6 text-sm font-semibold border-b-2 transition-all flex items-center gap-2 ${
-            activeTab === 'projects'
-              ? 'border-primary text-primary'
-              : 'border-transparent text-muted-foreground hover:text-foreground'
-          }`}
+          className={`py-3 px-6 text-sm font-semibold border-b-2 transition-all flex items-center gap-2 ${activeTab === 'projects'
+            ? 'border-primary text-primary'
+            : 'border-transparent text-muted-foreground hover:text-foreground'
+            }`}
         >
           My Projects
           <span className="text-xs px-2 py-0.5 rounded-full bg-primary/20 text-primary">{projects.length}</span>
@@ -2367,11 +2359,10 @@ export const Projects: React.FC = () => {
 
         <button
           onClick={() => setActiveTab('invites')}
-          className={`py-3 px-6 text-sm font-semibold border-b-2 transition-all flex items-center gap-2 ${
-            activeTab === 'invites'
-              ? 'border-primary text-primary'
-              : 'border-transparent text-muted-foreground hover:text-foreground'
-          }`}
+          className={`py-3 px-6 text-sm font-semibold border-b-2 transition-all flex items-center gap-2 ${activeTab === 'invites'
+            ? 'border-primary text-primary'
+            : 'border-transparent text-muted-foreground hover:text-foreground'
+            }`}
         >
           Pending Invites
           {invites.length > 0 && (

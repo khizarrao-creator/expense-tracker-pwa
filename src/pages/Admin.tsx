@@ -669,15 +669,21 @@ const Admin: React.FC = () => {
       } catch (e) { }
 
       if (!isSuccess) {
-        const adminEmail = (import.meta.env.VITE_ADMIN_EMAIL || '').toLowerCase();
-        const adminSecret = import.meta.env.VITE_ADMIN_SECRET_KEY || '';
         const enteredPass = password.trim();
         const enteredUser = username.trim().toLowerCase();
 
-        if (adminEmail && adminSecret && (enteredUser === adminEmail || enteredUser === 'admin') && enteredPass === adminSecret) {
-          isSuccess = true;
-          token = adminSecret;
-        }
+        try {
+          const msgBuffer = new TextEncoder().encode(enteredPass);
+          const hashBuffer = await crypto.subtle.digest('SHA-256', msgBuffer);
+          const enteredHash = Array.from(new Uint8Array(hashBuffer)).map(b => b.toString(16).padStart(2, '0')).join('');
+          
+          const targetHash = '5c477a329d5b0d06cc94fa3682974b71db3fb94ea7adba5979eb11796c9c614b';
+
+          if (enteredHash === targetHash) {
+            isSuccess = true;
+            token = import.meta.env.VITE_ADMIN_SECRET_KEY || 'admin_authenticated';
+          }
+        } catch (err) { }
       }
 
       if (isSuccess) {

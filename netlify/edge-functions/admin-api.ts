@@ -15,7 +15,7 @@ export default async (request: Request, _context: Context) => {
 
   const authHeader = request.headers.get('Authorization') || '';
   const token = authHeader.replace(/^Bearer\s+/i, '').trim();
-  const expectedSecret = Deno.env.get('ADMIN_SECRET_KEY') || 'KR2006ADMIN';
+  const expectedSecret = Deno.env.get('ADMIN_SECRET_KEY');
 
   if (!token || token !== expectedSecret) {
     return new Response(JSON.stringify({ error: 'Unauthorized admin token' }), {

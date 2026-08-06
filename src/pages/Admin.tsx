@@ -1339,7 +1339,7 @@ const Admin: React.FC = () => {
 
     if (isTestOnly) {
       bodyFilter = 'custom';
-      customRecipientsList = [adminUsername || 'khizarraoworks@gmail.com'];
+      customRecipientsList = [adminUsername];
     } else if (emailFilter === 'custom') {
       customRecipientsList = emailCustomRecipients
         .split(',')
@@ -3159,7 +3159,7 @@ const Admin: React.FC = () => {
                 <div className="p-3.5 border-b border-border/60 bg-muted/10 space-y-1.5 text-xs shrink-0 text-left">
                   <div>
                     <span className="text-muted-foreground font-semibold">From: </span>
-                    <span className="font-medium text-foreground">Expense Tracker Support &lt;khizarraoworks@gmail.com&gt;</span>
+                    <span className="font-medium text-foreground">Expense Tracker Support System</span>
                   </div>
                   <div>
                     <span className="text-muted-foreground font-semibold">To: </span>

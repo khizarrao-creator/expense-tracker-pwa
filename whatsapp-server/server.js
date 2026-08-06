@@ -1151,7 +1151,7 @@ app.post('/api/admin/send-emails', async (req, res) => {
   const resendApiKey = process.env.RESEND_API_KEY;
   if (resendApiKey) {
     console.log(`[Resend] Sending broadcast to ${targetEmails.length} recipients using Resend API.`);
-    let resendFrom = process.env.RESEND_FROM || 'onboarding@resend.dev';
+    let resendFrom = process.env.RESEND_FROM;
     if (resendFrom) {
       resendFrom = resendFrom.replace(/\\/g, '');
       const emailMatch = resendFrom.match(/<([^>]+)>/);

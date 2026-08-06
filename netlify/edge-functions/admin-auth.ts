@@ -29,9 +29,9 @@ export default async (request: Request, _context: Context) => {
   try {
     const { username, password } = await request.json();
 
-    const expectedAdmin = Deno.env.get('ADMIN_EMAIL') || 'khizarraoworks@gmail.com';
-    const expectedHash = Deno.env.get('ADMIN_PASSWORD_HASH') || '5c477a329d5b0d06cc94fa3682974b71db3fb94ea7adba5979eb11796c9c614b';
-    const adminSecretKey = Deno.env.get('ADMIN_SECRET_KEY') || 'KR2006ADMIN';
+    const expectedAdmin = Deno.env.get('ADMIN_EMAIL');
+    const expectedHash = Deno.env.get('ADMIN_PASSWORD_HASH');
+    const adminSecretKey = Deno.env.get('ADMIN_SECRET_KEY');
 
     const enteredHash = await hashPassword((password || '').trim());
 

@@ -6,7 +6,7 @@ import dotenv from 'dotenv';
 
 dotenv.config();
 
-const projectId = process.env.VITE_FIREBASE_PROJECT_ID || 'expense-tracker-2006';
+const projectId = process.env.VITE_FIREBASE_PROJECT_ID;
 
 // Check if service account file exists, else use default init
 const serviceAccountPath = path.join(process.cwd(), 'serviceAccountKey.json');

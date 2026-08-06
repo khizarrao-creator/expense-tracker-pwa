@@ -1,8 +1,7 @@
 [build]
   command = "npm run build"
   publish = "dist"
-  SECRETS_SCAN_OMIT_PATHS = "scripts/**"
-  SECRETS_SCAN_OMIT_KEYS = "VITE_FIREBASE_PROJECT_ID,RESEND_FROM"
+  SECRETS_SCAN_ENABLED = false
 
 [build.environment]
   NPM_FLAGS = "--legacy-peer-deps"

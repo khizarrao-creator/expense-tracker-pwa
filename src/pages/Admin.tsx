@@ -304,7 +304,7 @@ const Admin: React.FC = () => {
   const [password, setPassword] = useState('');
   const [showPassword, setShowPassword] = useState(false);
   const [isShake, setIsShake] = useState(false);
-  const [adminUsername, setAdminUsername] = useState('khizarraoworks@gmail.com');
+  const [adminUsername, setAdminUsername] = useState(import.meta.env.VITE_ADMIN_EMAIL || '');
   const [currentPassword, setCurrentPassword] = useState('');
   const [newPassword, setNewPassword] = useState('');
   const [confirmNewPassword, setConfirmNewPassword] = useState('');
@@ -669,13 +669,12 @@ const Admin: React.FC = () => {
       } catch (e) { }
 
       if (!isSuccess) {
-        const adminEmail = (import.meta.env.VITE_ADMIN_EMAIL || 'khizarraoworks@gmail.com').toLowerCase();
-        const adminSecret = import.meta.env.VITE_ADMIN_SECRET_KEY || 'KR2006ADMIN';
+        const adminEmail = (import.meta.env.VITE_ADMIN_EMAIL || '').toLowerCase();
+        const adminSecret = import.meta.env.VITE_ADMIN_SECRET_KEY || '';
         const enteredPass = password.trim();
         const enteredUser = username.trim().toLowerCase();
 
-        if ((enteredUser === adminEmail || enteredUser === 'admin') &&
-          (enteredPass === adminSecret || enteredPass === 'KR2006ADMIN' || enteredPass === '159068')) {
+        if (adminEmail && adminSecret && (enteredUser === adminEmail || enteredUser === 'admin') && enteredPass === adminSecret) {
           isSuccess = true;
           token = adminSecret;
         }

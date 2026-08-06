@@ -3702,8 +3702,8 @@ const Admin: React.FC = () => {
             </div>
 
             {/* Sync Directory Table */}
-            <Card className="overflow-hidden border-border/60">
-              <div className="p-4 bg-muted/40 border-b border-border flex items-center justify-between">
+            <Card className="overflow-hidden border-border/60 shadow-sm">
+              <div className="p-4 bg-muted/30 border-b border-border/60 flex items-center justify-between">
                 <h4 className="text-sm font-bold text-foreground flex items-center gap-2">
                   <Users size={16} className="text-primary" />
                   User Sync Status ({users.length} Users)
@@ -3711,56 +3711,58 @@ const Admin: React.FC = () => {
               </div>
 
               <div className="overflow-x-auto">
-                <table className="w-full text-left text-xs">
-                  <thead className="bg-muted/60 text-muted-foreground uppercase font-mono border-b border-border">
+                <table className="w-full text-left text-xs border-collapse">
+                  <thead className="bg-muted/40 text-muted-foreground uppercase font-mono border-b border-border/60">
                     <tr>
-                      <th className="p-3">User Profile</th>
-                      <th className="p-3">Email</th>
-                      <th className="p-3">Plan</th>
-                      <th className="p-3">Sync Status</th>
-                      <th className="p-3 text-right">Actions</th>
+                      <th className="px-4 py-3.5 text-[11px] tracking-wider font-bold">User Profile</th>
+                      <th className="px-4 py-3.5 text-[11px] tracking-wider font-bold">Email</th>
+                      <th className="px-4 py-3.5 text-[11px] tracking-wider font-bold">Plan</th>
+                      <th className="px-4 py-3.5 text-[11px] tracking-wider font-bold">Sync Status</th>
+                      <th className="px-4 py-3.5 text-[11px] tracking-wider font-bold text-right">Actions</th>
                     </tr>
                   </thead>
-                  <tbody className="divide-y divide-border">
+                  <tbody className="divide-y divide-border/50">
                     {users.map(u => {
                       const isSynced = userMigrationSyncManager.isUserSynced(u.id);
                       return (
                         <tr key={u.id} className="hover:bg-muted/30 transition-colors">
-                          <td className="p-3 font-semibold text-foreground flex items-center gap-2.5">
-                            {u.photoURL ? (
-                              <img src={u.photoURL} className="w-7 h-7 rounded-full border border-border" />
-                            ) : (
-                              <div className="w-7 h-7 rounded-full bg-primary/20 text-primary flex items-center justify-center font-bold text-xs">
-                                {(u.displayName || u.email || 'U')[0].toUpperCase()}
-                              </div>
-                            )}
-                            <span>{u.displayName || 'Anonymous User'}</span>
+                          <td className="px-4 py-3.5 font-semibold text-foreground whitespace-nowrap">
+                            <div className="flex items-center gap-2.5">
+                              {u.photoURL ? (
+                                <img src={u.photoURL} className="w-7 h-7 rounded-full border border-border object-cover shrink-0" />
+                              ) : (
+                                <div className="w-7 h-7 rounded-full bg-primary/10 text-primary border border-primary/20 flex items-center justify-center font-bold text-xs shrink-0">
+                                  {(u.displayName || u.email || 'U')[0].toUpperCase()}
+                                </div>
+                              )}
+                              <span className="truncate max-w-[160px] font-bold">{u.displayName || 'Anonymous User'}</span>
+                            </div>
                           </td>
-                          <td className="p-3 font-mono text-muted-foreground">{u.email}</td>
-                          <td className="p-3">
+                          <td className="px-4 py-3.5 font-mono text-muted-foreground whitespace-nowrap">{u.email}</td>
+                          <td className="px-4 py-3.5 whitespace-nowrap">
                             <PlanBadge plan={(u.plan || (u.isPro ? 'pro' : 'standard')) as 'pro' | 'standard' | 'max'} />
                           </td>
-                          <td className="p-3">
+                          <td className="px-4 py-3.5 whitespace-nowrap">
                             {isSynced ? (
-                              <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-bold bg-emerald-500/10 text-emerald-500 border border-emerald-500/20">
+                              <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-[10px] font-bold bg-emerald-500/10 text-emerald-500 border border-emerald-500/20">
                                 <CheckCircle2 size={12} />
                                 Synced
                               </span>
                             ) : (
-                              <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-bold bg-amber-500/10 text-amber-500 border border-amber-500/20">
+                              <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-[10px] font-bold bg-amber-500/10 text-amber-500 border border-amber-500/20">
                                 <Clock size={12} />
                                 Pending Sync
                               </span>
                             )}
                           </td>
-                          <td className="p-3 text-right">
-                            <div className="flex items-center justify-end gap-2">
+                          <td className="px-4 py-3.5 text-right whitespace-nowrap">
+                            <div className="flex items-center justify-end gap-2 flex-nowrap">
                               <Button
                                 size="xs"
                                 variant="outline"
                                 disabled={isVerifying}
                                 onClick={() => handleCompareUser(u)}
-                                className="gap-1 font-semibold text-primary border-primary/30"
+                                className="whitespace-nowrap gap-1.5 px-3 py-1.5 text-[11px] font-bold rounded-xl border-primary/30 text-primary hover:bg-primary/10 transition-colors shadow-xs"
                               >
                                 <ArrowUpDown size={12} className={isVerifying ? "animate-spin" : ""} />
                                 {isVerifying ? 'Comparing...' : 'Compare Data'}
@@ -3769,7 +3771,7 @@ const Admin: React.FC = () => {
                                 size="xs"
                                 variant="outline"
                                 onClick={() => userMigrationSyncManager.syncUserData(u.id, u.email)}
-                                className="gap-1 font-semibold"
+                                className="whitespace-nowrap gap-1.5 px-3 py-1.5 text-[11px] font-bold rounded-xl border-border/80 text-foreground hover:bg-muted/50 transition-colors shadow-xs"
                               >
                                 <RefreshCw size={12} />
                                 Sync Data
@@ -3778,7 +3780,7 @@ const Admin: React.FC = () => {
                                 size="xs"
                                 variant="outline"
                                 onClick={() => userMigrationSyncManager.exportUserBackupJson(u.id, u.email)}
-                                className="gap-1 font-semibold text-emerald-500 border-emerald-500/30 hover:bg-emerald-500/10"
+                                className="whitespace-nowrap gap-1.5 px-3 py-1.5 text-[11px] font-bold rounded-xl border-emerald-500/30 text-emerald-500 bg-emerald-500/5 hover:bg-emerald-500/15 transition-colors shadow-xs"
                               >
                                 <Download size={12} />
                                 Export JSON
@@ -3796,7 +3798,7 @@ const Admin: React.FC = () => {
                                   } catch (e) { }
                                   window.location.href = '/';
                                 }}
-                                className="gap-1 font-semibold"
+                                className="whitespace-nowrap gap-1.5 px-3 py-1.5 text-[11px] font-bold rounded-xl bg-muted/60 text-muted-foreground hover:text-foreground transition-colors shadow-xs"
                               >
                                 <Eye size={12} />
                                 Login as User

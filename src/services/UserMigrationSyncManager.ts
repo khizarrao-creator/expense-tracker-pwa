@@ -312,21 +312,15 @@ class UserMigrationSyncManager {
       for (const [colKey, meta] of Object.entries(COLLECTION_MAP)) {
         let docs: any[] = [];
 
-        // 1. Try Firestore primary
+        // Fetch strictly & exclusively from Firestore Primary
         if (db) {
           try {
             const colRef = collection(db, 'users', userId, meta.firestoreName);
             const snap = await getDocs(colRef);
             docs = snap.docs.map(d => ({ id: d.id, ...d.data() }));
-          } catch (e) {}
-        }
-
-        // 2. Fallback to Supabase if Firestore empty
-        if (docs.length === 0 && isSupabaseConfigured) {
-          try {
-            const { data } = await supabase.from(meta.supabaseTable).select('*').eq('user_id', userId);
-            if (data) docs = data;
-          } catch (e) {}
+          } catch (e) {
+            console.warn(`[UserMigrationSyncManager] Firestore export read warning for ${colKey}:`, e);
+          }
         }
 
         backupData[colKey] = docs;

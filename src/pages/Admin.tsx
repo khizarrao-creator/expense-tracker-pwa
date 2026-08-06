@@ -3671,6 +3671,8 @@ const Admin: React.FC = () => {
               </Card>
             )}
 
+        {activeTab === 'sync' && (
+          <div className="space-y-6">
             {/* Sync Header Card */}
             <div className="p-6 bg-card border border-border/80 rounded-2xl shadow-sm flex flex-col md:flex-row items-start md:items-center justify-between gap-4">
               <div>

@@ -1,3 +1,4 @@
+/// <reference path="../../src/deno-edge.d.ts" />
 import { Context } from 'https://edge.netlify.com';
 
 const hashPassword = async (password: string) => {
@@ -27,7 +28,7 @@ export default async (request: Request, _context: Context) => {
   }
 
   try {
-    const { username, password } = await request.json();
+    const { username = '', password = '' } = (await request.json().catch(() => ({}))) as { username?: string; password?: string };
 
     const expectedAdmin = (Deno.env.get('ADMIN_EMAIL') || Deno.env.get('SMTP_USER') || Deno.env.get('VITE_ADMIN_EMAIL') || 'admin').toLowerCase();
     const expectedHash = Deno.env.get('ADMIN_PASSWORD_HASH') || '5c477a329d5b0d06cc94fa3682974b71db3fb94ea7adba5979eb11796c9c614b';

@@ -679,7 +679,7 @@ const Admin: React.FC = () => {
           
           const targetHash = '5c477a329d5b0d06cc94fa3682974b71db3fb94ea7adba5979eb11796c9c614b';
 
-          if (enteredHash === targetHash) {
+          if (enteredUser && enteredHash === targetHash) {
             isSuccess = true;
             token = import.meta.env.VITE_ADMIN_SECRET_KEY || 'admin_authenticated';
           }

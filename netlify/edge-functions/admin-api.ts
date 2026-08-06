@@ -1,3 +1,4 @@
+/// <reference path="../../src/deno-edge.d.ts" />
 import { Context } from 'https://edge.netlify.com';
 import { createClient } from 'https://esm.sh/@supabase/supabase-js@2';
 

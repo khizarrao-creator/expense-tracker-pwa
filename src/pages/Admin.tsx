@@ -3670,24 +3670,20 @@ const Admin: React.FC = () => {
                 </form>
               </Card>
             )}
-          </div>
-        )}
 
-        {activeTab === 'sync' && (
-          <div className="space-y-6">
-            {/* Header Banner */}
-            <div className="p-6 bg-card border border-border rounded-2xl flex flex-col md:flex-row items-start md:items-center justify-between gap-4 shadow-sm">
+            {/* Sync Header Card */}
+            <div className="p-6 bg-card border border-border/80 rounded-2xl shadow-sm flex flex-col md:flex-row items-start md:items-center justify-between gap-4">
               <div>
-                <h3 className="text-xl font-bold text-foreground flex items-center gap-2">
-                  <RefreshCw className="text-primary animate-spin-slow" size={24} />
+                <h3 className="text-lg font-extrabold text-foreground flex items-center gap-2">
+                  <RefreshCw size={18} className="text-primary" />
                   User-Wise Data Sync & Reconciliation
                 </h3>
                 <p className="text-xs text-muted-foreground mt-1 max-w-2xl">
                   Reconcile and sync user accounts, transactions, and settings individually from Firestore backups to Supabase. This guarantees 100% data integrity without disturbing live users.
                 </p>
               </div>
-              <div className="flex items-center gap-2">
-                <label className="cursor-pointer shrink-0">
+              <div className="flex items-center gap-2.5 shrink-0 flex-wrap">
+                <label className="cursor-pointer">
                   <input
                     type="file"
                     accept=".json"
@@ -3699,8 +3695,8 @@ const Admin: React.FC = () => {
                       }
                     }}
                   />
-                  <span className="gap-2 px-4 py-2.5 bg-card border border-emerald-500/30 text-emerald-500 hover:bg-emerald-500/10 rounded-2xl text-xs font-bold shadow-md inline-flex items-center transition-colors">
-                    <Upload size={16} />
+                  <span className="gap-2 px-3.5 py-2 bg-emerald-500/10 border border-emerald-500/30 text-emerald-500 hover:bg-emerald-500/20 rounded-xl text-xs font-bold shadow-xs inline-flex items-center transition-all">
+                    <Upload size={14} />
                     Bulk Import JSON
                   </span>
                 </label>
@@ -3713,9 +3709,9 @@ const Admin: React.FC = () => {
                       }
                     }
                   }}
-                  className="gap-2 shrink-0 font-bold shadow-lg"
+                  className="gap-2 font-bold shadow-md rounded-xl py-2 px-3.5 text-xs"
                 >
-                  <Zap size={16} />
+                  <Zap size={14} />
                   Sync All Users
                 </Button>
               </div>
@@ -3730,8 +3726,8 @@ const Admin: React.FC = () => {
                 </h4>
               </div>
 
-              <div className="overflow-x-auto">
-                <table className="w-full text-left text-xs border-collapse">
+              <div className="overflow-x-auto w-full">
+                <table className="w-full min-w-[950px] text-left text-xs border-collapse">
                   <thead className="bg-muted/40 text-muted-foreground uppercase font-mono border-b border-border/60">
                     <tr>
                       <th className="px-4 py-3.5 text-[11px] tracking-wider font-bold">User Profile</th>
@@ -3776,36 +3772,39 @@ const Admin: React.FC = () => {
                             )}
                           </td>
                           <td className="px-4 py-3.5 text-right whitespace-nowrap">
-                            <div className="flex items-center justify-end gap-2 flex-nowrap">
+                            <div className="flex items-center justify-end gap-1.5 flex-nowrap">
                               <Button
                                 size="xs"
                                 variant="outline"
                                 disabled={isVerifying}
                                 onClick={() => handleCompareUser(u)}
-                                className="whitespace-nowrap gap-1.5 px-3 py-1.5 text-[11px] font-bold rounded-xl border-primary/30 text-primary hover:bg-primary/10 transition-colors shadow-xs"
+                                title="Compare Firestore vs Supabase data"
+                                className="whitespace-nowrap gap-1 px-2.5 py-1 text-[11px] font-bold rounded-lg border-primary/30 text-primary hover:bg-primary/10 transition-colors"
                               >
                                 <ArrowUpDown size={12} className={isVerifying ? "animate-spin" : ""} />
-                                {isVerifying ? 'Comparing...' : 'Compare Data'}
+                                {isVerifying ? 'Comparing...' : 'Compare'}
                               </Button>
                               <Button
                                 size="xs"
                                 variant="outline"
                                 onClick={() => userMigrationSyncManager.syncUserData(u.id, u.email)}
-                                className="whitespace-nowrap gap-1.5 px-3 py-1.5 text-[11px] font-bold rounded-xl border-border/80 text-foreground hover:bg-muted/50 transition-colors shadow-xs"
+                                title="Sync User Data to Supabase"
+                                className="whitespace-nowrap gap-1 px-2.5 py-1 text-[11px] font-bold rounded-lg border-border text-foreground hover:bg-muted/60 transition-colors"
                               >
                                 <RefreshCw size={12} />
-                                Sync Data
+                                Sync
                               </Button>
                               <Button
                                 size="xs"
                                 variant="outline"
                                 onClick={() => userMigrationSyncManager.exportUserBackupJson(u.id, u.email)}
-                                className="whitespace-nowrap gap-1.5 px-3 py-1.5 text-[11px] font-bold rounded-xl border-emerald-500/30 text-emerald-500 bg-emerald-500/5 hover:bg-emerald-500/15 transition-colors shadow-xs"
+                                title="Export Firestore JSON Backup"
+                                className="whitespace-nowrap gap-1 px-2.5 py-1 text-[11px] font-bold rounded-lg border-emerald-500/30 text-emerald-500 bg-emerald-500/10 hover:bg-emerald-500/20 transition-colors"
                               >
                                 <Download size={12} />
-                                Export JSON
+                                Export
                               </Button>
-                              <label className="cursor-pointer inline-flex">
+                              <label title="Import JSON Backup file" className="cursor-pointer inline-flex">
                                 <input
                                   type="file"
                                   accept=".json"
@@ -3826,9 +3825,9 @@ const Admin: React.FC = () => {
                                     }
                                   }}
                                 />
-                                <span className="whitespace-nowrap gap-1.5 px-3 py-1.5 text-[11px] font-bold rounded-xl border border-indigo-500/30 text-indigo-500 bg-indigo-500/5 hover:bg-indigo-500/15 transition-colors shadow-xs inline-flex items-center">
+                                <span className="whitespace-nowrap gap-1 px-2.5 py-1 text-[11px] font-bold rounded-lg border border-indigo-500/30 text-indigo-500 bg-indigo-500/10 hover:bg-indigo-500/20 transition-colors inline-flex items-center">
                                   <Upload size={12} />
-                                  Import JSON
+                                  Import
                                 </span>
                               </label>
                               <Button
@@ -3844,10 +3843,11 @@ const Admin: React.FC = () => {
                                   } catch (e) { }
                                   window.location.href = '/';
                                 }}
-                                className="whitespace-nowrap gap-1.5 px-3 py-1.5 text-[11px] font-bold rounded-xl bg-muted/60 text-muted-foreground hover:text-foreground transition-colors shadow-xs"
+                                title="Login as this User"
+                                className="whitespace-nowrap gap-1 px-2.5 py-1 text-[11px] font-bold rounded-lg bg-muted text-muted-foreground hover:text-foreground transition-colors"
                               >
                                 <Eye size={12} />
-                                Login as User
+                                Login
                               </Button>
                             </div>
                           </td>

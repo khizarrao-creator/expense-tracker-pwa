@@ -47,6 +47,7 @@ import {
   Clock,
   Loader2,
   Download,
+  Upload,
 } from 'lucide-react';
 import { syncManager } from '../db/SyncManager';
 import { userMigrationSyncManager, type VerificationReport } from '../services/UserMigrationSyncManager';
@@ -3685,20 +3686,39 @@ const Admin: React.FC = () => {
                   Reconcile and sync user accounts, transactions, and settings individually from Firestore backups to Supabase. This guarantees 100% data integrity without disturbing live users.
                 </p>
               </div>
-              <Button
-                variant="primary"
-                onClick={async () => {
-                  if (confirm('Start sequential data sync for ALL users? Progress will be displayed on top of dashboard.')) {
-                    for (const u of users) {
-                      await userMigrationSyncManager.syncUserData(u.id, u.email);
+              <div className="flex items-center gap-2">
+                <label className="cursor-pointer shrink-0">
+                  <input
+                    type="file"
+                    accept=".json"
+                    multiple
+                    className="hidden"
+                    onChange={async (e) => {
+                      if (e.target.files && e.target.files.length > 0) {
+                        await userMigrationSyncManager.bulkImportJsonFiles(e.target.files);
+                      }
+                    }}
+                  />
+                  <span className="gap-2 px-4 py-2.5 bg-card border border-emerald-500/30 text-emerald-500 hover:bg-emerald-500/10 rounded-2xl text-xs font-bold shadow-md inline-flex items-center transition-colors">
+                    <Upload size={16} />
+                    Bulk Import JSON
+                  </span>
+                </label>
+                <Button
+                  variant="primary"
+                  onClick={async () => {
+                    if (confirm('Start sequential data sync for ALL users? Progress will be displayed on top of dashboard.')) {
+                      for (const u of users) {
+                        await userMigrationSyncManager.syncUserData(u.id, u.email);
+                      }
                     }
-                  }
-                }}
-                className="gap-2 shrink-0 font-bold shadow-lg"
-              >
-                <Zap size={16} />
-                Sync All Users
-              </Button>
+                  }}
+                  className="gap-2 shrink-0 font-bold shadow-lg"
+                >
+                  <Zap size={16} />
+                  Sync All Users
+                </Button>
+              </div>
             </div>
 
             {/* Sync Directory Table */}
@@ -3785,6 +3805,32 @@ const Admin: React.FC = () => {
                                 <Download size={12} />
                                 Export JSON
                               </Button>
+                              <label className="cursor-pointer inline-flex">
+                                <input
+                                  type="file"
+                                  accept=".json"
+                                  className="hidden"
+                                  onChange={async (e) => {
+                                    const file = e.target.files?.[0];
+                                    if (!file) return;
+                                    try {
+                                      const text = await file.text();
+                                      const jsonData = JSON.parse(text);
+                                      toast.loading(`Importing JSON backup for ${u.email}...`, { id: 'singleImport' });
+                                      const res = await userMigrationSyncManager.importUserBackupJsonData(jsonData, u.id, u.email);
+                                      toast.dismiss('singleImport');
+                                      toast.success(`Successfully imported ${res.recordsCount} records for ${u.email}!`);
+                                      window.dispatchEvent(new CustomEvent('app-sync-complete'));
+                                    } catch (err: any) {
+                                      toast.error(`Import failed: ${err.message || err}`);
+                                    }
+                                  }}
+                                />
+                                <span className="whitespace-nowrap gap-1.5 px-3 py-1.5 text-[11px] font-bold rounded-xl border border-indigo-500/30 text-indigo-500 bg-indigo-500/5 hover:bg-indigo-500/15 transition-colors shadow-xs inline-flex items-center">
+                                  <Upload size={12} />
+                                  Import JSON
+                                </span>
+                              </label>
                               <Button
                                 size="xs"
                                 variant="secondary"

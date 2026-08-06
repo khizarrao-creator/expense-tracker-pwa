@@ -1,5 +1,5 @@
 import { db } from '../firebase';
-import { collection, getDocs } from 'firebase/firestore';
+import { collection, getDocs, doc, setDoc } from 'firebase/firestore';
 import { supabase, isSupabaseConfigured } from '../supabase';
 import { toast } from 'sonner';
 import { syncManager } from '../db/SyncManager';
@@ -357,6 +357,81 @@ class UserMigrationSyncManager {
       toast.error(`Export failed: ${err.message || err}`);
       return false;
     }
+  }
+
+  public async importUserBackupJsonData(jsonData: any, overrideUserId?: string, overrideUserEmail?: string): Promise<{ success: boolean; recordsCount: number; userEmail: string }> {
+    const userId = overrideUserId || jsonData.userId || jsonData.user_id;
+    const userEmail = overrideUserEmail || jsonData.userEmail || jsonData.email || 'unknown@user.app';
+
+    if (!userId) {
+      throw new Error('Backup data does not specify a valid userId.');
+    }
+
+    let recordsCount = 0;
+    const collectionsObj = jsonData.collections || jsonData.data || jsonData;
+
+    for (const [colKey, meta] of Object.entries(COLLECTION_MAP)) {
+      const items: any[] = collectionsObj[colKey] || collectionsObj[meta.firestoreName] || collectionsObj[meta.supabaseTable] || [];
+      if (!Array.isArray(items) || items.length === 0) continue;
+
+      for (const item of items) {
+        const recordId = colKey === 'config' ? (item.key || item.id) : item.id;
+        if (!recordId) continue;
+
+        // 1. Write to Firestore Primary
+        if (db) {
+          try {
+            const docRef = doc(db, 'users', userId, meta.firestoreName, recordId);
+            await setDoc(docRef, { ...item, updatedAt: new Date().toISOString(), userId }, { merge: true });
+          } catch (e) {
+            console.warn(`[UserMigrationSyncManager] Firestore import write warning for ${colKey}:`, e);
+          }
+        }
+
+        // 2. Mirror to Supabase
+        if (isSupabaseConfigured) {
+          try {
+            const cleanPayload = { ...item };
+            delete cleanPayload.synced;
+            cleanPayload.user_id = userId;
+            await supabase.from(meta.supabaseTable).upsert(cleanPayload);
+          } catch (e) {
+            console.warn(`[UserMigrationSyncManager] Supabase import write warning for ${colKey}:`, e);
+          }
+        }
+
+        recordsCount++;
+      }
+    }
+
+    localStorage.setItem(`user_synced_${userId}`, 'true');
+    return { success: true, recordsCount, userEmail };
+  }
+
+  public async bulkImportJsonFiles(files: FileList | File[]): Promise<void> {
+    const fileList = Array.from(files);
+    if (fileList.length === 0) return;
+
+    toast.loading(`Importing ${fileList.length} JSON backup files...`, { id: 'bulkImport' });
+    let importedFiles = 0;
+    let totalRecordsImported = 0;
+
+    for (const file of fileList) {
+      try {
+        const text = await file.text();
+        const jsonData = JSON.parse(text);
+        const res = await this.importUserBackupJsonData(jsonData);
+        importedFiles++;
+        totalRecordsImported += res.recordsCount;
+      } catch (err: any) {
+        console.error(`[UserMigrationSyncManager] Failed to import ${file.name}:`, err);
+        toast.error(`Error importing ${file.name}: ${err.message || err}`);
+      }
+    }
+
+    toast.dismiss('bulkImport');
+    toast.success(`Bulk import finished! Restored ${importedFiles} user backups (${totalRecordsImported} total records) to Firestore & Supabase.`);
+    window.dispatchEvent(new CustomEvent('app-sync-complete'));
   }
 }
 

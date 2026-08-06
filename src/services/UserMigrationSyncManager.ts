@@ -303,6 +303,67 @@ class UserMigrationSyncManager {
   public isUserSynced(userId: string): boolean {
     return !!localStorage.getItem(`user_synced_${userId}`);
   }
+
+  public async exportUserBackupJson(userId: string, userEmail: string): Promise<boolean> {
+    try {
+      toast.loading(`Generating JSON Backup for ${userEmail}...`, { id: 'exportBackup' });
+      const backupData: Record<string, any[]> = {};
+
+      for (const [colKey, meta] of Object.entries(COLLECTION_MAP)) {
+        let docs: any[] = [];
+
+        // 1. Try Firestore primary
+        if (db) {
+          try {
+            const colRef = collection(db, 'users', userId, meta.firestoreName);
+            const snap = await getDocs(colRef);
+            docs = snap.docs.map(d => ({ id: d.id, ...d.data() }));
+          } catch (e) {}
+        }
+
+        // 2. Fallback to Supabase if Firestore empty
+        if (docs.length === 0 && isSupabaseConfigured) {
+          try {
+            const { data } = await supabase.from(meta.supabaseTable).select('*').eq('user_id', userId);
+            if (data) docs = data;
+          } catch (e) {}
+        }
+
+        backupData[colKey] = docs;
+      }
+
+      const fullExport = {
+        app: 'The Base Workspace Suite',
+        version: '1.0',
+        exportedAt: new Date().toISOString(),
+        userId,
+        userEmail,
+        collections: backupData
+      };
+
+      const jsonStr = JSON.stringify(fullExport, null, 2);
+      const blob = new Blob([jsonStr], { type: 'application/json' });
+      const url = URL.createObjectURL(blob);
+      const link = document.createElement('a');
+      const sanitizeEmail = (userEmail || userId).replace(/[^a-zA-Z0-9]/g, '_');
+      const dateStr = new Date().toISOString().split('T')[0];
+
+      link.setAttribute('href', url);
+      link.setAttribute('download', `the_base_backup_${sanitizeEmail}_${dateStr}.json`);
+      document.body.appendChild(link);
+      link.click();
+      document.body.removeChild(link);
+
+      toast.dismiss('exportBackup');
+      toast.success(`Exported JSON backup for ${userEmail}`);
+      return true;
+    } catch (err: any) {
+      console.error('[UserMigrationSyncManager] JSON Export error:', err);
+      toast.dismiss('exportBackup');
+      toast.error(`Export failed: ${err.message || err}`);
+      return false;
+    }
+  }
 }
 
 export const userMigrationSyncManager = new UserMigrationSyncManager();

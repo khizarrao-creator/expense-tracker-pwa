@@ -46,6 +46,7 @@ import {
   CreditCard,
   Clock,
   Loader2,
+  Download,
 } from 'lucide-react';
 import { syncManager } from '../db/SyncManager';
 import { userMigrationSyncManager, type VerificationReport } from '../services/UserMigrationSyncManager';
@@ -3772,6 +3773,15 @@ const Admin: React.FC = () => {
                               >
                                 <RefreshCw size={12} />
                                 Sync Data
+                              </Button>
+                              <Button
+                                size="xs"
+                                variant="outline"
+                                onClick={() => userMigrationSyncManager.exportUserBackupJson(u.id, u.email)}
+                                className="gap-1 font-semibold text-emerald-500 border-emerald-500/30 hover:bg-emerald-500/10"
+                              >
+                                <Download size={12} />
+                                Export JSON
                               </Button>
                               <Button
                                 size="xs"

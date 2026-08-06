@@ -674,8 +674,8 @@ const Admin: React.FC = () => {
         const enteredPass = password.trim();
         const enteredUser = username.trim().toLowerCase();
 
-        if ((enteredUser === adminEmail || enteredUser === 'admin') && 
-            (enteredPass === adminSecret || enteredPass === 'KR2006ADMIN' || enteredPass === '159068')) {
+        if ((enteredUser === adminEmail || enteredUser === 'admin') &&
+          (enteredPass === adminSecret || enteredPass === 'KR2006ADMIN' || enteredPass === '159068')) {
           isSuccess = true;
           token = adminSecret;
         }
@@ -1581,6 +1581,7 @@ const Admin: React.FC = () => {
       return sortOrder === 'desc' ? -comparison : comparison;
     });
 
+  const newLocal = 'sync';
   return (
     <div className="min-h-screen bg-background text-foreground pb-20">
       {/* Header */}
@@ -1731,8 +1732,8 @@ const Admin: React.FC = () => {
                       key={pill.id}
                       onClick={() => setStatusFilter(pill.id)}
                       className={`px-3.5 py-1.5 rounded-xl text-xs font-bold transition-all ${statusFilter === pill.id
-                          ? 'bg-primary text-primary-foreground shadow-sm shadow-primary/10 scale-105'
-                          : 'bg-muted/40 hover:bg-muted text-muted-foreground hover:text-foreground'
+                        ? 'bg-primary text-primary-foreground shadow-sm shadow-primary/10 scale-105'
+                        : 'bg-muted/40 hover:bg-muted text-muted-foreground hover:text-foreground'
                         }`}
                     >
                       {pill.label}
@@ -2430,8 +2431,8 @@ const Admin: React.FC = () => {
                             <button
                               onClick={() => handleToggleExchange(ex.id)}
                               className={`px-3 py-1.5 rounded-lg text-xs font-black uppercase tracking-wider transition-all ${ex.enabled
-                                  ? 'bg-emerald-500/10 text-emerald-500 hover:bg-emerald-500/20'
-                                  : 'bg-muted text-muted-foreground hover:bg-muted/80'
+                                ? 'bg-emerald-500/10 text-emerald-500 hover:bg-emerald-500/20'
+                                : 'bg-muted text-muted-foreground hover:bg-muted/80'
                                 }`}
                             >
                               {ex.enabled ? 'Enabled' : 'Disabled'}
@@ -2853,8 +2854,8 @@ const Admin: React.FC = () => {
                       key={pill.id}
                       onClick={() => setLogTypeFilter(pill.id)}
                       className={`px-3.5 py-1.5 rounded-xl text-xs font-bold transition-all ${logTypeFilter === pill.id
-                          ? 'bg-primary text-primary-foreground shadow-sm shadow-primary/10 scale-105'
-                          : 'bg-muted/40 hover:bg-muted text-muted-foreground hover:text-foreground'
+                        ? 'bg-primary text-primary-foreground shadow-sm shadow-primary/10 scale-105'
+                        : 'bg-muted/40 hover:bg-muted text-muted-foreground hover:text-foreground'
                         }`}
                     >
                       {pill.label}
@@ -3034,8 +3035,8 @@ const Admin: React.FC = () => {
                         type="button"
                         onClick={() => setEmailFilter(option.id)}
                         className={`py-2 px-3 rounded-xl text-xs font-bold transition-all border ${emailFilter === option.id
-                            ? 'bg-primary text-primary-foreground border-primary shadow-sm'
-                            : 'bg-muted/30 border-transparent hover:bg-muted text-muted-foreground hover:text-foreground'
+                          ? 'bg-primary text-primary-foreground border-primary shadow-sm'
+                          : 'bg-muted/30 border-transparent hover:bg-muted text-muted-foreground hover:text-foreground'
                           }`}
                       >
                         {option.label}
@@ -3194,8 +3195,8 @@ const Admin: React.FC = () => {
             {/* Send Result Summary */}
             {emailSendResult && (
               <div className={`border rounded-3xl p-5 shadow-sm animate-in slide-in-from-bottom duration-300 space-y-3 text-left ${emailSendResult.success
-                  ? 'bg-emerald-500/5 border-emerald-500/20 text-emerald-800 dark:text-emerald-300'
-                  : 'bg-rose-500/5 border-rose-500/20 text-rose-800 dark:text-rose-300'
+                ? 'bg-emerald-500/5 border-emerald-500/20 text-emerald-800 dark:text-emerald-300'
+                : 'bg-rose-500/5 border-rose-500/20 text-rose-800 dark:text-rose-300'
                 }`}>
                 <div className="flex items-center justify-between border-b border-current/10 pb-2">
                   <div className="flex items-center gap-2">
@@ -3655,8 +3656,6 @@ const Admin: React.FC = () => {
                             <span className="font-medium text-foreground/90">{feat.label}</span>
                           </label>
                         );
-                      })}
-                    </div>
                   </div>
 
                   <div className="flex justify-end gap-3 pt-2">
@@ -3670,740 +3669,743 @@ const Admin: React.FC = () => {
                 </form>
               </Card>
             )}
-
-        {activeTab === 'sync' && (
-          <div className="space-y-6">
-            {/* Sync Header Card */}
-            <div className="p-6 bg-card border border-border/80 rounded-2xl shadow-sm flex flex-col md:flex-row items-start md:items-center justify-between gap-4">
-              <div>
-                <h3 className="text-lg font-extrabold text-foreground flex items-center gap-2">
-                  <RefreshCw size={18} className="text-primary" />
-                  User-Wise Data Sync & Reconciliation
-                </h3>
-                <p className="text-xs text-muted-foreground mt-1 max-w-2xl">
-                  Reconcile and sync user accounts, transactions, and settings individually from Firestore backups to Supabase. This guarantees 100% data integrity without disturbing live users.
-                </p>
-              </div>
-              <div className="flex items-center gap-2.5 shrink-0 flex-wrap">
-                <label className="cursor-pointer">
-                  <input
-                    type="file"
-                    accept=".json"
-                    multiple
-                    className="hidden"
-                    onChange={async (e) => {
-                      if (e.target.files && e.target.files.length > 0) {
-                        await userMigrationSyncManager.bulkImportJsonFiles(e.target.files);
-                      }
-                    }}
-                  />
-                  <span className="gap-2 px-3.5 py-2 bg-emerald-500/10 border border-emerald-500/30 text-emerald-500 hover:bg-emerald-500/20 rounded-xl text-xs font-bold shadow-xs inline-flex items-center transition-all">
-                    <Upload size={14} />
-                    Bulk Import JSON
-                  </span>
-                </label>
-                <Button
-                  variant="primary"
-                  onClick={async () => {
-                    if (confirm('Start sequential data sync for ALL users? Progress will be displayed on top of dashboard.')) {
-                      for (const u of users) {
-                        await userMigrationSyncManager.syncUserData(u.id, u.email);
-                      }
-                    }
-                  }}
-                  className="gap-2 font-bold shadow-md rounded-xl py-2 px-3.5 text-xs"
-                >
-                  <Zap size={14} />
-                  Sync All Users
-                </Button>
-              </div>
-            </div>
-
-            {/* Sync Directory Table */}
-            <Card className="overflow-hidden border-border/60 shadow-sm">
-              <div className="p-4 bg-muted/30 border-b border-border/60 flex items-center justify-between">
-                <h4 className="text-sm font-bold text-foreground flex items-center gap-2">
-                  <Users size={16} className="text-primary" />
-                  User Sync Status ({users.length} Users)
-                </h4>
-              </div>
-
-              <div className="overflow-x-auto w-full">
-                <table className="w-full min-w-[950px] text-left text-xs border-collapse">
-                  <thead className="bg-muted/40 text-muted-foreground uppercase font-mono border-b border-border/60">
-                    <tr>
-                      <th className="px-4 py-3.5 text-[11px] tracking-wider font-bold">User Profile</th>
-                      <th className="px-4 py-3.5 text-[11px] tracking-wider font-bold">Email</th>
-                      <th className="px-4 py-3.5 text-[11px] tracking-wider font-bold">Plan</th>
-                      <th className="px-4 py-3.5 text-[11px] tracking-wider font-bold">Sync Status</th>
-                      <th className="px-4 py-3.5 text-[11px] tracking-wider font-bold text-right">Actions</th>
-                    </tr>
-                  </thead>
-                  <tbody className="divide-y divide-border/50">
-                    {users.map(u => {
-                      const isSynced = userMigrationSyncManager.isUserSynced(u.id);
-                      return (
-                        <tr key={u.id} className="hover:bg-muted/30 transition-colors">
-                          <td className="px-4 py-3.5 font-semibold text-foreground whitespace-nowrap">
-                            <div className="flex items-center gap-2.5">
-                              {u.photoURL ? (
-                                <img src={u.photoURL} className="w-7 h-7 rounded-full border border-border object-cover shrink-0" />
-                              ) : (
-                                <div className="w-7 h-7 rounded-full bg-primary/10 text-primary border border-primary/20 flex items-center justify-center font-bold text-xs shrink-0">
-                                  {(u.displayName || u.email || 'U')[0].toUpperCase()}
-                                </div>
-                              )}
-                              <span className="truncate max-w-[160px] font-bold">{u.displayName || 'Anonymous User'}</span>
-                            </div>
-                          </td>
-                          <td className="px-4 py-3.5 font-mono text-muted-foreground whitespace-nowrap">{u.email}</td>
-                          <td className="px-4 py-3.5 whitespace-nowrap">
-                            <PlanBadge plan={(u.plan || (u.isPro ? 'pro' : 'standard')) as 'pro' | 'standard' | 'max'} />
-                          </td>
-                          <td className="px-4 py-3.5 whitespace-nowrap">
-                            {isSynced ? (
-                              <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-[10px] font-bold bg-emerald-500/10 text-emerald-500 border border-emerald-500/20">
-                                <CheckCircle2 size={12} />
-                                Synced
-                              </span>
-                            ) : (
-                              <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-[10px] font-bold bg-amber-500/10 text-amber-500 border border-amber-500/20">
-                                <Clock size={12} />
-                                Pending Sync
-                              </span>
-                            )}
-                          </td>
-                          <td className="px-4 py-3.5 text-right whitespace-nowrap">
-                            <div className="flex items-center justify-end gap-1.5 flex-nowrap">
-                              <Button
-                                size="xs"
-                                variant="outline"
-                                disabled={isVerifying}
-                                onClick={() => handleCompareUser(u)}
-                                title="Compare Firestore vs Supabase data"
-                                className="whitespace-nowrap gap-1 px-2.5 py-1 text-[11px] font-bold rounded-lg border-primary/30 text-primary hover:bg-primary/10 transition-colors"
-                              >
-                                <ArrowUpDown size={12} className={isVerifying ? "animate-spin" : ""} />
-                                {isVerifying ? 'Comparing...' : 'Compare'}
-                              </Button>
-                              <Button
-                                size="xs"
-                                variant="outline"
-                                onClick={() => userMigrationSyncManager.syncUserData(u.id, u.email)}
-                                title="Sync User Data to Supabase"
-                                className="whitespace-nowrap gap-1 px-2.5 py-1 text-[11px] font-bold rounded-lg border-border text-foreground hover:bg-muted/60 transition-colors"
-                              >
-                                <RefreshCw size={12} />
-                                Sync
-                              </Button>
-                              <Button
-                                size="xs"
-                                variant="outline"
-                                onClick={() => userMigrationSyncManager.exportUserBackupJson(u.id, u.email)}
-                                title="Export Firestore JSON Backup"
-                                className="whitespace-nowrap gap-1 px-2.5 py-1 text-[11px] font-bold rounded-lg border-emerald-500/30 text-emerald-500 bg-emerald-500/10 hover:bg-emerald-500/20 transition-colors"
-                              >
-                                <Download size={12} />
-                                Export
-                              </Button>
-                              <label title="Import JSON Backup file" className="cursor-pointer inline-flex">
-                                <input
-                                  type="file"
-                                  accept=".json"
-                                  className="hidden"
-                                  onChange={async (e) => {
-                                    const file = e.target.files?.[0];
-                                    if (!file) return;
-                                    try {
-                                      const text = await file.text();
-                                      const jsonData = JSON.parse(text);
-                                      toast.loading(`Importing JSON backup for ${u.email}...`, { id: 'singleImport' });
-                                      const res = await userMigrationSyncManager.importUserBackupJsonData(jsonData, u.id, u.email);
-                                      toast.dismiss('singleImport');
-                                      toast.success(`Successfully imported ${res.recordsCount} records for ${u.email}!`);
-                                      window.dispatchEvent(new CustomEvent('app-sync-complete'));
-                                    } catch (err: any) {
-                                      toast.error(`Import failed: ${err.message || err}`);
-                                    }
-                                  }}
-                                />
-                                <span className="whitespace-nowrap gap-1 px-2.5 py-1 text-[11px] font-bold rounded-lg border border-indigo-500/30 text-indigo-500 bg-indigo-500/10 hover:bg-indigo-500/20 transition-colors inline-flex items-center">
-                                  <Upload size={12} />
-                                  Import
-                                </span>
-                              </label>
-                              <Button
-                                size="xs"
-                                variant="secondary"
-                                onClick={async () => {
-                                  localStorage.setItem('simulated_user_id', u.id);
-                                  localStorage.setItem('simulated_user_email', u.email);
-                                  toast.info(`Simulating view for ${u.email}... Loading data.`);
-                                  try {
-                                    await userMigrationSyncManager.syncUserData(u.id, u.email);
-                                    await syncManager.pullInitialDataForUser(u.id);
-                                  } catch (e) { }
-                                  window.location.href = '/';
-                                }}
-                                title="Login as this User"
-                                className="whitespace-nowrap gap-1 px-2.5 py-1 text-[11px] font-bold rounded-lg bg-muted text-muted-foreground hover:text-foreground transition-colors"
-                              >
-                                <Eye size={12} />
-                                Login
-                              </Button>
-                            </div>
-                          </td>
-                        </tr>
-                      );
-                    })}
-                  </tbody>
-                </table>
-              </div>
-            </Card>
           </div>
         )}
-      </div>
+
+        {/* 8. User Data Sync Tab */}
+        {activeTab === 'sync' && (
+          <div className="space-y-6 animate-in fade-in duration-200">
+            {/* Sync Header Card */}
+                <div className="p-6 bg-card border border-border/80 rounded-2xl shadow-sm flex flex-col md:flex-row items-start md:items-center justify-between gap-4">
+                  <div>
+                    <h3 className="text-lg font-extrabold text-foreground flex items-center gap-2">
+                      <RefreshCw size={18} className="text-primary" />
+                      User-Wise Data Sync & Reconciliation
+                    </h3>
+                    <p className="text-xs text-muted-foreground mt-1 max-w-2xl">
+                      Reconcile and sync user accounts, transactions, and settings individually from Firestore backups to Supabase. This guarantees 100% data integrity without disturbing live users.
+                    </p>
+                  </div>
+                  <div className="flex items-center gap-2.5 shrink-0 flex-wrap">
+                    <label className="cursor-pointer">
+                      <input
+                        type="file"
+                        accept=".json"
+                        multiple
+                        className="hidden"
+                        onChange={async (e) => {
+                          if (e.target.files && e.target.files.length > 0) {
+                            await userMigrationSyncManager.bulkImportJsonFiles(e.target.files);
+                          }
+                        }}
+                      />
+                      <span className="gap-2 px-3.5 py-2 bg-emerald-500/10 border border-emerald-500/30 text-emerald-500 hover:bg-emerald-500/20 rounded-xl text-xs font-bold shadow-xs inline-flex items-center transition-all">
+                        <Upload size={14} />
+                        Bulk Import JSON
+                      </span>
+                    </label>
+                    <Button
+                      variant="primary"
+                      onClick={async () => {
+                        if (confirm('Start sequential data sync for ALL users? Progress will be displayed on top of dashboard.')) {
+                          for (const u of users) {
+                            await userMigrationSyncManager.syncUserData(u.id, u.email);
+                          }
+                        }
+                      }}
+                      className="gap-2 font-bold shadow-md rounded-xl py-2 px-3.5 text-xs"
+                    >
+                      <Zap size={14} />
+                      Sync All Users
+                    </Button>
+                  </div>
+                </div>
+
+                {/* Sync Directory Table */}
+                <Card className="overflow-hidden border-border/60 shadow-sm">
+                  <div className="p-4 bg-muted/30 border-b border-border/60 flex items-center justify-between">
+                    <h4 className="text-sm font-bold text-foreground flex items-center gap-2">
+                      <Users size={16} className="text-primary" />
+                      User Sync Status ({users.length} Users)
+                    </h4>
+                  </div>
+
+                  <div className="overflow-x-auto w-full">
+                    <table className="w-full min-w-[950px] text-left text-xs border-collapse">
+                      <thead className="bg-muted/40 text-muted-foreground uppercase font-mono border-b border-border/60">
+                        <tr>
+                          <th className="px-4 py-3.5 text-[11px] tracking-wider font-bold">User Profile</th>
+                          <th className="px-4 py-3.5 text-[11px] tracking-wider font-bold">Email</th>
+                          <th className="px-4 py-3.5 text-[11px] tracking-wider font-bold">Plan</th>
+                          <th className="px-4 py-3.5 text-[11px] tracking-wider font-bold">Sync Status</th>
+                          <th className="px-4 py-3.5 text-[11px] tracking-wider font-bold text-right">Actions</th>
+                        </tr>
+                      </thead>
+                      <tbody className="divide-y divide-border/50">
+                        {users.map(u => {
+                          const isSynced = userMigrationSyncManager.isUserSynced(u.id);
+                          return (
+                            <tr key={u.id} className="hover:bg-muted/30 transition-colors">
+                              <td className="px-4 py-3.5 font-semibold text-foreground whitespace-nowrap">
+                                <div className="flex items-center gap-2.5">
+                                  {u.photoURL ? (
+                                    <img src={u.photoURL} className="w-7 h-7 rounded-full border border-border object-cover shrink-0" />
+                                  ) : (
+                                    <div className="w-7 h-7 rounded-full bg-primary/10 text-primary border border-primary/20 flex items-center justify-center font-bold text-xs shrink-0">
+                                      {(u.displayName || u.email || 'U')[0].toUpperCase()}
+                                    </div>
+                                  )}
+                                  <span className="truncate max-w-[160px] font-bold">{u.displayName || 'Anonymous User'}</span>
+                                </div>
+                              </td>
+                              <td className="px-4 py-3.5 font-mono text-muted-foreground whitespace-nowrap">{u.email}</td>
+                              <td className="px-4 py-3.5 whitespace-nowrap">
+                                <PlanBadge plan={(u.plan || (u.isPro ? 'pro' : 'standard')) as 'pro' | 'standard' | 'max'} />
+                              </td>
+                              <td className="px-4 py-3.5 whitespace-nowrap">
+                                {isSynced ? (
+                                  <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-[10px] font-bold bg-emerald-500/10 text-emerald-500 border border-emerald-500/20">
+                                    <CheckCircle2 size={12} />
+                                    Synced
+                                  </span>
+                                ) : (
+                                  <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-[10px] font-bold bg-amber-500/10 text-amber-500 border border-amber-500/20">
+                                    <Clock size={12} />
+                                    Pending Sync
+                                  </span>
+                                )}
+                              </td>
+                              <td className="px-4 py-3.5 text-right whitespace-nowrap">
+                                <div className="flex items-center justify-end gap-1.5 flex-nowrap">
+                                  <Button
+                                    size="xs"
+                                    variant="outline"
+                                    disabled={isVerifying}
+                                    onClick={() => handleCompareUser(u)}
+                                    title="Compare Firestore vs Supabase data"
+                                    className="whitespace-nowrap gap-1 px-2.5 py-1 text-[11px] font-bold rounded-lg border-primary/30 text-primary hover:bg-primary/10 transition-colors"
+                                  >
+                                    <ArrowUpDown size={12} className={isVerifying ? "animate-spin" : ""} />
+                                    {isVerifying ? 'Comparing...' : 'Compare'}
+                                  </Button>
+                                  <Button
+                                    size="xs"
+                                    variant="outline"
+                                    onClick={() => userMigrationSyncManager.syncUserData(u.id, u.email)}
+                                    title="Sync User Data to Supabase"
+                                    className="whitespace-nowrap gap-1 px-2.5 py-1 text-[11px] font-bold rounded-lg border-border text-foreground hover:bg-muted/60 transition-colors"
+                                  >
+                                    <RefreshCw size={12} />
+                                    Sync
+                                  </Button>
+                                  <Button
+                                    size="xs"
+                                    variant="outline"
+                                    onClick={() => userMigrationSyncManager.exportUserBackupJson(u.id, u.email)}
+                                    title="Export Firestore JSON Backup"
+                                    className="whitespace-nowrap gap-1 px-2.5 py-1 text-[11px] font-bold rounded-lg border-emerald-500/30 text-emerald-500 bg-emerald-500/10 hover:bg-emerald-500/20 transition-colors"
+                                  >
+                                    <Download size={12} />
+                                    Export
+                                  </Button>
+                                  <label title="Import JSON Backup file" className="cursor-pointer inline-flex">
+                                    <input
+                                      type="file"
+                                      accept=".json"
+                                      className="hidden"
+                                      onChange={async (e) => {
+                                        const file = e.target.files?.[0];
+                                        if (!file) return;
+                                        try {
+                                          const text = await file.text();
+                                          const jsonData = JSON.parse(text);
+                                          toast.loading(`Importing JSON backup for ${u.email}...`, { id: 'singleImport' });
+                                          const res = await userMigrationSyncManager.importUserBackupJsonData(jsonData, u.id, u.email);
+                                          toast.dismiss('singleImport');
+                                          toast.success(`Successfully imported ${res.recordsCount} records for ${u.email}!`);
+                                          window.dispatchEvent(new CustomEvent('app-sync-complete'));
+                                        } catch (err: any) {
+                                          toast.error(`Import failed: ${err.message || err}`);
+                                        }
+                                      }}
+                                    />
+                                    <span className="whitespace-nowrap gap-1 px-2.5 py-1 text-[11px] font-bold rounded-lg border border-indigo-500/30 text-indigo-500 bg-indigo-500/10 hover:bg-indigo-500/20 transition-colors inline-flex items-center">
+                                      <Upload size={12} />
+                                      Import
+                                    </span>
+                                  </label>
+                                  <Button
+                                    size="xs"
+                                    variant="secondary"
+                                    onClick={async () => {
+                                      localStorage.setItem('simulated_user_id', u.id);
+                                      localStorage.setItem('simulated_user_email', u.email);
+                                      toast.info(`Simulating view for ${u.email}... Loading data.`);
+                                      try {
+                                        await userMigrationSyncManager.syncUserData(u.id, u.email);
+                                        await syncManager.pullInitialDataForUser(u.id);
+                                      } catch (e) { }
+                                      window.location.href = '/';
+                                    }}
+                                    title="Login as this User"
+                                    className="whitespace-nowrap gap-1 px-2.5 py-1 text-[11px] font-bold rounded-lg bg-muted text-muted-foreground hover:text-foreground transition-colors"
+                                  >
+                                    <Eye size={12} />
+                                    Login
+                                  </Button>
+                                </div>
+                              </td>
+                            </tr>
+                          );
+                        })}
+                      </tbody>
+                    </table>
+                  </div>
+                </Card>
+              </div>
+            )}
+          </div>
 
       {/* ── MANUALLY INTEGRATED MODALS ────────────────────────────────────── */}
 
-      {/* 1. Approval Modal */}
-      {showApprovalModal && selectedRequest && (
-        <Modal
-          isOpen={showApprovalModal}
-          onClose={() => {
-            setShowApprovalModal(false);
-            setInternalNotes('');
-          }}
-          title="Approve Subscription Payment"
-          description={`Activating ${selectedRequest.selectedPlan.toUpperCase()} Plan for ${selectedRequest.userName}`}
-          variant="success"
-          footer={
-            <>
-              <Button
-                variant="outline"
-                onClick={() => {
-                  setShowApprovalModal(false);
-                  setInternalNotes('');
-                }}
-                disabled={isLoading}
-              >
-                Cancel
-              </Button>
-              <Button
-                variant="primary"
-                onClick={handleApproveRequest}
-                loading={isLoading}
-              >
-                Confirm Approval
-              </Button>
-            </>
-          }
-        >
-          <div className="space-y-4 text-xs">
-            <p className="text-[11px] text-muted-foreground leading-relaxed">
-              Confirming this transaction will grant active subscription rights immediately.
-            </p>
-            <div className="grid grid-cols-1 gap-4">
-              <Input
-                label="Subscription Expiry Date"
-                type="date"
-                value={customExpiryDate}
-                onChange={e => setCustomExpiryDate(e.target.value)}
-                required
-              />
-              <Input
-                as="textarea"
-                label="Internal Audit Notes"
-                placeholder="Include verification details or banking logs reference..."
-                value={internalNotes}
-                onChange={e => setInternalNotes(e.target.value)}
-                rows={2}
-              />
-            </div>
-          </div>
-        </Modal>
-      )}
-
-      {/* 2. Rejection Modal */}
-      {showRejectionModal && selectedRequest && (
-        <Modal
-          isOpen={showRejectionModal}
-          onClose={() => {
-            setShowRejectionModal(false);
-            setRejectionReason('');
-            setInternalNotes('');
-          }}
-          title="Reject Subscription Payment"
-          description={`Declining transaction proof from ${selectedRequest.userName}`}
-          variant="danger"
-          footer={
-            <>
-              <Button
-                variant="outline"
-                onClick={() => {
-                  setShowRejectionModal(false);
-                  setRejectionReason('');
-                  setInternalNotes('');
-                }}
-                disabled={isLoading}
-              >
-                Cancel
-              </Button>
-              <Button
-                variant="destructive"
-                onClick={handleRejectRequest}
-                loading={isLoading}
-                disabled={!rejectionReason.trim()}
-              >
-                Confirm Rejection
-              </Button>
-            </>
-          }
-        >
-          <div className="space-y-4 text-xs">
-            <p className="text-[11px] text-muted-foreground leading-relaxed">
-              Provide a clear reason for rejecting the receipt. This will be shown to the user.
-            </p>
-            <div className="grid grid-cols-1 gap-4">
-              <Input
-                label="Rejection Reason (Required)"
-                placeholder="e.g. Invalid/unreadable receipt image, duplicate transaction ID, incorrect transfer amount"
-                value={rejectionReason}
-                onChange={e => setRejectionReason(e.target.value)}
-                required
-              />
-              <Input
-                as="textarea"
-                label="Internal Audit Notes"
-                placeholder="Include details about why it failed checks..."
-                value={internalNotes}
-                onChange={e => setInternalNotes(e.target.value)}
-                rows={2}
-              />
-            </div>
-          </div>
-        </Modal>
-      )}
-
-      {/* 3. Account Configuration CRUD Modal */}
-      {showAccountModal && (
-        <Modal
-          isOpen={showAccountModal}
-          onClose={() => setShowAccountModal(false)}
-          title={accountForm.id ? "Edit Payment Account" : "Add Payment Account"}
-          description="Configure banking/wallet credentials displayed to users during checkout"
-          footer={
-            <>
-              <Button
-                variant="outline"
-                onClick={() => setShowAccountModal(false)}
-              >
-                Cancel
-              </Button>
-              <Button
-                variant="primary"
-                onClick={handleSaveAccount}
-              >
-                Save Account
-              </Button>
-            </>
-          }
-        >
-          <form onSubmit={handleSaveAccount} className="space-y-4 text-xs">
-            <div className="grid grid-cols-2 gap-4">
-              <Input
-                as="select"
-                label="Payment Method"
-                value={accountForm.method}
-                onChange={e => setAccountForm({ ...accountForm, method: e.target.value })}
-                options={[
-                  { value: 'SadaPay', label: 'SadaPay' },
-                  { value: 'JazzCash', label: 'JazzCash' },
-                  { value: 'Easypaisa', label: 'Easypaisa' },
-                  { value: 'Bank Transfer', label: 'Bank Transfer' }
-                ]}
-              />
-              <Input
-                label="Account Holder Name"
-                value={accountForm.holderName}
-                onChange={e => setAccountForm({ ...accountForm, holderName: e.target.value })}
-                required
-              />
-            </div>
-            <div className="grid grid-cols-2 gap-4">
-              <Input
-                label="Account / Phone Number"
-                value={accountForm.accountNumber}
-                onChange={e => setAccountForm({ ...accountForm, accountNumber: e.target.value })}
-                required
-              />
-              <Input
-                label="IBAN / Swift (Optional)"
-                value={accountForm.iban}
-                onChange={e => setAccountForm({ ...accountForm, iban: e.target.value })}
-              />
-            </div>
-            <Input
-              label="QR Code Image URL (Optional)"
-              value={accountForm.qrCodeUrl}
-              onChange={e => setAccountForm({ ...accountForm, qrCodeUrl: e.target.value })}
-              helperText="Cloudinary URL for QR code scan."
-            />
-            <Input
-              as="textarea"
-              label="Checkout Instructions"
-              placeholder="Display instructions (e.g. Include your username in the transaction notes)"
-              value={accountForm.instructions}
-              onChange={e => setAccountForm({ ...accountForm, instructions: e.target.value })}
-              rows={2}
-            />
-            <div className="grid grid-cols-2 gap-4">
-              <Input
-                label="Display Order"
-                type="number"
-                value={accountForm.displayOrder}
-                onChange={e => setAccountForm({ ...accountForm, displayOrder: Number(e.target.value) })}
-                required
-              />
-              <div className="flex items-center gap-2 select-none pt-6 text-left">
-                <input
-                  type="checkbox"
-                  id="isActive"
-                  checked={accountForm.isActive}
-                  onChange={e => setAccountForm({ ...accountForm, isActive: e.target.checked })}
-                  className="rounded border-border text-primary h-4 w-4"
+        {/* 1. Approval Modal */}
+        {showApprovalModal && selectedRequest && (
+          <Modal
+            isOpen={showApprovalModal}
+            onClose={() => {
+              setShowApprovalModal(false);
+              setInternalNotes('');
+            }}
+            title="Approve Subscription Payment"
+            description={`Activating ${selectedRequest.selectedPlan.toUpperCase()} Plan for ${selectedRequest.userName}`}
+            variant="success"
+            footer={
+              <>
+                <Button
+                  variant="outline"
+                  onClick={() => {
+                    setShowApprovalModal(false);
+                    setInternalNotes('');
+                  }}
+                  disabled={isLoading}
+                >
+                  Cancel
+                </Button>
+                <Button
+                  variant="primary"
+                  onClick={handleApproveRequest}
+                  loading={isLoading}
+                >
+                  Confirm Approval
+                </Button>
+              </>
+            }
+          >
+            <div className="space-y-4 text-xs">
+              <p className="text-[11px] text-muted-foreground leading-relaxed">
+                Confirming this transaction will grant active subscription rights immediately.
+              </p>
+              <div className="grid grid-cols-1 gap-4">
+                <Input
+                  label="Subscription Expiry Date"
+                  type="date"
+                  value={customExpiryDate}
+                  onChange={e => setCustomExpiryDate(e.target.value)}
+                  required
                 />
-                <label htmlFor="isActive" className="font-bold text-xs cursor-pointer">Method Active</label>
+                <Input
+                  as="textarea"
+                  label="Internal Audit Notes"
+                  placeholder="Include verification details or banking logs reference..."
+                  value={internalNotes}
+                  onChange={e => setInternalNotes(e.target.value)}
+                  rows={2}
+                />
               </div>
             </div>
-          </form>
-        </Modal>
-      )}
+          </Modal>
+        )}
 
-      {/* 4. Screenshot Zoom Viewer Modal */}
-      {selectedRequest && !showApprovalModal && !showRejectionModal && (
-        <Modal
-          isOpen={!!selectedRequest}
-          onClose={() => setSelectedRequest(null)}
-          title="Payment Verification Screenshot"
-          description={`Tx ID: ${selectedRequest.transactionId} • Submitted: ${selectedRequest.submittedAt?.toDate ? selectedRequest.submittedAt.toDate().toLocaleDateString() : new Date(selectedRequest.submittedAt).toLocaleDateString()}`}
-          size="lg"
-        >
-          <div className="flex flex-col items-center gap-4 bg-muted/10 p-2 rounded-2xl">
-            <img
-              src={selectedRequest.screenshotUrl}
-              alt="Transaction Proof Receipt"
-              className="max-w-full max-h-[60vh] object-contain rounded-xl shadow-md border"
-            />
-            <div className="w-full text-xs space-y-1 bg-card border border-border p-4 rounded-xl text-left leading-relaxed">
-              <p>User: <strong className="text-foreground">{selectedRequest.userName}</strong> ({selectedRequest.userEmail})</p>
-              <p>Requested Plan: <strong className="text-foreground uppercase">{selectedRequest.selectedPlan}</strong></p>
-              <p>Amount paid: <strong className="text-foreground font-semibold">PKR {selectedRequest.amount}</strong> via <strong className="text-foreground">{selectedRequest.paymentMethod}</strong></p>
-              {selectedRequest.notes && (
-                <p className="border-t pt-2 mt-2 italic text-muted-foreground">Notes: "{selectedRequest.notes}"</p>
-              )}
-            </div>
-          </div>
-        </Modal>
-      )}
-
-      {showEmailConfirmModal && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/60 backdrop-blur-sm animate-in fade-in duration-200">
-          <div className="bg-card border border-border w-full max-w-md rounded-3xl shadow-2xl overflow-hidden animate-in zoom-in-95 duration-200 p-6 space-y-4 text-left">
-            <div className="flex items-center gap-3 text-rose-500">
-              <div className="p-3 bg-rose-500/10 rounded-2xl">
-                <AlertCircle size={24} />
+        {/* 2. Rejection Modal */}
+        {showRejectionModal && selectedRequest && (
+          <Modal
+            isOpen={showRejectionModal}
+            onClose={() => {
+              setShowRejectionModal(false);
+              setRejectionReason('');
+              setInternalNotes('');
+            }}
+            title="Reject Subscription Payment"
+            description={`Declining transaction proof from ${selectedRequest.userName}`}
+            variant="danger"
+            footer={
+              <>
+                <Button
+                  variant="outline"
+                  onClick={() => {
+                    setShowRejectionModal(false);
+                    setRejectionReason('');
+                    setInternalNotes('');
+                  }}
+                  disabled={isLoading}
+                >
+                  Cancel
+                </Button>
+                <Button
+                  variant="destructive"
+                  onClick={handleRejectRequest}
+                  loading={isLoading}
+                  disabled={!rejectionReason.trim()}
+                >
+                  Confirm Rejection
+                </Button>
+              </>
+            }
+          >
+            <div className="space-y-4 text-xs">
+              <p className="text-[11px] text-muted-foreground leading-relaxed">
+                Provide a clear reason for rejecting the receipt. This will be shown to the user.
+              </p>
+              <div className="grid grid-cols-1 gap-4">
+                <Input
+                  label="Rejection Reason (Required)"
+                  placeholder="e.g. Invalid/unreadable receipt image, duplicate transaction ID, incorrect transfer amount"
+                  value={rejectionReason}
+                  onChange={e => setRejectionReason(e.target.value)}
+                  required
+                />
+                <Input
+                  as="textarea"
+                  label="Internal Audit Notes"
+                  placeholder="Include details about why it failed checks..."
+                  value={internalNotes}
+                  onChange={e => setInternalNotes(e.target.value)}
+                  rows={2}
+                />
               </div>
-              <div>
-                <h3 className="font-extrabold text-base text-foreground">Confirm Email Broadcast</h3>
-                <p className="text-[10px] text-muted-foreground uppercase font-bold tracking-widest">High-Privilege Security Action</p>
-              </div>
             </div>
+          </Modal>
+        )}
 
-            <p className="text-xs text-muted-foreground leading-relaxed">
-              Are you sure you want to broadcast this email? It will be sent to:
-              <strong className="text-foreground font-extrabold block mt-1 uppercase text-[10px] tracking-wider">
-                {emailFilter === 'all' && 'All Registered Users'}
-                {emailFilter === 'pro' && 'PRO Subscription Users'}
-                {emailFilter === 'free' && 'Standard Free Users'}
-                {emailFilter === 'custom' && `Custom List (${emailCustomRecipients.split(',').filter(Boolean).length} emails)`}
-              </strong>
-              This action cannot be undone once started. Please double check that SMTP settings and content formatting are correct.
-            </p>
+        {/* 3. Account Configuration CRUD Modal */}
+        {showAccountModal && (
+          <Modal
+            isOpen={showAccountModal}
+            onClose={() => setShowAccountModal(false)}
+            title={accountForm.id ? "Edit Payment Account" : "Add Payment Account"}
+            description="Configure banking/wallet credentials displayed to users during checkout"
+            footer={
+              <>
+                <Button
+                  variant="outline"
+                  onClick={() => setShowAccountModal(false)}
+                >
+                  Cancel
+                </Button>
+                <Button
+                  variant="primary"
+                  onClick={handleSaveAccount}
+                >
+                  Save Account
+                </Button>
+              </>
+            }
+          >
+            <form onSubmit={handleSaveAccount} className="space-y-4 text-xs">
+              <div className="grid grid-cols-2 gap-4">
+                <Input
+                  as="select"
+                  label="Payment Method"
+                  value={accountForm.method}
+                  onChange={e => setAccountForm({ ...accountForm, method: e.target.value })}
+                  options={[
+                    { value: 'SadaPay', label: 'SadaPay' },
+                    { value: 'JazzCash', label: 'JazzCash' },
+                    { value: 'Easypaisa', label: 'Easypaisa' },
+                    { value: 'Bank Transfer', label: 'Bank Transfer' }
+                  ]}
+                />
+                <Input
+                  label="Account Holder Name"
+                  value={accountForm.holderName}
+                  onChange={e => setAccountForm({ ...accountForm, holderName: e.target.value })}
+                  required
+                />
+              </div>
+              <div className="grid grid-cols-2 gap-4">
+                <Input
+                  label="Account / Phone Number"
+                  value={accountForm.accountNumber}
+                  onChange={e => setAccountForm({ ...accountForm, accountNumber: e.target.value })}
+                  required
+                />
+                <Input
+                  label="IBAN / Swift (Optional)"
+                  value={accountForm.iban}
+                  onChange={e => setAccountForm({ ...accountForm, iban: e.target.value })}
+                />
+              </div>
+              <Input
+                label="QR Code Image URL (Optional)"
+                value={accountForm.qrCodeUrl}
+                onChange={e => setAccountForm({ ...accountForm, qrCodeUrl: e.target.value })}
+                helperText="Cloudinary URL for QR code scan."
+              />
+              <Input
+                as="textarea"
+                label="Checkout Instructions"
+                placeholder="Display instructions (e.g. Include your username in the transaction notes)"
+                value={accountForm.instructions}
+                onChange={e => setAccountForm({ ...accountForm, instructions: e.target.value })}
+                rows={2}
+              />
+              <div className="grid grid-cols-2 gap-4">
+                <Input
+                  label="Display Order"
+                  type="number"
+                  value={accountForm.displayOrder}
+                  onChange={e => setAccountForm({ ...accountForm, displayOrder: Number(e.target.value) })}
+                  required
+                />
+                <div className="flex items-center gap-2 select-none pt-6 text-left">
+                  <input
+                    type="checkbox"
+                    id="isActive"
+                    checked={accountForm.isActive}
+                    onChange={e => setAccountForm({ ...accountForm, isActive: e.target.checked })}
+                    className="rounded border-border text-primary h-4 w-4"
+                  />
+                  <label htmlFor="isActive" className="font-bold text-xs cursor-pointer">Method Active</label>
+                </div>
+              </div>
+            </form>
+          </Modal>
+        )}
 
-            <div className="flex gap-3 pt-2">
-              <button
-                type="button"
-                onClick={() => setShowEmailConfirmModal(false)}
-                className="flex-1 py-3 bg-muted hover:bg-muted/80 text-foreground rounded-2xl font-bold text-xs transition-all border border-border"
-              >
-                Cancel
-              </button>
-              <button
-                type="button"
-                onClick={() => handleSendEmailBroadcast(false)}
-                disabled={isSendingEmail}
-                className="flex-1 py-3 bg-primary hover:opacity-90 text-primary-foreground disabled:opacity-50 rounded-2xl font-bold text-xs transition-all shadow-md flex items-center justify-center gap-1.5"
-              >
-                {isSendingEmail ? (
-                  <>
-                    <RefreshCw size={14} className="animate-spin" /> Broadcasting...
-                  </>
-                ) : (
-                  <>
-                    <Mail size={14} /> Yes, Send Now
-                  </>
+        {/* 4. Screenshot Zoom Viewer Modal */}
+        {selectedRequest && !showApprovalModal && !showRejectionModal && (
+          <Modal
+            isOpen={!!selectedRequest}
+            onClose={() => setSelectedRequest(null)}
+            title="Payment Verification Screenshot"
+            description={`Tx ID: ${selectedRequest.transactionId} • Submitted: ${selectedRequest.submittedAt?.toDate ? selectedRequest.submittedAt.toDate().toLocaleDateString() : new Date(selectedRequest.submittedAt).toLocaleDateString()}`}
+            size="lg"
+          >
+            <div className="flex flex-col items-center gap-4 bg-muted/10 p-2 rounded-2xl">
+              <img
+                src={selectedRequest.screenshotUrl}
+                alt="Transaction Proof Receipt"
+                className="max-w-full max-h-[60vh] object-contain rounded-xl shadow-md border"
+              />
+              <div className="w-full text-xs space-y-1 bg-card border border-border p-4 rounded-xl text-left leading-relaxed">
+                <p>User: <strong className="text-foreground">{selectedRequest.userName}</strong> ({selectedRequest.userEmail})</p>
+                <p>Requested Plan: <strong className="text-foreground uppercase">{selectedRequest.selectedPlan}</strong></p>
+                <p>Amount paid: <strong className="text-foreground font-semibold">PKR {selectedRequest.amount}</strong> via <strong className="text-foreground">{selectedRequest.paymentMethod}</strong></p>
+                {selectedRequest.notes && (
+                  <p className="border-t pt-2 mt-2 italic text-muted-foreground">Notes: "{selectedRequest.notes}"</p>
                 )}
-              </button>
+              </div>
             </div>
-          </div>
-        </div>
-      )}
+          </Modal>
+        )}
 
-      {showQueueModal && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/60 backdrop-blur-sm animate-in fade-in duration-200">
-          <div className="bg-card border border-border w-full max-w-lg rounded-3xl shadow-2xl overflow-hidden animate-in zoom-in-95 duration-200">
-            <div className="p-6 border-b border-border flex items-center justify-between bg-muted/30">
-              <div className="flex items-center gap-3">
-                <div className="p-2 bg-amber-500/10 rounded-xl text-amber-500">
-                  <MessageSquare size={20} />
+        {showEmailConfirmModal && (
+          <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/60 backdrop-blur-sm animate-in fade-in duration-200">
+            <div className="bg-card border border-border w-full max-w-md rounded-3xl shadow-2xl overflow-hidden animate-in zoom-in-95 duration-200 p-6 space-y-4 text-left">
+              <div className="flex items-center gap-3 text-rose-500">
+                <div className="p-3 bg-rose-500/10 rounded-2xl">
+                  <AlertCircle size={24} />
                 </div>
                 <div>
-                  <h3 className="font-bold">Pending Sync Tasks</h3>
-                  <p className="text-[10px] text-muted-foreground uppercase font-bold tracking-widest">Local Database Queue</p>
+                  <h3 className="font-extrabold text-base text-foreground">Confirm Email Broadcast</h3>
+                  <p className="text-[10px] text-muted-foreground uppercase font-bold tracking-widest">High-Privilege Security Action</p>
                 </div>
               </div>
-              <button
-                onClick={() => setShowQueueModal(false)}
-                className="p-2 hover:bg-muted rounded-full transition-colors"
-              >
-                <X size={20} />
-              </button>
-            </div>
 
-            <div className="p-4 max-h-[400px] overflow-y-auto space-y-2">
-              {pendingItems.length === 0 ? (
-                <div className="p-12 text-center text-muted-foreground italic">
-                  <ShieldCheck size={48} className="mx-auto mb-2 opacity-10" />
-                  No pending sync tasks
-                </div>
-              ) : (
-                pendingItems.map((item, idx) => {
-                  let payload = {};
-                  try { payload = JSON.parse(item.payload); } catch (e) { }
-                  return (
-                    <div key={item.id || idx} className="p-3 bg-muted/50 rounded-xl border border-border/50 flex items-center justify-between text-xs">
-                      <div className="space-y-1">
-                        <p className="font-bold text-primary flex items-center gap-1">
-                          <span className="uppercase">{item.type}</span>
-                          <span className="opacity-40 font-normal">|</span>
-                          <span className="font-mono opacity-60">ID: {(payload as any).id || (payload as any).key || '---'}</span>
-                        </p>
-                        <p className="text-muted-foreground opacity-70">
-                          Added: {format(new Date(item.timestamp), 'MMM dd, HH:mm:ss')}
-                        </p>
-                      </div>
-                      <div className="px-2 py-1 bg-amber-500/10 text-amber-500 rounded-md font-bold uppercase text-[9px]">
-                        Pending
-                      </div>
-                    </div>
-                  );
-                })
-              )}
-            </div>
-
-            <div className="p-6 bg-muted/30 border-t border-border flex gap-3">
-              <button
-                onClick={() => setShowQueueModal(false)}
-                className="flex-1 px-4 py-3 bg-muted text-foreground rounded-2xl font-bold hover:bg-muted/80 transition-all"
-              >
-                Close
-              </button>
-              <button
-                onClick={triggerForceSync}
-                disabled={isForceSyncing}
-                className="flex-[2] px-4 py-3 bg-primary text-primary-foreground rounded-2xl font-bold hover:shadow-lg hover:shadow-primary/20 transition-all active:scale-95 flex items-center justify-center gap-2 disabled:opacity-50"
-              >
-                {isForceSyncing ? <RefreshCw className="animate-spin" size={18} /> : <Send size={18} />}
-                {isForceSyncing ? 'Syncing...' : 'Force Sync Now'}
-              </button>
-            </div>
-          </div>
-        </div>
-      )}
-
-      {/* Manage User Features Modal */}
-      {selectedUserForFeatures && (
-        <div className="fixed inset-0 z-[150] flex items-center justify-center p-4 bg-black/80 backdrop-blur-sm animate-in fade-in duration-300">
-          <div className="bg-card w-full max-w-lg rounded-3xl border border-border shadow-2xl overflow-hidden flex flex-col max-h-[85vh] animate-in zoom-in duration-300">
-            <div className="p-6 border-b border-border flex items-center justify-between">
-              <div>
-                <h2 className="text-xl font-bold">User Feature Access</h2>
-                <p className="text-xs text-muted-foreground mt-1">
-                  {selectedUserForFeatures.displayName || 'Unnamed User'} ({selectedUserForFeatures.email})
-                </p>
-              </div>
-              <button
-                onClick={() => setSelectedUserForFeatures(null)}
-                className="p-1 hover:bg-muted rounded-full transition-colors"
-              >
-                <X size={20} />
-              </button>
-            </div>
-
-            <div className="p-6 overflow-y-auto space-y-4 flex-1">
-              <p className="text-xs text-muted-foreground mb-4">
-                Toggle which features are accessible for this user. Note that if a feature is disabled globally in Settings, it will be unavailable regardless of individual user settings.
+              <p className="text-xs text-muted-foreground leading-relaxed">
+                Are you sure you want to broadcast this email? It will be sent to:
+                <strong className="text-foreground font-extrabold block mt-1 uppercase text-[10px] tracking-wider">
+                  {emailFilter === 'all' && 'All Registered Users'}
+                  {emailFilter === 'pro' && 'PRO Subscription Users'}
+                  {emailFilter === 'free' && 'Standard Free Users'}
+                  {emailFilter === 'custom' && `Custom List (${emailCustomRecipients.split(',').filter(Boolean).length} emails)`}
+                </strong>
+                This action cannot be undone once started. Please double check that SMTP settings and content formatting are correct.
               </p>
 
-              <div className="space-y-3">
-                {FEATURES.map((feature) => {
-                  const isGloballyDisabled = (globalSettings.disabledFeatures || []).includes(feature.id);
-                  const isEnabled = !userDisabledFeatures.includes(feature.id);
+              <div className="flex gap-3 pt-2">
+                <button
+                  type="button"
+                  onClick={() => setShowEmailConfirmModal(false)}
+                  className="flex-1 py-3 bg-muted hover:bg-muted/80 text-foreground rounded-2xl font-bold text-xs transition-all border border-border"
+                >
+                  Cancel
+                </button>
+                <button
+                  type="button"
+                  onClick={() => handleSendEmailBroadcast(false)}
+                  disabled={isSendingEmail}
+                  className="flex-1 py-3 bg-primary hover:opacity-90 text-primary-foreground disabled:opacity-50 rounded-2xl font-bold text-xs transition-all shadow-md flex items-center justify-center gap-1.5"
+                >
+                  {isSendingEmail ? (
+                    <>
+                      <RefreshCw size={14} className="animate-spin" /> Broadcasting...
+                    </>
+                  ) : (
+                    <>
+                      <Mail size={14} /> Yes, Send Now
+                    </>
+                  )}
+                </button>
+              </div>
+            </div>
+          </div>
+        )}
 
-                  return (
-                    <div
-                      key={feature.id}
-                      className={`flex items-center justify-between p-4 rounded-2xl border transition-all ${isGloballyDisabled
-                          ? 'bg-muted/30 border-dashed border-border opacity-70'
-                          : 'bg-muted/50 border-border'
-                        }`}
-                    >
-                      <div className="pr-4">
-                        <div className="flex items-center gap-2">
-                          <p className="font-bold text-sm">{feature.name}</p>
-                          {isGloballyDisabled && (
-                            <span className="text-[9px] bg-rose-500/10 text-rose-500 px-1.5 py-0.5 rounded-full font-bold uppercase">
-                              Disabled Globally
-                            </span>
-                          )}
-                        </div>
-                        <p className="text-xs text-muted-foreground mt-0.5">{feature.desc}</p>
-                      </div>
-
-                      <button
-                        onClick={() => {
-                          const updated = userDisabledFeatures.includes(feature.id)
-                            ? userDisabledFeatures.filter(id => id !== feature.id)
-                            : [...userDisabledFeatures, feature.id];
-                          setUserDisabledFeatures(updated);
-                        }}
-                        className={`w-12 h-6 rounded-full transition-all relative shrink-0 ${isEnabled ? 'bg-emerald-500' : 'bg-muted'
-                          }`}
-                      >
-                        <div className={`absolute top-1 w-4 h-4 rounded-full bg-white transition-all ${isEnabled ? 'right-1' : 'left-1'
-                          }`} />
-                      </button>
-                    </div>
-                  );
-                })}
+        {showQueueModal && (
+          <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/60 backdrop-blur-sm animate-in fade-in duration-200">
+            <div className="bg-card border border-border w-full max-w-lg rounded-3xl shadow-2xl overflow-hidden animate-in zoom-in-95 duration-200">
+              <div className="p-6 border-b border-border flex items-center justify-between bg-muted/30">
+                <div className="flex items-center gap-3">
+                  <div className="p-2 bg-amber-500/10 rounded-xl text-amber-500">
+                    <MessageSquare size={20} />
+                  </div>
+                  <div>
+                    <h3 className="font-bold">Pending Sync Tasks</h3>
+                    <p className="text-[10px] text-muted-foreground uppercase font-bold tracking-widest">Local Database Queue</p>
+                  </div>
+                </div>
+                <button
+                  onClick={() => setShowQueueModal(false)}
+                  className="p-2 hover:bg-muted rounded-full transition-colors"
+                >
+                  <X size={20} />
+                </button>
               </div>
 
-              {/* Gemini API Key Override */}
-              <div className="pt-6 border-t border-border/60 space-y-3">
-                <div>
-                  <label className="block text-xs font-bold uppercase tracking-widest text-muted-foreground mb-2">
-                    User Gemini API Key Override
-                  </label>
-                  <p className="text-[10px] text-muted-foreground mb-3 leading-relaxed">
-                    Set a custom Gemini API Key specifically for this user. This overrides the global fallback key and the VITE_GEMINI_API_KEY environment variable. Leave blank to inherit system defaults.
-                  </p>
+              <div className="p-4 max-h-[400px] overflow-y-auto space-y-2">
+                {pendingItems.length === 0 ? (
+                  <div className="p-12 text-center text-muted-foreground italic">
+                    <ShieldCheck size={48} className="mx-auto mb-2 opacity-10" />
+                    No pending sync tasks
+                  </div>
+                ) : (
+                  pendingItems.map((item, idx) => {
+                    let payload = {};
+                    try { payload = JSON.parse(item.payload); } catch (e) { }
+                    return (
+                      <div key={item.id || idx} className="p-3 bg-muted/50 rounded-xl border border-border/50 flex items-center justify-between text-xs">
+                        <div className="space-y-1">
+                          <p className="font-bold text-primary flex items-center gap-1">
+                            <span className="uppercase">{item.type}</span>
+                            <span className="opacity-40 font-normal">|</span>
+                            <span className="font-mono opacity-60">ID: {(payload as any).id || (payload as any).key || '---'}</span>
+                          </p>
+                          <p className="text-muted-foreground opacity-70">
+                            Added: {format(new Date(item.timestamp), 'MMM dd, HH:mm:ss')}
+                          </p>
+                        </div>
+                        <div className="px-2 py-1 bg-amber-500/10 text-amber-500 rounded-md font-bold uppercase text-[9px]">
+                          Pending
+                        </div>
+                      </div>
+                    );
+                  })
+                )}
+              </div>
 
-                  <div className="relative">
-                    <input
-                      type={showUserGeminiApiKey ? 'text' : 'password'}
-                      value={userGeminiApiKey}
-                      onChange={(e) => setUserGeminiApiKey(e.target.value)}
-                      placeholder="Inherit system defaults (no override)..."
-                      className="w-full pl-4 pr-10 py-3 bg-muted border border-border/40 rounded-xl focus:outline-none focus:ring-2 focus:ring-primary outline-none transition-all text-xs font-mono text-foreground"
-                    />
-                    <button
-                      type="button"
-                      onClick={() => setShowUserGeminiApiKey(!showUserGeminiApiKey)}
-                      className="absolute right-3 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground transition-colors"
-                    >
-                      {showUserGeminiApiKey ? <EyeOff size={14} /> : <Eye size={14} />}
-                    </button>
+              <div className="p-6 bg-muted/30 border-t border-border flex gap-3">
+                <button
+                  onClick={() => setShowQueueModal(false)}
+                  className="flex-1 px-4 py-3 bg-muted text-foreground rounded-2xl font-bold hover:bg-muted/80 transition-all"
+                >
+                  Close
+                </button>
+                <button
+                  onClick={triggerForceSync}
+                  disabled={isForceSyncing}
+                  className="flex-[2] px-4 py-3 bg-primary text-primary-foreground rounded-2xl font-bold hover:shadow-lg hover:shadow-primary/20 transition-all active:scale-95 flex items-center justify-center gap-2 disabled:opacity-50"
+                >
+                  {isForceSyncing ? <RefreshCw className="animate-spin" size={18} /> : <Send size={18} />}
+                  {isForceSyncing ? 'Syncing...' : 'Force Sync Now'}
+                </button>
+              </div>
+            </div>
+          </div>
+        )}
+
+        {/* Manage User Features Modal */}
+        {selectedUserForFeatures && (
+          <div className="fixed inset-0 z-[150] flex items-center justify-center p-4 bg-black/80 backdrop-blur-sm animate-in fade-in duration-300">
+            <div className="bg-card w-full max-w-lg rounded-3xl border border-border shadow-2xl overflow-hidden flex flex-col max-h-[85vh] animate-in zoom-in duration-300">
+              <div className="p-6 border-b border-border flex items-center justify-between">
+                <div>
+                  <h2 className="text-xl font-bold">User Feature Access</h2>
+                  <p className="text-xs text-muted-foreground mt-1">
+                    {selectedUserForFeatures.displayName || 'Unnamed User'} ({selectedUserForFeatures.email})
+                  </p>
+                </div>
+                <button
+                  onClick={() => setSelectedUserForFeatures(null)}
+                  className="p-1 hover:bg-muted rounded-full transition-colors"
+                >
+                  <X size={20} />
+                </button>
+              </div>
+
+              <div className="p-6 overflow-y-auto space-y-4 flex-1">
+                <p className="text-xs text-muted-foreground mb-4">
+                  Toggle which features are accessible for this user. Note that if a feature is disabled globally in Settings, it will be unavailable regardless of individual user settings.
+                </p>
+
+                <div className="space-y-3">
+                  {FEATURES.map((feature) => {
+                    const isGloballyDisabled = (globalSettings.disabledFeatures || []).includes(feature.id);
+                    const isEnabled = !userDisabledFeatures.includes(feature.id);
+
+                    return (
+                      <div
+                        key={feature.id}
+                        className={`flex items-center justify-between p-4 rounded-2xl border transition-all ${isGloballyDisabled
+                          ? 'bg-muted/30 border-dashed border-border opacity-70'
+                          : 'bg-muted/50 border-border'
+                          }`}
+                      >
+                        <div className="pr-4">
+                          <div className="flex items-center gap-2">
+                            <p className="font-bold text-sm">{feature.name}</p>
+                            {isGloballyDisabled && (
+                              <span className="text-[9px] bg-rose-500/10 text-rose-500 px-1.5 py-0.5 rounded-full font-bold uppercase">
+                                Disabled Globally
+                              </span>
+                            )}
+                          </div>
+                          <p className="text-xs text-muted-foreground mt-0.5">{feature.desc}</p>
+                        </div>
+
+                        <button
+                          onClick={() => {
+                            const updated = userDisabledFeatures.includes(feature.id)
+                              ? userDisabledFeatures.filter(id => id !== feature.id)
+                              : [...userDisabledFeatures, feature.id];
+                            setUserDisabledFeatures(updated);
+                          }}
+                          className={`w-12 h-6 rounded-full transition-all relative shrink-0 ${isEnabled ? 'bg-emerald-500' : 'bg-muted'
+                            }`}
+                        >
+                          <div className={`absolute top-1 w-4 h-4 rounded-full bg-white transition-all ${isEnabled ? 'right-1' : 'left-1'
+                            }`} />
+                        </button>
+                      </div>
+                    );
+                  })}
+                </div>
+
+                {/* Gemini API Key Override */}
+                <div className="pt-6 border-t border-border/60 space-y-3">
+                  <div>
+                    <label className="block text-xs font-bold uppercase tracking-widest text-muted-foreground mb-2">
+                      User Gemini API Key Override
+                    </label>
+                    <p className="text-[10px] text-muted-foreground mb-3 leading-relaxed">
+                      Set a custom Gemini API Key specifically for this user. This overrides the global fallback key and the VITE_GEMINI_API_KEY environment variable. Leave blank to inherit system defaults.
+                    </p>
+
+                    <div className="relative">
+                      <input
+                        type={showUserGeminiApiKey ? 'text' : 'password'}
+                        value={userGeminiApiKey}
+                        onChange={(e) => setUserGeminiApiKey(e.target.value)}
+                        placeholder="Inherit system defaults (no override)..."
+                        className="w-full pl-4 pr-10 py-3 bg-muted border border-border/40 rounded-xl focus:outline-none focus:ring-2 focus:ring-primary outline-none transition-all text-xs font-mono text-foreground"
+                      />
+                      <button
+                        type="button"
+                        onClick={() => setShowUserGeminiApiKey(!showUserGeminiApiKey)}
+                        className="absolute right-3 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground transition-colors"
+                      >
+                        {showUserGeminiApiKey ? <EyeOff size={14} /> : <Eye size={14} />}
+                      </button>
+                    </div>
                   </div>
                 </div>
               </div>
-            </div>
 
-            <div className="p-6 bg-muted/30 border-t border-border flex gap-3">
-              <button
-                onClick={() => setSelectedUserForFeatures(null)}
-                className="flex-1 px-4 py-3 bg-muted text-foreground rounded-2xl font-bold hover:bg-muted/80 transition-all text-sm"
-              >
-                Cancel
-              </button>
-              <button
-                onClick={saveUserFeatures}
-                className="flex-[2] px-4 py-3 bg-primary text-primary-foreground rounded-2xl font-bold hover:shadow-lg hover:shadow-primary/20 transition-all text-sm"
-              >
-                Save Permissions
-              </button>
+              <div className="p-6 bg-muted/30 border-t border-border flex gap-3">
+                <button
+                  onClick={() => setSelectedUserForFeatures(null)}
+                  className="flex-1 px-4 py-3 bg-muted text-foreground rounded-2xl font-bold hover:bg-muted/80 transition-all text-sm"
+                >
+                  Cancel
+                </button>
+                <button
+                  onClick={saveUserFeatures}
+                  className="flex-[2] px-4 py-3 bg-primary text-primary-foreground rounded-2xl font-bold hover:shadow-lg hover:shadow-primary/20 transition-all text-sm"
+                >
+                  Save Permissions
+                </button>
+              </div>
             </div>
           </div>
-        </div>
-      )}
+        )}
 
-      {verificationReport && (
-        <div className="fixed inset-0 z-[150] flex items-center justify-center p-4 bg-black/70 backdrop-blur-sm animate-in fade-in">
-          <div className="bg-card border border-border w-full max-w-2xl rounded-3xl p-6 shadow-2xl space-y-4 max-h-[85vh] flex flex-col">
-            <div className="flex items-center justify-between border-b border-border/40 pb-3">
-              <div>
-                <h3 className="font-bold text-lg text-foreground">Data Synchronization Report</h3>
-                <p className="text-xs text-muted-foreground">User: {verificationReport.userEmail} ({verificationReport.userId})</p>
-              </div>
-              <span className={`text-xs font-bold px-2.5 py-1 rounded-full border ${verificationReport.isPerfectMatch ? 'bg-emerald-500/10 text-emerald-500 border-emerald-500/20' : 'bg-amber-500/10 text-amber-500 border-amber-500/20'}`}>
-                {verificationReport.isPerfectMatch ? '✓ 100% Match' : '⚠️ Discrepancies Found'}
-              </span>
-            </div>
-
-            <div className="flex-1 overflow-y-auto space-y-2 pr-1">
-              <div className="grid grid-cols-3 gap-2 text-xs font-bold uppercase tracking-wider text-muted-foreground p-2 bg-muted/30 rounded-xl">
-                <span>Collection</span>
-                <span>Firestore</span>
-                <span>Supabase</span>
-              </div>
-              {verificationReport.collections.map((d: any) => (
-                <div key={d.collectionName} className="grid grid-cols-3 gap-2 text-xs p-2 rounded-xl border border-border/40 items-center">
-                  <span className="font-semibold text-foreground">{d.collectionName}</span>
-                  <span className="font-mono">{d.firestoreCount} docs</span>
-                  <span className={`font-mono ${d.status === 'matched' ? 'text-emerald-500' : 'text-rose-500 font-bold'}`}>
-                    {d.supabaseCount} docs {d.status === 'matched' ? '✓' : '❌'}
-                  </span>
+        {verificationReport && (
+          <div className="fixed inset-0 z-[150] flex items-center justify-center p-4 bg-black/70 backdrop-blur-sm animate-in fade-in">
+            <div className="bg-card border border-border w-full max-w-2xl rounded-3xl p-6 shadow-2xl space-y-4 max-h-[85vh] flex flex-col">
+              <div className="flex items-center justify-between border-b border-border/40 pb-3">
+                <div>
+                  <h3 className="font-bold text-lg text-foreground">Data Synchronization Report</h3>
+                  <p className="text-xs text-muted-foreground">User: {verificationReport.userEmail} ({verificationReport.userId})</p>
                 </div>
-              ))}
-            </div>
+                <span className={`text-xs font-bold px-2.5 py-1 rounded-full border ${verificationReport.isPerfectMatch ? 'bg-emerald-500/10 text-emerald-500 border-emerald-500/20' : 'bg-amber-500/10 text-amber-500 border-amber-500/20'}`}>
+                  {verificationReport.isPerfectMatch ? '✓ 100% Match' : '⚠️ Discrepancies Found'}
+                </span>
+              </div>
 
-            <div className="pt-3 border-t border-border/40 flex justify-end">
-              <button
-                onClick={() => setVerificationReport(null)}
-                className="px-5 py-2.5 bg-primary text-primary-foreground font-bold text-xs rounded-xl hover:opacity-90"
-              >
-                Close Report
-              </button>
+              <div className="flex-1 overflow-y-auto space-y-2 pr-1">
+                <div className="grid grid-cols-3 gap-2 text-xs font-bold uppercase tracking-wider text-muted-foreground p-2 bg-muted/30 rounded-xl">
+                  <span>Collection</span>
+                  <span>Firestore</span>
+                  <span>Supabase</span>
+                </div>
+                {verificationReport.collections.map((d: any) => (
+                  <div key={d.collectionName} className="grid grid-cols-3 gap-2 text-xs p-2 rounded-xl border border-border/40 items-center">
+                    <span className="font-semibold text-foreground">{d.collectionName}</span>
+                    <span className="font-mono">{d.firestoreCount} docs</span>
+                    <span className={`font-mono ${d.status === 'matched' ? 'text-emerald-500' : 'text-rose-500 font-bold'}`}>
+                      {d.supabaseCount} docs {d.status === 'matched' ? '✓' : '❌'}
+                    </span>
+                  </div>
+                ))}
+              </div>
+
+              <div className="pt-3 border-t border-border/40 flex justify-end">
+                <button
+                  onClick={() => setVerificationReport(null)}
+                  className="px-5 py-2.5 bg-primary text-primary-foreground font-bold text-xs rounded-xl hover:opacity-90"
+                >
+                  Close Report
+                </button>
+              </div>
             </div>
           </div>
-        </div>
-      )}
+        )}
 
-      <ConfirmModal
-        isOpen={showLogoutConfirm}
-        title="Exit Admin Panel?"
-        message="Are you sure you want to exit the administration view? You will need to enter your admin credentials again to return."
-        onConfirm={() => {
-          setIsAuthorized(false);
-          localStorage.removeItem('admin_authorized');
-          setShowLogoutConfirm(false);
-        }}
-        onCancel={() => setShowLogoutConfirm(false)}
-        variant="danger"
-        confirmText="Exit Admin"
-      />
-    </div>
-  );
+        <ConfirmModal
+          isOpen={showLogoutConfirm}
+          title="Exit Admin Panel?"
+          message="Are you sure you want to exit the administration view? You will need to enter your admin credentials again to return."
+          onConfirm={() => {
+            setIsAuthorized(false);
+            localStorage.removeItem('admin_authorized');
+            setShowLogoutConfirm(false);
+          }}
+          onCancel={() => setShowLogoutConfirm(false)}
+          variant="danger"
+          confirmText="Exit Admin"
+        />
+      </div>
+      );
 };
 
-export default Admin;
+      export default Admin;

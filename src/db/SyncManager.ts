@@ -1,4 +1,6 @@
 import { supabase, isSupabaseConfigured } from '../supabase';
+import { db } from '../firebase';
+import { doc, setDoc, deleteDoc, collection, getDocs } from 'firebase/firestore';
 import { executeQuery, runWithBindings } from './sqlite';
 import { v4 as uuidv4 } from 'uuid';
 
@@ -180,23 +182,52 @@ class SyncManager {
 
   public async pullInitialDataForUser(userId?: string) {
     const targetUid = userId || this.userId;
-    if (!targetUid || !isSupabaseConfigured) return;
+    if (!targetUid) return;
 
-    console.log(`[SyncManager] Pulling cloud data cache for user: ${targetUid}...`);
+    console.log(`[SyncManager] Pulling Firestore primary data & caching for user: ${targetUid}...`);
 
     for (const [colName, tableName] of Object.entries(COLLECTION_TO_TABLE_MAP)) {
       try {
-        const { data, error } = await supabase
-          .from(tableName)
-          .select('*')
-          .eq('user_id', targetUid);
+        let docsCount = 0;
 
-        if (error || !data) continue;
+        // 1. Pull Primary from Firestore
+        if (db) {
+          try {
+            const colRef = collection(db, 'users', targetUid, colName);
+            const snap = await getDocs(colRef);
+            const fsDocs = snap.docs.map(d => ({ id: d.id, ...d.data() }));
 
-        if (data.length > 0) {
-          console.log(`[SyncManager] Caching ${data.length} ${colName} for user ${targetUid}`);
-          for (const row of data) {
-            await this.updateLocalCache(colName, row);
+            if (fsDocs.length > 0) {
+              docsCount = fsDocs.length;
+              console.log(`[SyncManager] Pulled ${docsCount} ${colName} from Firestore for ${targetUid}`);
+              for (const docItem of fsDocs) {
+                await this.updateLocalCache(colName, docItem);
+                
+                // Also mirror to Supabase
+                if (isSupabaseConfigured) {
+                  const cleanPayload = this.sanitizePostgresPayload(docItem);
+                  cleanPayload.user_id = targetUid;
+                  await supabase.from(tableName).upsert(cleanPayload);
+                }
+              }
+            }
+          } catch (fsErr) {
+            console.warn(`[SyncManager] Firestore read warning for ${colName}:`, fsErr);
+          }
+        }
+
+        // 2. Fallback to Supabase if Firestore yielded 0 docs
+        if (docsCount === 0 && isSupabaseConfigured) {
+          const { data, error } = await supabase
+            .from(tableName)
+            .select('*')
+            .eq('user_id', targetUid);
+
+          if (!error && data && data.length > 0) {
+            console.log(`[SyncManager] Pulled ${data.length} ${colName} from Supabase fallback for ${targetUid}`);
+            for (const row of data) {
+              await this.updateLocalCache(colName, row);
+            }
           }
         }
       } catch (err) {
@@ -204,7 +235,7 @@ class SyncManager {
       }
     }
 
-    console.log(`[SyncManager] Pull complete for user: ${targetUid}`);
+    console.log(`[SyncManager] Dual pull & sync complete for user: ${targetUid}`);
     window.dispatchEvent(new CustomEvent('app-sync-complete'));
   }
 
@@ -585,7 +616,7 @@ class SyncManager {
 
       for (const op of ops) {
         const payload = JSON.parse(op.payload);
-        const success = await this.pushToSupabase(op.type, payload);
+        const success = await this.pushToCloud(op.type, payload);
 
         if (success) {
           await runWithBindings(`DELETE FROM sync_queue WHERE id = ?`, [op.id]);
@@ -631,8 +662,8 @@ class SyncManager {
     }
   }
 
-  private async pushToSupabase(type: string, payload: any): Promise<boolean> {
-    if (!this.userId || !isSupabaseConfigured) return false;
+  private async pushToCloud(type: string, payload: any): Promise<boolean> {
+    if (!this.userId) return false;
 
     let colName = '';
     if (type.startsWith('transaction')) colName = 'transactions';
@@ -654,27 +685,45 @@ class SyncManager {
     else if (type === 'config_update') colName = 'config';
 
     const tableName = COLLECTION_TO_TABLE_MAP[colName];
-    if (!tableName) return false;
+    let isSuccess = false;
 
-    try {
-      await this.ensureUserRecordExists();
-
-      if (type.endsWith('_delete')) {
-        const idCol = colName === 'config' ? 'key' : 'id';
+    // 1. Primary Write: Firestore
+    if (db) {
+      try {
         const recordId = colName === 'config' ? payload.key : payload.id;
-        const { error } = await supabase.from(tableName).delete().eq(idCol, recordId).eq('user_id', this.userId);
-        if (error) throw error;
-      } else {
-        const cleanPayload = this.sanitizePostgresPayload(payload);
+        const docRef = doc(db, 'users', this.userId, colName, recordId);
 
-        const { error } = await supabase.from(tableName).upsert(cleanPayload);
-        if (error) throw error;
+        if (type.endsWith('_delete')) {
+          await deleteDoc(docRef);
+        } else {
+          await setDoc(docRef, { ...payload, updatedAt: new Date().toISOString(), userId: this.userId }, { merge: true });
+        }
+        isSuccess = true;
+      } catch (fsError) {
+        console.warn(`[SyncManager] Firestore write warning for ${type}:`, fsError);
       }
-      return true;
-    } catch (error: any) {
-      console.error(`[SyncManager] Supabase push failed for ${type}:`, error);
-      return false;
     }
+
+    // 2. Secondary Mirror: Supabase
+    if (isSupabaseConfigured && tableName) {
+      try {
+        await this.ensureUserRecordExists();
+
+        if (type.endsWith('_delete')) {
+          const idCol = colName === 'config' ? 'key' : 'id';
+          const recordId = colName === 'config' ? payload.key : payload.id;
+          await supabase.from(tableName).delete().eq(idCol, recordId).eq('user_id', this.userId);
+        } else {
+          const cleanPayload = this.sanitizePostgresPayload(payload);
+          await supabase.from(tableName).upsert(cleanPayload);
+        }
+        isSuccess = true;
+      } catch (supaError) {
+        console.warn(`[SyncManager] Supabase write warning for ${type}:`, supaError);
+      }
+    }
+
+    return isSuccess;
   }
 
   private async ensureUserRecordExists(): Promise<void> {
@@ -746,8 +795,8 @@ class SyncManager {
 
     await localAction();
 
-    if (this.isOnline && this.userId && isSupabaseConfigured) {
-      const success = await this.pushToSupabase(type, payload);
+    if (this.isOnline && this.userId) {
+      const success = await this.pushToCloud(type, payload);
       if (success) {
         if (type.endsWith('_delete')) {
           window.dispatchEvent(new CustomEvent('app-sync-complete'));

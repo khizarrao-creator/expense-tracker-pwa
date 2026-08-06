@@ -46,6 +46,8 @@ interface AppContextType {
   planLimits: { aiCallsPerDay: number; maxTransactions: number; maxUploadsPerDay?: number };
   isSidebarHidden: boolean;
   setIsSidebarHidden: (hidden: boolean) => void;
+  isPrivacyMode: boolean;
+  togglePrivacyMode: () => void;
 }
 
 const AppContext = createContext<AppContextType | undefined>(undefined);
@@ -139,6 +141,17 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
   const [userPlan, setUserPlan] = useState<string>('standard');
   const [planExpiresAt, setPlanExpiresAt] = useState<Date | null>(null);
   const [isSidebarHidden, setIsSidebarHidden] = useState(false);
+  const [isPrivacyMode, setIsPrivacyMode] = useState<boolean>(() => {
+    return localStorage.getItem('privacy_mode') === 'true';
+  });
+
+  const togglePrivacyMode = () => {
+    setIsPrivacyMode(prev => {
+      const next = !prev;
+      localStorage.setItem('privacy_mode', String(next));
+      return next;
+    });
+  };
 
   // Load plans from Supabase
   useEffect(() => {
@@ -321,7 +334,9 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       planFeatures,
       planLimits,
       isSidebarHidden,
-      setIsSidebarHidden
+      setIsSidebarHidden,
+      isPrivacyMode,
+      togglePrivacyMode
     }}>
       {config.emergencyMessage && showEmergency && (
         <div className="fixed inset-0 z-[200] flex items-center justify-center p-4 bg-black/80 backdrop-blur-sm animate-in fade-in duration-300">

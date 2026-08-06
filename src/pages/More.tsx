@@ -54,7 +54,7 @@ const DEFAULT_OPTIONS: MoreOption[] = [
     id: 'goals',
     name: 'Savings Goals',
     description: 'Set and track financial objectives',
-    path: '/goals',
+    path: '/ledger/goals',
     icon: Target,
     color: 'text-indigo-500',
     bgColor: 'bg-indigo-500/10'
@@ -63,7 +63,7 @@ const DEFAULT_OPTIONS: MoreOption[] = [
     id: 'reminders',
     name: 'Bill Reminders',
     description: 'Never miss an upcoming payment',
-    path: '/reminders',
+    path: '/ledger/reminders',
     icon: Bell,
     color: 'text-amber-500',
     bgColor: 'bg-amber-500/10'
@@ -72,7 +72,7 @@ const DEFAULT_OPTIONS: MoreOption[] = [
     id: 'investments',
     name: 'Investments',
     description: 'Track your portfolio growth',
-    path: '/investments',
+    path: '/ledger/investments',
     icon: TrendingUp,
     color: 'text-emerald-500',
     bgColor: 'bg-emerald-500/10'
@@ -81,7 +81,7 @@ const DEFAULT_OPTIONS: MoreOption[] = [
     id: 'calculator',
     name: 'Calculator',
     description: 'Quick math and percentages',
-    path: '/calculator',
+    path: '/ledger/calculator',
     icon: CalcIcon,
     color: 'text-rose-500',
     bgColor: 'bg-rose-500/10'
@@ -90,7 +90,7 @@ const DEFAULT_OPTIONS: MoreOption[] = [
     id: 'converter',
     name: 'Currency Converter',
     description: 'Real-time exchange rates',
-    path: '/converter',
+    path: '/ledger/converter',
     icon: DollarSign,
     color: 'text-cyan-500',
     bgColor: 'bg-cyan-500/10'
@@ -99,7 +99,7 @@ const DEFAULT_OPTIONS: MoreOption[] = [
     id: 'tasks',
     name: 'Task Manager',
     description: 'Organize your daily activities and to-dos',
-    path: '/tasks',
+    path: '/work/tasks',
     icon: CheckSquare,
     color: 'text-blue-500',
     bgColor: 'bg-blue-500/10'
@@ -108,7 +108,7 @@ const DEFAULT_OPTIONS: MoreOption[] = [
     id: 'loans',
     name: 'Loan Management',
     description: 'Track borrowing and lending',
-    path: '/loans',
+    path: '/ledger/loans',
     icon: Handshake,
     color: 'text-emerald-500',
     bgColor: 'bg-emerald-500/10'
@@ -117,7 +117,7 @@ const DEFAULT_OPTIONS: MoreOption[] = [
     id: 'events',
     name: 'Event Tracking',
     description: 'Group related expenses and loans',
-    path: '/events',
+    path: '/ledger/events',
     icon: Layers,
     color: 'text-orange-500',
     bgColor: 'bg-orange-500/10'
@@ -126,7 +126,7 @@ const DEFAULT_OPTIONS: MoreOption[] = [
     id: 'fuel',
     name: 'Vehicle & Fuel Tracking',
     description: 'Track fuel consumption and vehicle expenses',
-    path: '/fuel',
+    path: '/ledger/vehicles',
     icon: Fuel,
     color: 'text-blue-500',
     bgColor: 'bg-blue-500/10'
@@ -135,7 +135,7 @@ const DEFAULT_OPTIONS: MoreOption[] = [
     id: 'reports',
     name: 'Analytics & Reports',
     description: 'Comprehensive financial insights',
-    path: '/reports',
+    path: '/ledger/reports',
     icon: PieChart,
     color: 'text-fuchsia-500',
     bgColor: 'bg-fuchsia-500/10'
@@ -144,7 +144,7 @@ const DEFAULT_OPTIONS: MoreOption[] = [
     id: 'ai-chat',
     name: 'AI Copilot',
     description: 'Chat with your personal financial AI',
-    path: '/ai-chat',
+    path: '/ai',
     icon: Sparkles,
     color: 'text-indigo-400',
     bgColor: 'bg-indigo-500/10'
@@ -153,7 +153,7 @@ const DEFAULT_OPTIONS: MoreOption[] = [
     id: 'subscriptions',
     name: 'Subscription Manager',
     description: 'Track and analyze recurring subscriptions',
-    path: '/subscriptions',
+    path: '/ledger/subscriptions',
     icon: CreditCard,
     color: 'text-cyan-400',
     bgColor: 'bg-cyan-500/10'
@@ -162,7 +162,7 @@ const DEFAULT_OPTIONS: MoreOption[] = [
     id: 'whatsapp',
     name: 'WhatsApp Copilot',
     description: 'Read, send messages, switch accounts, and sync statuses',
-    path: '/whatsapp',
+    path: '/comms/whatsapp',
     icon: MessageSquare,
     color: 'text-emerald-500',
     bgColor: 'bg-emerald-500/10'
@@ -171,7 +171,7 @@ const DEFAULT_OPTIONS: MoreOption[] = [
     id: 'projects',
     name: 'Projects',
     description: 'Team projects, whiteboard, and collaborative tasks',
-    path: '/projects',
+    path: '/work/projects',
     icon: FolderKanban,
     color: 'text-indigo-500',
     bgColor: 'bg-indigo-500/10'
@@ -384,7 +384,12 @@ const More: React.FC = () => {
       <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
         <div>
           <div className="flex items-center gap-2">
-            <h1 className="text-2xl font-bold tracking-tight">More Features</h1>
+            <h1 className="text-2xl font-black tracking-tight flex items-center gap-2">
+              <span className="bg-primary/10 text-primary p-1.5 rounded-xl border border-primary/20">
+                <Layers size={22} />
+              </span>
+              The Base Workspace Suite
+            </h1>
             <div className="relative">
               <button
                 onMouseEnter={() => setShowTooltip(true)}
@@ -405,7 +410,7 @@ const More: React.FC = () => {
               )}
             </div>
           </div>
-          <p className="text-muted-foreground mt-1">Access additional tools to manage your wealth.</p>
+          <p className="text-muted-foreground mt-1 text-sm">Access modular apps across financial management, projects, operations, and AI intelligence.</p>
         </div>
       </div>
 

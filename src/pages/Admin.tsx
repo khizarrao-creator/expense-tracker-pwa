@@ -48,7 +48,7 @@ import {
   Loader2,
 } from 'lucide-react';
 import { syncManager } from '../db/SyncManager';
-import { userMigrationSyncManager } from '../services/UserMigrationSyncManager';
+import { userMigrationSyncManager, type VerificationReport } from '../services/UserMigrationSyncManager';
 import { Bar, Pie, Line } from 'react-chartjs-2';
 import {
   Chart as ChartJS,
@@ -86,14 +86,6 @@ import { Button } from '../components/ui/Button';
 import { Input } from '../components/ui/Input';
 import { Badge } from '../components/ui/Badge';
 import { PlanBadge } from '../components/ui/PlanBadge';
-
-const hashPassword = async (password: string) => {
-  const msgBuffer = new TextEncoder().encode(password);
-  const hashBuffer = await crypto.subtle.digest('SHA-256', msgBuffer);
-  const hashArray = Array.from(new Uint8Array(hashBuffer));
-  const hashHex = hashArray.map(b => b.toString(16).padStart(2, '0')).join('');
-  return hashHex;
-};
 
 const FEATURES = [
   { id: 'goals', name: 'Savings Goals', desc: 'Set and track financial objectives' },
@@ -503,6 +495,28 @@ const Admin: React.FC = () => {
   const [logSearchQuery, setLogSearchQuery] = useState('');
   const [logTypeFilter, setLogTypeFilter] = useState<'all' | 'config' | 'user' | 'scan'>('all');
   const [adminLogs, setAdminLogs] = useState<AdminLog[]>([]);
+  const [verificationReport, setVerificationReport] = useState<VerificationReport | null>(null);
+  const [isVerifying, setIsVerifying] = useState(false);
+
+  const handleCompareUser = async (u: any) => {
+    setIsVerifying(true);
+    try {
+      toast.loading(`Comparing Firestore vs Supabase for ${u.email}...`, { id: 'compareReport' });
+      const report = await userMigrationSyncManager.compareCloudData(u.id, u.email);
+      setVerificationReport(report);
+      toast.dismiss('compareReport');
+      if (report.isPerfectMatch) {
+        toast.success(`100% Match! Firestore & Supabase data matched for ${u.email}`);
+      } else {
+        toast.info(`Comparison report ready for ${u.email}`);
+      }
+    } catch (e: any) {
+      toast.dismiss('compareReport');
+      toast.error('Failed to generate comparison report');
+    } finally {
+      setIsVerifying(false);
+    }
+  };
 
   // Payments Tab States
   const [paymentRequests, setPaymentRequests] = useState<any[]>([]);
@@ -3743,6 +3757,16 @@ const Admin: React.FC = () => {
                               <Button
                                 size="xs"
                                 variant="outline"
+                                disabled={isVerifying}
+                                onClick={() => handleCompareUser(u)}
+                                className="gap-1 font-semibold text-primary border-primary/30"
+                              >
+                                <ArrowUpDown size={12} className={isVerifying ? "animate-spin" : ""} />
+                                {isVerifying ? 'Comparing...' : 'Compare Data'}
+                              </Button>
+                              <Button
+                                size="xs"
+                                variant="outline"
                                 onClick={() => userMigrationSyncManager.syncUserData(u.id, u.email)}
                                 className="gap-1 font-semibold"
                               >
@@ -4257,6 +4281,48 @@ const Admin: React.FC = () => {
                 className="flex-[2] px-4 py-3 bg-primary text-primary-foreground rounded-2xl font-bold hover:shadow-lg hover:shadow-primary/20 transition-all text-sm"
               >
                 Save Permissions
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {verificationReport && (
+        <div className="fixed inset-0 z-[150] flex items-center justify-center p-4 bg-black/70 backdrop-blur-sm animate-in fade-in">
+          <div className="bg-card border border-border w-full max-w-2xl rounded-3xl p-6 shadow-2xl space-y-4 max-h-[85vh] flex flex-col">
+            <div className="flex items-center justify-between border-b border-border/40 pb-3">
+              <div>
+                <h3 className="font-bold text-lg text-foreground">Data Synchronization Report</h3>
+                <p className="text-xs text-muted-foreground">User: {verificationReport.userEmail} ({verificationReport.userId})</p>
+              </div>
+              <span className={`text-xs font-bold px-2.5 py-1 rounded-full border ${verificationReport.isPerfectMatch ? 'bg-emerald-500/10 text-emerald-500 border-emerald-500/20' : 'bg-amber-500/10 text-amber-500 border-amber-500/20'}`}>
+                {verificationReport.isPerfectMatch ? '✓ 100% Match' : '⚠️ Discrepancies Found'}
+              </span>
+            </div>
+
+            <div className="flex-1 overflow-y-auto space-y-2 pr-1">
+              <div className="grid grid-cols-3 gap-2 text-xs font-bold uppercase tracking-wider text-muted-foreground p-2 bg-muted/30 rounded-xl">
+                <span>Collection</span>
+                <span>Firestore</span>
+                <span>Supabase</span>
+              </div>
+              {verificationReport.collections.map((d: any) => (
+                <div key={d.collectionName} className="grid grid-cols-3 gap-2 text-xs p-2 rounded-xl border border-border/40 items-center">
+                  <span className="font-semibold text-foreground">{d.collectionName}</span>
+                  <span className="font-mono">{d.firestoreCount} docs</span>
+                  <span className={`font-mono ${d.status === 'matched' ? 'text-emerald-500' : 'text-rose-500 font-bold'}`}>
+                    {d.supabaseCount} docs {d.status === 'matched' ? '✓' : '❌'}
+                  </span>
+                </div>
+              ))}
+            </div>
+
+            <div className="pt-3 border-t border-border/40 flex justify-end">
+              <button
+                onClick={() => setVerificationReport(null)}
+                className="px-5 py-2.5 bg-primary text-primary-foreground font-bold text-xs rounded-xl hover:opacity-90"
+              >
+                Close Report
               </button>
             </div>
           </div>

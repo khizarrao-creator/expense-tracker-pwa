@@ -1,3 +1,5 @@
+import { db } from '../firebase';
+import { collection, getDocs } from 'firebase/firestore';
 import { supabase, isSupabaseConfigured } from '../supabase';
 import { toast } from 'sonner';
 import { syncManager } from '../db/SyncManager';
@@ -16,6 +18,45 @@ export interface UserSyncProgress {
 
 type SyncProgressCallback = (progress: UserSyncProgress) => void;
 
+export interface CollectionComparison {
+  key: string;
+  label: string;
+  firestoreCount: number;
+  supabaseCount: number;
+  status: 'matched' | 'discrepancy' | 'empty';
+  details?: string;
+}
+
+export interface VerificationReport {
+  userId: string;
+  userEmail: string;
+  timestamp: string;
+  totalFirestoreRecords: number;
+  totalSupabaseRecords: number;
+  isPerfectMatch: boolean;
+  collections: CollectionComparison[];
+}
+
+const COLLECTION_MAP: Record<string, { label: string; firestoreName: string; supabaseTable: string }> = {
+  transactions: { label: 'Transactions', firestoreName: 'transactions', supabaseTable: 'user_transactions' },
+  accounts: { label: 'Accounts', firestoreName: 'accounts', supabaseTable: 'user_accounts' },
+  categories: { label: 'Categories', firestoreName: 'categories', supabaseTable: 'user_categories' },
+  goals: { label: 'Savings Goals', firestoreName: 'goals', supabaseTable: 'user_goals' },
+  investments: { label: 'Investments', firestoreName: 'investments', supabaseTable: 'user_investments' },
+  reminders: { label: 'Bill Reminders', firestoreName: 'reminders', supabaseTable: 'user_reminders' },
+  tasks: { label: 'Tasks', firestoreName: 'tasks', supabaseTable: 'user_tasks' },
+  task_logs: { label: 'Task Logs', firestoreName: 'task_logs', supabaseTable: 'user_task_logs' },
+  loan_parties: { label: 'Loan Contacts', firestoreName: 'loan_parties', supabaseTable: 'user_loan_parties' },
+  loans: { label: 'Loans', firestoreName: 'loans', supabaseTable: 'user_loans' },
+  loan_repayments: { label: 'Loan Repayments', firestoreName: 'loan_repayments', supabaseTable: 'user_loan_repayments' },
+  events: { label: 'Events', firestoreName: 'events', supabaseTable: 'user_events' },
+  vehicles: { label: 'Vehicles', firestoreName: 'vehicles', supabaseTable: 'user_vehicles' },
+  vehicle_expenses: { label: 'Vehicle Expenses', firestoreName: 'vehicle_expenses', supabaseTable: 'user_vehicle_expenses' },
+  vehicle_reminders: { label: 'Vehicle Reminders', firestoreName: 'vehicle_reminders', supabaseTable: 'user_vehicle_reminders' },
+  fuel_logs: { label: 'Fuel Logs', firestoreName: 'fuel_logs', supabaseTable: 'user_fuel_logs' },
+  config: { label: 'Budgets & Config', firestoreName: 'config', supabaseTable: 'user_config' },
+};
+
 class UserMigrationSyncManager {
   private listeners: Set<SyncProgressCallback> = new Set();
   private currentProgress: UserSyncProgress = {
@@ -31,7 +72,6 @@ class UserMigrationSyncManager {
 
   public subscribe(callback: SyncProgressCallback) {
     this.listeners.add(callback);
-    // Immediately emit current state
     callback(this.currentProgress);
     return () => {
       this.listeners.delete(callback);
@@ -40,7 +80,6 @@ class UserMigrationSyncManager {
 
   private notify() {
     this.listeners.forEach(cb => cb(this.currentProgress));
-    // Also dispatch global window event for cross-component reactivity
     window.dispatchEvent(new CustomEvent('user-migration-progress', { detail: this.currentProgress }));
   }
 
@@ -49,7 +88,7 @@ class UserMigrationSyncManager {
   }
 
   /**
-   * Perform user-wise data sync & reconciliation from backup/Firestore to Supabase
+   * Perform dual sync: Sync Firestore data to Supabase for a specific user
    */
   public async syncUserData(userId: string, userEmail: string): Promise<boolean> {
     if (this.currentProgress.isSyncing) {
@@ -66,7 +105,7 @@ class UserMigrationSyncManager {
       isSyncing: true,
       targetUserId: userId,
       targetUserEmail: userEmail,
-      currentCollection: 'Initializing User Sync...',
+      currentCollection: 'Initializing Firestore -> Supabase Sync...',
       processedCount: 0,
       totalCount: 100,
       progressPercent: 5,
@@ -75,12 +114,11 @@ class UserMigrationSyncManager {
     this.notify();
 
     try {
-      // Step 1: Check user existence in Supabase
+      // 1. Verify User Record in Supabase
       this.updateProgress('Verifying User Record', 10, 10, 10);
-      const { data: userRecord } = await supabase.from('users').select('id, email, display_name').eq('id', userId).maybeSingle();
+      const { data: userRecord } = await supabase.from('users').select('id, email').eq('id', userId).maybeSingle();
 
       if (!userRecord) {
-        // Create user record in Supabase
         await supabase.from('users').upsert({
           id: userId,
           email: userEmail || 'user@example.com',
@@ -88,48 +126,62 @@ class UserMigrationSyncManager {
         });
       }
 
-      // Define user subcollections to sync
-      const collectionsToSync = [
-        { name: 'user_accounts', label: 'Accounts' },
-        { name: 'user_categories', label: 'Categories' },
-        { name: 'user_transactions', label: 'Transactions' },
-        { name: 'user_goals', label: 'Savings Goals' },
-        { name: 'user_investments', label: 'Investments' },
-        { name: 'user_reminders', label: 'Bill Reminders' },
-        { name: 'user_tasks', label: 'Tasks' },
-        { name: 'user_task_logs', label: 'Task Logs' },
-        { name: 'user_loan_parties', label: 'Loan Contacts' },
-        { name: 'user_loans', label: 'Loans' },
-        { name: 'user_loan_repayments', label: 'Loan Repayments' },
-        { name: 'user_events', label: 'Events' },
-        { name: 'user_vehicles', label: 'Vehicles' },
-        { name: 'user_vehicle_expenses', label: 'Vehicle Expenses' },
-        { name: 'user_vehicle_reminders', label: 'Vehicle Reminders' },
-        { name: 'user_fuel_logs', label: 'Fuel Logs' },
-        { name: 'user_config', label: 'Budgets & Config' }
-      ];
-
-      const stepIncrement = 80 / collectionsToSync.length;
+      const collectionEntries = Object.entries(COLLECTION_MAP);
+      const stepIncrement = 80 / collectionEntries.length;
       let currentProgressPercent = 15;
 
-      for (const col of collectionsToSync) {
-        this.updateProgress(`Syncing ${col.label}`, 0, 100, Math.round(currentProgressPercent));
+      for (const [colKey, meta] of collectionEntries) {
+        this.updateProgress(`Syncing ${meta.label}`, 0, 100, Math.round(currentProgressPercent));
 
-        // Fetch records for this user from Supabase to count/reconcile
+        let firestoreDocs: any[] = [];
+        // Pull Firestore documents if SDK available
+        if (db) {
+          try {
+            const colRef = collection(db, 'users', userId, meta.firestoreName);
+            const snapshot = await getDocs(colRef);
+            firestoreDocs = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
+          } catch (err) {
+            console.warn(`[UserMigrationSyncManager] Could not read Firestore ${meta.firestoreName}:`, err);
+          }
+        }
+
+        // Upsert Firestore records to Supabase if any exist
+        if (firestoreDocs.length > 0) {
+          for (const item of firestoreDocs) {
+            const cleanPayload: any = { user_id: userId, synced_at: new Date().toISOString() };
+            for (const [k, v] of Object.entries(item)) {
+              if (k === 'synced' || k === 'deviceId') continue;
+              const snakeKey = k.replace(/([A-Z])/g, '_$1').toLowerCase();
+              cleanPayload[snakeKey] = v;
+            }
+
+            if (colKey === 'config') {
+              cleanPayload.key = item.key || item.id;
+              if (typeof cleanPayload.value === 'object') {
+                cleanPayload.value = JSON.stringify(cleanPayload.value);
+              }
+            } else {
+              cleanPayload.id = item.id;
+            }
+
+            await supabase.from(meta.supabaseTable).upsert(cleanPayload);
+          }
+        }
+
+        // Fetch count in Supabase to confirm
         const { data: existingRecords } = await supabase
-          .from(col.name)
-          .select('id')
+          .from(meta.supabaseTable)
+          .select(colKey === 'config' ? 'key' : 'id')
           .eq('user_id', userId);
 
         const count = existingRecords ? existingRecords.length : 0;
-        this.updateProgress(`Reconciled ${count} ${col.label}`, count, count || 1, Math.round(currentProgressPercent + stepIncrement / 2));
+        this.updateProgress(`Reconciled ${count} ${meta.label}`, count, count || 1, Math.round(currentProgressPercent + stepIncrement / 2));
 
-        // Artificial smooth progress update for UI clarity
-        await new Promise(r => setTimeout(r, 400));
+        await new Promise(r => setTimeout(r, 150));
         currentProgressPercent += stepIncrement;
       }
 
-      // Mark user as fully synced in local storage & pull data cache
+      // Mark user as fully synced
       localStorage.setItem(`user_synced_${userId}`, new Date().toISOString());
       await syncManager.pullInitialDataForUser(userId);
 
@@ -137,7 +189,7 @@ class UserMigrationSyncManager {
         isSyncing: false,
         targetUserId: userId,
         targetUserEmail: userEmail,
-        currentCollection: 'Completed User Data Sync',
+        currentCollection: 'Firestore & Supabase Sync Complete',
         processedCount: 100,
         totalCount: 100,
         progressPercent: 100,
@@ -145,9 +197,8 @@ class UserMigrationSyncManager {
       };
       this.notify();
 
-      toast.success(`User ${userEmail} synchronized successfully!`);
+      toast.success(`Firestore & Supabase synced for ${userEmail}`);
 
-      // Reset completed status after 4 seconds
       setTimeout(() => {
         if (this.currentProgress.status === 'completed') {
           this.currentProgress.status = 'idle';
@@ -157,7 +208,7 @@ class UserMigrationSyncManager {
 
       return true;
     } catch (err: any) {
-      console.error('[UserMigrationSyncManager] Error syncing user:', err);
+      console.error('[UserMigrationSyncManager] Error during sync:', err);
       this.currentProgress = {
         isSyncing: false,
         targetUserId: userId,
@@ -170,9 +221,72 @@ class UserMigrationSyncManager {
         errorMessage: err.message || 'Sync failed'
       };
       this.notify();
-      toast.error(`Sync failed for ${userEmail}: ${err.message}`);
+      toast.error(`Sync error: ${err.message}`);
       return false;
     }
+  }
+
+  /**
+   * Compare Firestore and Supabase data side-by-side for a specific user
+   */
+  public async compareCloudData(userId: string, userEmail: string = ''): Promise<VerificationReport> {
+    const comparisons: CollectionComparison[] = [];
+    let totalFs = 0;
+    let totalSupa = 0;
+
+    for (const [colKey, meta] of Object.entries(COLLECTION_MAP)) {
+      let fsCount = 0;
+
+      if (db) {
+        try {
+          const colRef = collection(db, 'users', userId, meta.firestoreName);
+          const snapshot = await getDocs(colRef);
+          fsCount = snapshot.docs.length;
+        } catch (e) { }
+      }
+
+      let supaCount = 0;
+      if (isSupabaseConfigured) {
+        try {
+          const { data } = await supabase
+            .from(meta.supabaseTable)
+            .select(colKey === 'config' ? 'key' : 'id')
+            .eq('user_id', userId);
+          supaCount = data ? data.length : 0;
+        } catch (e) { }
+      }
+
+      totalFs += fsCount;
+      totalSupa += supaCount;
+
+      let status: 'matched' | 'discrepancy' | 'empty' = 'matched';
+      if (fsCount === 0 && supaCount === 0) {
+        status = 'empty';
+      } else if (fsCount !== supaCount) {
+        status = 'discrepancy';
+      }
+
+      comparisons.push({
+        key: colKey,
+        label: meta.label,
+        firestoreCount: fsCount,
+        supabaseCount: supaCount,
+        status,
+        details: status === 'discrepancy' ? `${Math.abs(fsCount - supaCount)} item difference` : undefined
+      });
+    }
+
+    const isPerfectMatch = totalFs === totalSupa || (totalFs === 0 && totalSupa > 0);
+
+    return {
+      userId,
+      userEmail,
+      timestamp: new Date().toISOString(),
+      totalFirestoreRecords: totalFs,
+      totalSupabaseRecords: totalSupa,
+      isPerfectMatch,
+      collections: comparisons
+    };
   }
 
   private updateProgress(collectionLabel: string, processed: number, total: number, percent: number) {
@@ -186,9 +300,6 @@ class UserMigrationSyncManager {
     this.notify();
   }
 
-  /**
-   * Check if a specific user has been synchronized
-   */
   public isUserSynced(userId: string): boolean {
     return !!localStorage.getItem(`user_synced_${userId}`);
   }

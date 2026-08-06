@@ -40,9 +40,10 @@ import {
   Banknote, AlertTriangle, ShieldCheck, Clock,
   Pencil, Trash2, Plus, Check, X as XIcon,
   ArrowRight, Calendar, Target, Activity,
-  RefreshCw
+  RefreshCw, Eye, EyeOff
 } from 'lucide-react';
 import { useCurrency } from '../contexts/CurrencyContext';
+import { useApp } from '../contexts/AppContext';
 
 ChartJS.register(ArcElement, Tooltip, Legend, CategoryScale, LinearScale, BarElement);
 
@@ -646,12 +647,25 @@ const Dashboard: React.FC = () => {
 
   // ── Render ─────────────────────────────────────────────────────────────────
 
+  const { isPrivacyMode, togglePrivacyMode } = useApp();
+
   return (
     <div className="space-y-4 md:space-y-6">
 
       {/* ── Header ── */}
       <div className="flex flex-wrap items-center justify-between gap-2">
         <h1 className="text-xl md:text-2xl font-bold">Financial Overview</h1>
+        <button
+          onClick={togglePrivacyMode}
+          className={`flex items-center gap-1.5 px-3 py-1.5 rounded-xl border text-xs font-semibold transition-all ${
+            isPrivacyMode
+              ? 'bg-amber-500/10 text-amber-500 border-amber-500/30'
+              : 'bg-card text-muted-foreground hover:text-foreground border-border'
+          }`}
+        >
+          {isPrivacyMode ? <EyeOff size={14} /> : <Eye size={14} />}
+          <span>{isPrivacyMode ? 'Privacy ON (Blurred)' : 'Privacy Mode'}</span>
+        </button>
       </div>
 
       {/* ── Primary Stats ── */}
@@ -662,7 +676,9 @@ const Dashboard: React.FC = () => {
             <span className="text-xs md:text-sm font-medium">Total Net Worth</span>
             <Wallet size={16} />
           </div>
-          <p className="text-2xl md:text-3xl font-black">{formatAmount(netWorth)}</p>
+          <p className={`text-2xl md:text-3xl font-black ${isPrivacyMode ? 'blur-md select-none transition-all duration-300 hover:blur-none' : ''}`}>
+            {formatAmount(netWorth)}
+          </p>
         </div>
 
         <div className="bg-card p-3 md:p-6 rounded-2xl shadow-sm border border-border">
@@ -670,7 +686,9 @@ const Dashboard: React.FC = () => {
             <span className="text-xs md:text-sm font-medium leading-tight">Monthly Income</span>
             <ArrowUpIcon size={16} />
           </div>
-          <p className="text-base md:text-xl font-bold">{formatAmount(summary.income)}</p>
+          <p className={`text-base md:text-xl font-bold ${isPrivacyMode ? 'blur-sm select-none transition-all duration-300 hover:blur-none' : ''}`}>
+            {formatAmount(summary.income)}
+          </p>
         </div>
 
         <div className="bg-card p-3 md:p-6 rounded-2xl shadow-sm border border-border">
@@ -678,7 +696,9 @@ const Dashboard: React.FC = () => {
             <span className="text-xs md:text-sm font-medium leading-tight">Monthly Expense</span>
             <ArrowDownIcon size={16} />
           </div>
-          <p className="text-base md:text-xl font-bold">{formatAmount(summary.expense)}</p>
+          <p className={`text-base md:text-xl font-bold ${isPrivacyMode ? 'blur-sm select-none transition-all duration-300 hover:blur-none' : ''}`}>
+            {formatAmount(summary.expense)}
+          </p>
         </div>
 
         <div className="bg-card p-3 md:p-6 rounded-2xl shadow-sm border border-border">
@@ -686,7 +706,9 @@ const Dashboard: React.FC = () => {
             <span className="text-xs md:text-sm font-medium leading-tight">Investments</span>
             <TrendingUp size={16} />
           </div>
-          <p className="text-base md:text-xl font-bold">{formatAmount(portfolioValue)}</p>
+          <p className={`text-base md:text-xl font-bold ${isPrivacyMode ? 'blur-sm select-none transition-all duration-300 hover:blur-none' : ''}`}>
+            {formatAmount(portfolioValue)}
+          </p>
         </div>
 
         <div className="bg-card p-3 md:p-6 rounded-2xl shadow-sm border border-border">

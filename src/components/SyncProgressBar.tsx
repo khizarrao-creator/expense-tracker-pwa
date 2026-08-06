@@ -6,7 +6,7 @@ export const SyncProgressBar: React.FC = () => {
   const [progress, setProgress] = useState<UserSyncProgress>(userMigrationSyncManager.getProgress());
 
   useEffect(() => {
-    const unsubscribe = userMigrationSyncManager.subscribe(newProgress => {
+    const unsubscribe = userMigrationSyncManager.subscribe((newProgress) => {
       setProgress(newProgress);
     });
 
@@ -75,13 +75,12 @@ export const SyncProgressBar: React.FC = () => {
           </div>
           <div className="w-full bg-muted h-2 rounded-full overflow-hidden border border-border">
             <div
-              className={`h-full rounded-full transition-all duration-300 ${
-                progress.status === 'completed'
+              className={`h-full rounded-full transition-all duration-300 ${progress.status === 'completed'
                   ? 'bg-emerald-500'
                   : progress.status === 'failed'
-                  ? 'bg-rose-500'
-                  : 'bg-primary'
-              }`}
+                    ? 'bg-rose-500'
+                    : 'bg-primary'
+                }`}
               style={{ width: `${Math.max(4, progress.progressPercent)}%` }}
             />
           </div>

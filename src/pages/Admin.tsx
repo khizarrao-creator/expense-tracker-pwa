@@ -1581,7 +1581,6 @@ const Admin: React.FC = () => {
       return sortOrder === 'desc' ? -comparison : comparison;
     });
 
-  const newLocal = 'sync';
   return (
     <div className="min-h-screen bg-background text-foreground pb-20">
       {/* Header */}
@@ -3656,6 +3655,8 @@ const Admin: React.FC = () => {
                             <span className="font-medium text-foreground/90">{feat.label}</span>
                           </label>
                         );
+                      })}
+                    </div>
                   </div>
 
                   <div className="flex justify-end gap-3 pt-2">

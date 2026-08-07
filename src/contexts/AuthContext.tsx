@@ -89,7 +89,7 @@ export const AuthProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
   useEffect(() => {
     if (isSimulating && isSupabaseConfigured) {
       supabase.from('users').select('id, email, display_name').order('email', { ascending: true })
-        .then(({ data }) => {
+        .then(({ data }: { data: { id: string; email: string; display_name: string }[] | null }) => {
           if (data && data.length > 0) {
             setAllUsers(data);
           }
@@ -127,7 +127,7 @@ export const AuthProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
 
       if (isSupabaseConfigured) {
         supabase.from('users').select('is_pro, plan').eq('id', simulatedUid).maybeSingle()
-          .then(({ data }) => {
+          .then(({ data }: { data: { is_pro: boolean; plan: string } | null }) => {
             if (data) setIsPro(data.is_pro || data.plan !== 'standard');
           });
       }

@@ -321,14 +321,14 @@ export const Projects: React.FC = () => {
     const loadProjectsAndInvites = async () => {
       // 1. Fetch projects where user is owner or member
       const { data: memberRows } = await supabase.from('project_members').select('project_id').eq('user_id', user.uid);
-      const memberProjIds = (memberRows || []).map(r => r.project_id);
+      const memberProjIds = (memberRows || []).map((r: { project_id: string }) => r.project_id);
 
       if (memberProjIds.length > 0) {
         const { data: projs } = await supabase.from('projects').select('*').in('id', memberProjIds);
         const { data: members } = await supabase.from('project_members').select('*').in('project_id', memberProjIds);
 
-        const projectList: Project[] = (projs || []).map(p => {
-          const pMembers = (members || []).filter(m => m.project_id === p.id).map(m => ({
+        const projectList: Project[] = (projs || []).map((p: Record<string, any>) => {
+          const pMembers = (members || []).filter((m: Record<string, any>) => m.project_id === p.id).map((m: Record<string, any>) => ({
             userId: m.user_id,
             email: m.email,
             displayName: m.display_name || m.email,
@@ -364,7 +364,7 @@ export const Projects: React.FC = () => {
         .eq('invited_email', user.email || '')
         .eq('status', 'pending');
 
-      setInvites((inviteRows || []).map(i => ({
+      setInvites((inviteRows || []).map((i: Record<string, any>) => ({
         id: i.id,
         projectId: i.project_id,
         projectName: i.project_name || 'Project',
@@ -403,7 +403,7 @@ export const Projects: React.FC = () => {
         .eq('project_id', selectedProject.id)
         .order('created_at', { ascending: false });
 
-      setProjectTasks((taskRows || []).map(t => ({
+      setProjectTasks((taskRows || []).map((t: Record<string, any>) => ({
         id: t.id,
         projectId: t.project_id,
         title: t.title,
@@ -426,7 +426,7 @@ export const Projects: React.FC = () => {
         .order('sheet_order', { ascending: true });
 
       if (sheetRows && sheetRows.length > 0) {
-        const sheets: ProjectGridSheet[] = sheetRows.map(s => ({
+        const sheets: ProjectGridSheet[] = sheetRows.map((s: Record<string, any>) => ({
           id: s.id,
           name: s.sheet_name,
           columns: s.columns || [],
@@ -445,7 +445,7 @@ export const Projects: React.FC = () => {
         .eq('project_id', selectedProject.id)
         .order('created_at', { ascending: false });
 
-      setProjectLeads((leadRows || []).map(l => ({
+      setProjectLeads((leadRows || []).map((l: Record<string, any>) => ({
         id: l.id,
         projectId: l.project_id,
         title: l.title,

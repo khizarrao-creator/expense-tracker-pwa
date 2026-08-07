@@ -1,7 +1,7 @@
 import { supabase, isSupabaseConfigured } from '../supabase';
 import type { FinancialSnapshot } from './aiDataService';
 import { formatSnapshotForAI } from './aiDataService';
-import { markModelUnavailable, recordApiRequest } from './ai';
+import { markModelUnavailable, recordApiRequest, getApiKey } from './ai';
 import { selectModelChain } from './ai/router';
 import { resolveModel } from './ai/modelRegistry';
 import { getApiUrl } from './whatsappService';
@@ -798,12 +798,18 @@ export const sendToGemini = async (
       }
 
       const idToken = auth?.currentUser ? await auth.currentUser.getIdToken() : '';
+      const headers: Record<string, string> = { 
+        'Content-Type': 'application/json',
+        'Authorization': `Bearer ${idToken}`
+      };
+      const userApiKey = _apiKey || getApiKey();
+      if (userApiKey) {
+        headers['x-user-api-key'] = userApiKey;
+      }
+
       const response = await fetch(getApiUrl('/api/ai/chat'), {
         method: 'POST',
-        headers: { 
-          'Content-Type': 'application/json',
-          'Authorization': `Bearer ${idToken}`
-        },
+        headers,
         body: JSON.stringify(body),
       });
 
@@ -1020,12 +1026,18 @@ export const sendToGeminiStream = async (
       }
 
       const idToken = auth?.currentUser ? await auth.currentUser.getIdToken() : '';
+      const headers: Record<string, string> = { 
+        'Content-Type': 'application/json',
+        'Authorization': `Bearer ${idToken}`
+      };
+      const userApiKey = _apiKey || getApiKey();
+      if (userApiKey) {
+        headers['x-user-api-key'] = userApiKey;
+      }
+
       const response = await fetch(getApiUrl('/api/ai/chat'), {
         method: 'POST',
-        headers: { 
-          'Content-Type': 'application/json',
-          'Authorization': `Bearer ${idToken}`
-        },
+        headers,
         body: JSON.stringify(body),
       });
 

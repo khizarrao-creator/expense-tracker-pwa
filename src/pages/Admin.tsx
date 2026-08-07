@@ -1369,7 +1369,7 @@ const Admin: React.FC = () => {
       } else {
         if (isSupabaseConfigured) {
           const { data: userRows } = await supabase.from('users').select('email, is_pro, plan');
-          (userRows || []).forEach(u => {
+          (userRows as { email: string; is_pro: boolean; plan: string }[] || []).forEach(u => {
             if (!u.email) return;
             const isProUser = u.is_pro || u.plan !== 'standard';
             if (bodyFilter === 'all') resolvedRecipients.push(u.email);

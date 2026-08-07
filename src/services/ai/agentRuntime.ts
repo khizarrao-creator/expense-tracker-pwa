@@ -2,7 +2,7 @@ import type { AgentExecutionOptions, AgentExecutionResult, ModelInfo, ToolInfo }
 import { resolveModel, markModelUnavailable } from './modelRegistry';
 import { getToolsForModel, getEnabledByDefaultTools } from './toolRegistry';
 import { selectModelChain } from './router';
-import { getProviderConfig } from './provider';
+import { getProviderConfig, getApiKey } from './provider';
 import { getApiUrl } from '../whatsappService';
 import { auth } from '../../firebase';
 
@@ -93,13 +93,18 @@ const executeWithModel = async (
   try {
     const idToken = auth?.currentUser ? await auth.currentUser.getIdToken() : '';
     const proxyUrl = getApiUrl('/api/ai/chat');
+    const userApiKey = getApiKey();
+    const headers: Record<string, string> = {
+      'Content-Type': 'application/json',
+      'Authorization': `Bearer ${idToken}`
+    };
+    if (userApiKey) {
+      headers['x-user-api-key'] = userApiKey;
+    }
 
     const response = await fetch(proxyUrl, {
       method: 'POST',
-      headers: { 
-        'Content-Type': 'application/json',
-        'Authorization': `Bearer ${idToken}`
-      },
+      headers,
       body: JSON.stringify(body),
     });
 

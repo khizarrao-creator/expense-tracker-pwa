@@ -1,16 +1,4 @@
-import { db as firestore } from '../firebase';
-import {
-  doc,
-  getDoc,
-  setDoc,
-  updateDoc,
-  arrayUnion,
-  collection,
-  getDocs,
-  query,
-  orderBy,
-  deleteDoc,
-} from 'firebase/firestore';
+import { supabase, isSupabaseConfigured } from '../supabase';
 import type { FinancialSnapshot } from './aiDataService';
 import { formatSnapshotForAI } from './aiDataService';
 import { markModelUnavailable, recordApiRequest } from './ai';
@@ -24,7 +12,7 @@ export interface ChatMessage {
   content: string;
   timestamp: string;
   thought?: string; // The model's reasoning/thought process
-  imageUrl?: string; // Cloudinary secure URL saved in Firestore
+  imageUrl?: string; // Cloudinary secure URL saved in DB
   image?: {
     mimeType: string;
     data: string; // base64 string
@@ -55,28 +43,30 @@ export interface ChatSession {
   messages: ChatMessage[];
 }
 
-const getSessionDocRef = (uid: string, sessionId: string) =>
-  doc(firestore, 'users', uid, 'ai_sessions', sessionId);
-
-/** Load or create a chat session from Firestore */
+/** Load or create a chat session from Supabase */
 export const loadSession = async (uid: string, sessionId: string): Promise<ChatSession> => {
   try {
-    const ref = getSessionDocRef(uid, sessionId);
-    const snap = await getDoc(ref);
-    if (snap.exists()) {
-      const data = snap.data();
-      return {
-        sessionId,
-        createdAt: data.createdAt || new Date().toISOString(),
-        updatedAt: data.updatedAt || new Date().toISOString(),
-        messages: data.messages || [],
-      };
+    if (isSupabaseConfigured) {
+      const { data } = await supabase
+        .from('ai_sessions')
+        .select('*')
+        .eq('id', sessionId)
+        .eq('user_id', uid)
+        .maybeSingle();
+
+      if (data) {
+        return {
+          sessionId,
+          createdAt: data.created_at || new Date().toISOString(),
+          updatedAt: data.updated_at || new Date().toISOString(),
+          messages: data.messages || [],
+        };
+      }
     }
   } catch (e) {
-    console.warn('[aiChatService] Failed to load session from Firestore, falling back to empty:', e);
+    console.warn('[aiChatService] Failed to load session from Supabase, falling back to empty:', e);
   }
 
-  // Return empty session if Firestore fails or doc doesn't exist
   return {
     sessionId,
     createdAt: new Date().toISOString(),
@@ -101,48 +91,49 @@ const removeUndefined = (obj: any): any => {
   return obj;
 };
 
-/** Append a message to the Firestore session */
+/** Append a message to the session in Supabase */
 export const saveMessage = async (uid: string, sessionId: string, message: ChatMessage): Promise<void> => {
   try {
-    const ref = getSessionDocRef(uid, sessionId);
-    const snap = await getDoc(ref);
+    if (!isSupabaseConfigured) return;
 
-    // Strip large base64 data to avoid 1MB document size limit, use Cloudinary URL instead
     const sanitizedMessage = removeUndefined({ ...message });
     if (sanitizedMessage.image) {
       delete sanitizedMessage.image;
     }
 
-    if (!snap.exists()) {
-      // Create the document first
-      await setDoc(ref, {
-        createdAt: new Date().toISOString(),
-        updatedAt: new Date().toISOString(),
-        messages: [sanitizedMessage],
-      });
-    } else {
-      await updateDoc(ref, {
-        updatedAt: new Date().toISOString(),
-        messages: arrayUnion(sanitizedMessage),
-      });
-    }
+    const { data: existing } = await supabase
+      .from('ai_sessions')
+      .select('messages')
+      .eq('id', sessionId)
+      .eq('user_id', uid)
+      .maybeSingle();
+
+    const currentMessages = existing?.messages || [];
+    const updatedMessages = [...currentMessages, sanitizedMessage];
+
+    await supabase.from('ai_sessions').upsert({
+      id: sessionId,
+      user_id: uid,
+      messages: updatedMessages,
+      updated_at: new Date().toISOString()
+    });
   } catch (e) {
-    console.warn('[aiChatService] Failed to save message to Firestore:', e);
-    // Silently fail — chat still works locally
+    console.warn('[aiChatService] Failed to save message:', e);
   }
 };
 
-/** Delete a session's messages from Firestore */
+/** Delete a session's messages from Supabase */
 export const clearSession = async (uid: string, sessionId: string): Promise<void> => {
   try {
-    const ref = getSessionDocRef(uid, sessionId);
-    await setDoc(ref, {
-      createdAt: new Date().toISOString(),
-      updatedAt: new Date().toISOString(),
+    if (!isSupabaseConfigured) return;
+    await supabase.from('ai_sessions').upsert({
+      id: sessionId,
+      user_id: uid,
       messages: [],
+      updated_at: new Date().toISOString()
     });
   } catch (e) {
-    console.warn('[aiChatService] Failed to clear session in Firestore:', e);
+    console.warn('[aiChatService] Failed to clear session:', e);
   }
 };
 
@@ -1121,21 +1112,21 @@ export const sendToGeminiStream = async (
   );
 };
 
-/** List all chat sessions for a user from Firestore */
+/** List all chat sessions for a user from Supabase */
 export const listSessions = async (
   uid: string
 ): Promise<{ sessionId: string; updatedAt: string; title: string }[]> => {
   try {
-    const ref = collection(firestore, 'users', uid, 'ai_sessions');
-    const q = query(ref, orderBy('updatedAt', 'desc'));
-    const snap = await getDocs(q);
-    const list: any[] = [];
-    snap.forEach((docSnap) => {
-      const data = docSnap.data();
-      const messages = data.messages || [];
+    if (!isSupabaseConfigured) return [];
+    const { data } = await supabase
+      .from('ai_sessions')
+      .select('*')
+      .eq('user_id', uid)
+      .order('updated_at', { ascending: false });
+
+    return (data || []).map((row: any) => {
+      const messages = row.messages || [];
       let title = 'New Conversation';
-      
-      // Find the first user text message or note
       const firstUserMsg = messages.find((m: any) => m.role === 'user' && m.content);
       if (firstUserMsg) {
         title = firstUserMsg.content.length > 40
@@ -1144,25 +1135,24 @@ export const listSessions = async (
       } else if (messages.length > 0) {
         title = 'Image Upload Chat';
       }
-      
-      list.push({
-        sessionId: docSnap.id,
-        updatedAt: data.updatedAt || new Date().toISOString(),
+
+      return {
+        sessionId: row.id,
+        updatedAt: row.updated_at || new Date().toISOString(),
         title
-      });
+      };
     });
-    return list;
   } catch (e) {
     console.error('[aiChatService] Failed to list sessions:', e);
     return [];
   }
 };
 
-/** Delete a chat session document in Firestore */
+/** Delete a chat session document in Supabase */
 export const deleteSession = async (uid: string, sessionId: string): Promise<void> => {
   try {
-    const ref = getSessionDocRef(uid, sessionId);
-    await deleteDoc(ref);
+    if (!isSupabaseConfigured) return;
+    await supabase.from('ai_sessions').delete().eq('id', sessionId).eq('user_id', uid);
   } catch (e) {
     console.error('[aiChatService] Failed to delete session:', e);
     throw e;

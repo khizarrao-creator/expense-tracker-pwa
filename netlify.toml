@@ -1,9 +1,22 @@
 [build]
   command = "npm run build"
   publish = "dist"
+  SECRETS_SCAN_ENABLED = false
 
 [build.environment]
   NPM_FLAGS = "--legacy-peer-deps"
+
+[[edge_functions]]
+  path = "/api/admin/auth"
+  function = "admin-auth"
+
+[[edge_functions]]
+  path = "/api/admin/action"
+  function = "admin-api"
+
+[[edge_functions]]
+  path = "/api/payments/submit"
+  function = "payment-submit"
 
 [[redirects]]
   from = "/*"

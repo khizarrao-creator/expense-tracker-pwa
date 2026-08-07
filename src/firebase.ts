@@ -11,10 +11,9 @@ const firebaseConfig = {
   appId: import.meta.env.VITE_FIREBASE_APP_ID
 };
 
-// Initialize only if we have an API key. Otherwise, we mock it out or throw a descriptive error.
-// The app checks for Firebase config presence before initializing.
 const hasConfig = !!firebaseConfig.apiKey;
 
 export const app = hasConfig ? initializeApp(firebaseConfig) : null;
 export const auth = hasConfig ? getAuth(app!) : null as any;
 export const db = hasConfig ? getFirestore(app!) : null as any;
+

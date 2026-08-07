@@ -1,0 +1,11 @@
+{
+  "compilerOptions": {
+    "target": "ESNext",
+    "module": "ESNext",
+    "moduleResolution": "bundler",
+    "noEmit": true,
+    "skipLibCheck": true,
+    "lib": ["ESNext"]
+  },
+  "include": ["**/*", "../src/deno-edge.d.ts"]
+}

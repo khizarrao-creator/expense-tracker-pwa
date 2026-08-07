@@ -41,6 +41,8 @@ const Projects = lazy(() => import('./pages/Projects'));
 const Upgrade = lazy(() => import('./pages/Upgrade').then(m => ({ default: m.Upgrade })));
 const Subscription = lazy(() => import('./pages/Subscription').then(m => ({ default: m.Subscription })));
 
+const BaseDashboard = lazy(() => import('./pages/BaseDashboard').then(m => ({ default: m.BaseDashboard })));
+
 const SuspenseSpinner: React.FC = () => (
   <div className="flex h-[60vh] w-full items-center justify-center bg-background text-foreground">
     <div className="flex flex-col items-center gap-3">
@@ -112,16 +114,51 @@ const App: React.FC = () => {
                       <Route path="/login" element={<Login />} />
                       
                       <Route path="/" element={<ProtectedRoute><Layout /></ProtectedRoute>}>
-                        <Route index element={<Dashboard />} />
-                        <Route path="transactions" element={<Transactions />} />
+                        <Route index element={<BaseDashboard />} />
+                        
+                        {/* 📊 LEDGER — Complete Financial Suite */}
+                        <Route path="ledger/overview" element={<Dashboard />} />
+                        <Route path="ledger/transactions" element={<Transactions />} />
+                        <Route path="ledger/accounts" element={<Accounts />} />
+                        <Route path="ledger/categories" element={<Categories />} />
+                        <Route path="ledger/goals" element={<FeatureRoute featureId="goals"><Goals /></FeatureRoute>} />
+                        <Route path="ledger/investments" element={<FeatureRoute featureId="investments"><Investments /></FeatureRoute>} />
+                        <Route path="ledger/loans" element={<FeatureRoute featureId="loans"><Loans /></FeatureRoute>} />
+                        <Route path="ledger/subscriptions" element={<FeatureRoute featureId="subscriptions"><Subscriptions /></FeatureRoute>} />
+                        <Route path="ledger/reminders" element={<FeatureRoute featureId="reminders"><Reminders /></FeatureRoute>} />
+                        <Route path="ledger/events" element={<FeatureRoute featureId="events"><Events /></FeatureRoute>} />
+                        <Route path="ledger/vehicles" element={<FeatureRoute featureId="fuel"><FuelTracking /></FeatureRoute>} />
+                        <Route path="ledger/reports" element={<FeatureRoute featureId="reports"><Reports /></FeatureRoute>} />
+                        <Route path="ledger/calculator" element={<FeatureRoute featureId="calculator"><Calculator /></FeatureRoute>} />
+                        <Route path="ledger/converter" element={<FeatureRoute featureId="converter"><Converter /></FeatureRoute>} />
+
+                        {/* 💼 WORK — Projects + Tasks */}
+                        <Route path="work/projects" element={<FeatureRoute featureId="projects"><Projects /></FeatureRoute>} />
+                        <Route path="work/tasks" element={<FeatureRoute featureId="tasks"><Tasks /></FeatureRoute>} />
+
+                        {/* 💬 COMMUNICATIONS */}
+                        <Route path="comms/whatsapp" element={<FeatureRoute featureId="whatsapp"><WhatsApp /></FeatureRoute>} />
+
+                        {/* 🤖 AI COPILOT — Cross-cutting Intelligence Layer */}
+                        <Route path="ai" element={<FeatureRoute featureId="ai-chat"><AIChat /></FeatureRoute>} />
+
+                        {/* ⚙️ Settings & Admin */}
+                        <Route path="settings" element={<Settings />} />
+                        <Route path="more" element={<More />} />
                         <Route path="add" element={<AddTransaction />} />
                         <Route path="edit/:id" element={<AddTransaction />} />
+                        <Route path="mexc-details/:id" element={<MexcDetails />} />
+                        <Route path="upgrade" element={<Upgrade />} />
+                        <Route path="subscription" element={<Subscription />} />
+
+                        {/* 🔄 Backward Compatibility Aliases */}
+                        <Route path="ledger/dashboard" element={<Dashboard />} />
+                        <Route path="transactions" element={<Transactions />} />
                         <Route path="categories" element={<Categories />} />
                         <Route path="accounts" element={<Accounts />} />
                         <Route path="goals" element={<FeatureRoute featureId="goals"><Goals /></FeatureRoute>} />
                         <Route path="reminders" element={<FeatureRoute featureId="reminders"><Reminders /></FeatureRoute>} />
                         <Route path="investments" element={<FeatureRoute featureId="investments"><Investments /></FeatureRoute>} />
-                        <Route path="more" element={<More />} />
                         <Route path="calculator" element={<FeatureRoute featureId="calculator"><Calculator /></FeatureRoute>} />
                         <Route path="converter" element={<FeatureRoute featureId="converter"><Converter /></FeatureRoute>} />
                         <Route path="tasks" element={<FeatureRoute featureId="tasks"><Tasks /></FeatureRoute>} />
@@ -129,14 +166,16 @@ const App: React.FC = () => {
                         <Route path="events" element={<FeatureRoute featureId="events"><Events /></FeatureRoute>} />
                         <Route path="fuel" element={<FeatureRoute featureId="fuel"><FuelTracking /></FeatureRoute>} />
                         <Route path="reports" element={<FeatureRoute featureId="reports"><Reports /></FeatureRoute>} />
-                        <Route path="settings" element={<Settings />} />
-                        <Route path="mexc-details/:id" element={<MexcDetails />} />
                         <Route path="ai-chat" element={<FeatureRoute featureId="ai-chat"><AIChat /></FeatureRoute>} />
+                        <Route path="ai/chat" element={<FeatureRoute featureId="ai-chat"><AIChat /></FeatureRoute>} />
                         <Route path="subscriptions" element={<FeatureRoute featureId="subscriptions"><Subscriptions /></FeatureRoute>} />
                         <Route path="whatsapp" element={<FeatureRoute featureId="whatsapp"><WhatsApp /></FeatureRoute>} />
                         <Route path="projects" element={<FeatureRoute featureId="projects"><Projects /></FeatureRoute>} />
-                        <Route path="upgrade" element={<Upgrade />} />
-                        <Route path="subscription" element={<Subscription />} />
+                        <Route path="ops/vehicles" element={<FeatureRoute featureId="fuel"><FuelTracking /></FeatureRoute>} />
+                        <Route path="ops/loans" element={<FeatureRoute featureId="loans"><Loans /></FeatureRoute>} />
+                        <Route path="ops/events" element={<FeatureRoute featureId="events"><Events /></FeatureRoute>} />
+                        <Route path="ops/tasks" element={<FeatureRoute featureId="tasks"><Tasks /></FeatureRoute>} />
+                        <Route path="ops/reminders" element={<FeatureRoute featureId="reminders"><Reminders /></FeatureRoute>} />
                       </Route>
                       <Route path="/admin" element={<Admin />} />
                     </Routes>

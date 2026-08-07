@@ -2,8 +2,7 @@ import React, { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useApp } from '../contexts/AppContext';
 import { useAuth } from '../contexts/AuthContext';
-import { collection, query, where, onSnapshot } from 'firebase/firestore';
-import { db } from '../firebase';
+import { supabase, isSupabaseConfigured } from '../supabase';
 import { Card } from '../components/ui/Card';
 import { Button } from '../components/ui/Button';
 import { Badge } from '../components/ui/Badge';
@@ -22,26 +21,33 @@ export const Subscription: React.FC = () => {
 
   // Load user's billing/payment requests
   useEffect(() => {
-    if (!user) return;
+    if (!user || !isSupabaseConfigured) {
+      setLoadingHistory(false);
+      return;
+    }
 
-    // Real-time listener for the latest payment request to watch status updates
-    const qLatest = query(
-      collection(db, 'payment_requests'),
-      where('userId', '==', user.uid)
-    );
+    const loadPaymentHistory = async () => {
+      const { data } = await supabase
+        .from('payment_requests')
+        .select('*')
+        .eq('user_id', user.uid)
+        .order('submitted_at', { ascending: false });
 
-    const unsubLatest = onSnapshot(qLatest, (snapshot) => {
-      const docs: any[] = [];
-      snapshot.forEach((docSnap) => {
-        docs.push({ id: docSnap.id, ...docSnap.data() });
-      });
-
-      // Sort in memory by submittedAt desc to avoid Firestore composite index requirement
-      docs.sort((a, b) => {
-        const timeA = a.submittedAt?.toDate ? a.submittedAt.toDate().getTime() : new Date(a.submittedAt || 0).getTime();
-        const timeB = b.submittedAt?.toDate ? b.submittedAt.toDate().getTime() : new Date(b.submittedAt || 0).getTime();
-        return timeB - timeA;
-      });
+      const docs = (data || []).map((p: any) => ({
+        id: p.id,
+        userId: p.user_id,
+        selectedPlan: p.selected_plan,
+        paymentMethod: p.payment_method,
+        amount: p.amount,
+        currency: p.currency,
+        transactionId: p.transaction_id,
+        screenshotUrl: p.screenshot_url,
+        notes: p.notes,
+        status: p.status,
+        rejectionReason: p.rejection_reason,
+        submittedAt: p.submitted_at,
+        verifiedAt: p.verified_at
+      }));
 
       setPaymentHistory(docs);
       if (docs.length > 0) {
@@ -50,12 +56,20 @@ export const Subscription: React.FC = () => {
         setLatestRequest(null);
       }
       setLoadingHistory(false);
-    }, (err) => {
-      console.error('Failed to listen to payment requests:', err);
-      setLoadingHistory(false);
-    });
+    };
 
-    return () => unsubLatest();
+    loadPaymentHistory();
+
+    const paySub = supabase
+      .channel(`payment-history-${user.uid}`)
+      .on(
+        'postgres_changes',
+        { event: '*', schema: 'public', table: 'payment_requests', filter: `user_id=eq.${user.uid}` },
+        () => { loadPaymentHistory(); }
+      )
+      .subscribe();
+
+    return () => { supabase.removeChannel(paySub); };
   }, [user]);
 
   const currentPlanDetails = plansConfig[userPlan];

@@ -1,15 +1,8 @@
-import { db as firestore } from '../firebase';
-import {
-  collection,
-  doc,
-  setDoc,
-  onSnapshot,
-  getDocs,
-  deleteDoc
-} from 'firebase/firestore';
+import { supabase, isSupabaseConfigured } from '../supabase';
+import { db } from '../firebase';
+import { doc, setDoc, deleteDoc, collection, getDocs } from 'firebase/firestore';
 import { executeQuery, runWithBindings } from './sqlite';
 import { v4 as uuidv4 } from 'uuid';
-import { toast } from 'sonner';
 
 export interface SyncOperation {
   id: string;
@@ -20,12 +13,32 @@ export interface SyncOperation {
   status: 'pending' | 'syncing' | 'completed' | 'failed';
 }
 
+const COLLECTION_TO_TABLE_MAP: Record<string, string> = {
+  transactions: 'user_transactions',
+  accounts: 'user_accounts',
+  categories: 'user_categories',
+  goals: 'user_goals',
+  investments: 'user_investments',
+  reminders: 'user_reminders',
+  tasks: 'user_tasks',
+  task_logs: 'user_task_logs',
+  loan_parties: 'user_loan_parties',
+  loans: 'user_loans',
+  loan_repayments: 'user_loan_repayments',
+  events: 'user_events',
+  fuel_logs: 'user_fuel_logs',
+  config: 'user_config',
+  vehicles: 'user_vehicles',
+  vehicle_expenses: 'user_vehicle_expenses',
+  vehicle_reminders: 'user_vehicle_reminders',
+};
+
 class SyncManager {
   private userId: string | null = null;
   private deviceId: string;
   private isOnline: boolean = navigator.onLine;
   private isProcessingQueue: boolean = false;
-  private activeListeners: (() => void)[] = [];
+  private realtimeChannel: any = null;
   private watchdogInterval: any = null;
 
   constructor() {
@@ -35,7 +48,6 @@ class SyncManager {
     window.addEventListener('online', () => this.handleConnectivityChange(true));
     window.addEventListener('offline', () => this.handleConnectivityChange(false));
 
-    // Start a watchdog to catch any missed sync opportunities
     this.startWatchdog();
   }
 
@@ -45,7 +57,7 @@ class SyncManager {
       if (this.isOnline && this.userId) {
         this.processQueue();
       }
-    }, 30000); // Check every 30 seconds
+    }, 30000);
   }
 
   public setUserId(userId: string | null) {
@@ -72,13 +84,12 @@ class SyncManager {
 
   private async repairMissingSyncItems() {
     console.log('[SyncManager] Scanning for orphaned unsynced items...');
-    const collections = ['transactions', 'accounts', 'categories', 'goals', 'investments', 'reminders', 'tasks', 'task_logs', 'loan_parties', 'loans', 'loan_repayments', 'events', 'fuel_logs', 'config', 'vehicles', 'vehicle_expenses', 'vehicle_reminders'];
+    const collections = Object.keys(COLLECTION_TO_TABLE_MAP);
 
     for (const col of collections) {
       try {
         const unsynced = await executeQuery(`SELECT * FROM ${col} WHERE synced = 0`);
         for (const item of unsynced) {
-          // Check if already in queue
           const recordId = col === 'config' ? item.key : item.id;
           const idMatchPattern = col === 'config' ? `%"key":"${recordId}"%` : `%"id":"${recordId}"%`;
           
@@ -102,7 +113,6 @@ class SyncManager {
                                       col === 'config' ? 'config_update' :
                                         col.slice(0, -1) + '_add';
 
-
             await runWithBindings(
               `INSERT INTO sync_queue (id, type, payload, timestamp, deviceId, status) VALUES (?, ?, ?, ?, ?, 'pending')`,
               [uuidv4(), type, JSON.stringify(item), new Date().toISOString(), this.deviceId]
@@ -116,69 +126,134 @@ class SyncManager {
   }
 
   private stopSync() {
-    this.activeListeners.forEach(unsubscribe => unsubscribe());
-    this.activeListeners = [];
+    if (this.realtimeChannel) {
+      supabase.removeChannel(this.realtimeChannel);
+      this.realtimeChannel = null;
+    }
   }
 
   private setupListeners() {
-    if (!this.userId) return;
+    if (!this.userId || !isSupabaseConfigured) return;
     this.stopSync();
 
-    const collections = ['transactions', 'accounts', 'categories', 'goals', 'investments', 'reminders', 'tasks', 'task_logs', 'loan_parties', 'loans', 'loan_repayments', 'events', 'fuel_logs', 'config', 'vehicles', 'vehicle_expenses', 'vehicle_reminders'];
+    const channelName = `sync-user-${this.userId}`;
+    this.realtimeChannel = supabase.channel(channelName);
 
-    collections.forEach(colName => {
-      const colRef = collection(firestore, `users/${this.userId}/${colName}`);
-      const unsubscribe = onSnapshot(colRef, (snapshot) => {
-        snapshot.docChanges().forEach(async (change) => {
-          const data = change.doc.data();
-
-          if (change.type === 'added' || change.type === 'modified') {
-            await this.updateLocalCache(colName, data);
-          } else if (change.type === 'removed') {
-            await this.removeFromLocalCache(colName, change.doc.id);
+    Object.entries(COLLECTION_TO_TABLE_MAP).forEach(([colName, tableName]) => {
+      this.realtimeChannel.on(
+        'postgres_changes',
+        {
+          event: '*',
+          schema: 'public',
+          table: tableName,
+          filter: `user_id=eq.${this.userId}`,
+        },
+        async (payload: any) => {
+          if (payload.eventType === 'INSERT' || payload.eventType === 'UPDATE') {
+            await this.updateLocalCache(colName, payload.new);
+          } else if (payload.eventType === 'DELETE') {
+            const id = colName === 'config' ? payload.old?.key : payload.old?.id;
+            if (id) {
+              await this.removeFromLocalCache(colName, id);
+            }
           }
-        });
-        window.dispatchEvent(new CustomEvent('app-sync-complete'));
-      });
-      this.activeListeners.push(unsubscribe);
+          window.dispatchEvent(new CustomEvent('app-sync-complete'));
+        }
+      );
     });
+
+    this.realtimeChannel.subscribe();
   }
 
   public async startSync() {
     if (!this.userId) return;
 
-    // Auto-heal corrupted items from legacy typos queue poisoning
     try {
       await runWithBindings(`UPDATE sync_queue SET type = REPLACE(type, 'categorie_', 'category_') WHERE type LIKE 'categorie_%'`);
       await runWithBindings(`UPDATE sync_queue SET type = 'config_update' WHERE type = 'confi_add'`);
     } catch (e) { }
 
-    // 0. Auto-repair: Find any items marked synced=0 that aren't in the queue
+    await this.pullInitialDataForUser(this.userId);
     await this.repairMissingSyncItems();
-
-    // 1. Reconcile with server (one-time fetch to purge deleted items)
     await this.reconcileWithServer();
-
-    // 2. Initial push of any pending items
     await this.processQueue();
-
-    // 3. Setup Real-time Listeners
     this.setupListeners();
   }
 
-  private async reconcileWithServer() {
-    if (!this.userId) return;
-    console.log('[SyncManager] Starting server reconciliation...');
+  public async pullInitialDataForUser(userId?: string) {
+    const targetUid = userId || this.userId;
+    if (!targetUid) return;
 
-    const collections = ['transactions', 'accounts', 'categories', 'goals', 'investments', 'reminders', 'tasks', 'task_logs', 'loan_parties', 'loans', 'loan_repayments', 'events', 'fuel_logs', 'config', 'vehicles', 'vehicle_expenses', 'vehicle_reminders'];
+    console.log(`[SyncManager] Pulling Firestore primary data & caching for user: ${targetUid}...`);
 
-    for (const colName of collections) {
+    for (const [colName, tableName] of Object.entries(COLLECTION_TO_TABLE_MAP)) {
       try {
-        const colRef = collection(firestore, `users/${this.userId}/${colName}`);
-        const snapshot = await getDocs(colRef);
-        const serverIds = new Set(snapshot.docs.map(doc => doc.id));
+        let docsCount = 0;
 
+        // 1. Pull Primary from Firestore
+        if (db) {
+          try {
+            const colRef = collection(db, 'users', targetUid, colName);
+            const snap = await getDocs(colRef);
+            const fsDocs = snap.docs.map(d => ({ id: d.id, ...d.data() }));
+
+            if (fsDocs.length > 0) {
+              docsCount = fsDocs.length;
+              console.log(`[SyncManager] Pulled ${docsCount} ${colName} from Firestore for ${targetUid}`);
+              for (const docItem of fsDocs) {
+                await this.updateLocalCache(colName, docItem);
+                
+                // Also mirror to Supabase
+                if (isSupabaseConfigured) {
+                  const cleanPayload = this.sanitizePostgresPayload(docItem);
+                  cleanPayload.user_id = targetUid;
+                  await supabase.from(tableName).upsert(cleanPayload);
+                }
+              }
+            }
+          } catch (fsErr) {
+            console.warn(`[SyncManager] Firestore read warning for ${colName}:`, fsErr);
+          }
+        }
+
+        // 2. Fallback to Supabase if Firestore yielded 0 docs
+        if (docsCount === 0 && isSupabaseConfigured) {
+          const { data, error } = await supabase
+            .from(tableName)
+            .select('*')
+            .eq('user_id', targetUid);
+
+          if (!error && data && data.length > 0) {
+            console.log(`[SyncManager] Pulled ${data.length} ${colName} from Supabase fallback for ${targetUid}`);
+            for (const row of data) {
+              await this.updateLocalCache(colName, row);
+            }
+          }
+        }
+      } catch (err) {
+        console.warn(`[SyncManager] Failed to pull ${colName} for ${targetUid}:`, err);
+      }
+    }
+
+    console.log(`[SyncManager] Dual pull & sync complete for user: ${targetUid}`);
+    window.dispatchEvent(new CustomEvent('app-sync-complete'));
+  }
+
+  private async reconcileWithServer() {
+    if (!this.userId || !isSupabaseConfigured) return;
+    console.log('[SyncManager] Starting server reconciliation with Supabase...');
+
+    for (const [colName, tableName] of Object.entries(COLLECTION_TO_TABLE_MAP)) {
+      try {
         const idCol = colName === 'config' ? 'key' : 'id';
+        const { data, error } = await supabase
+          .from(tableName)
+          .select(idCol)
+          .eq('user_id', this.userId);
+
+        if (error) throw error;
+
+        const serverIds = new Set((data || []).map((item: any) => item[idCol]));
         const localItems = await executeQuery(`SELECT ${idCol} as id FROM ${colName} WHERE synced = 1`);
         const orphanedIds = localItems.filter(item => !serverIds.has(item.id)).map(item => item.id);
 
@@ -196,17 +271,15 @@ class SyncManager {
   }
 
   private async updateLocalCache(collection: string, data: any) {
-    // 1. Check if record exists and its updated_at timestamp
     const idCol = collection === 'config' ? 'key' : 'id';
     const recordId = collection === 'config' ? data.key : data.id;
     const existing = await executeQuery(`SELECT updated_at FROM ${collection} WHERE ${idCol} = ?`, [recordId]);
 
-    if (existing.length > 0) {
+    if (existing.length > 0 && existing[0].updated_at && data.updated_at) {
       const localUpdatedAt = new Date(existing[0].updated_at).getTime();
       const remoteUpdatedAt = new Date(data.updated_at).getTime();
 
       if (remoteUpdatedAt <= localUpdatedAt) {
-        console.log(`[SyncManager] Skipping update for ${collection}/${recordId} - local record is newer or same.`);
         return;
       }
     }
@@ -228,7 +301,7 @@ class SyncManager {
         data.to_account_id ?? null,
         data.created_at,
         data.updated_at,
-        data.deviceId ?? null,
+        data.device_id ?? data.deviceId ?? null,
         data.subcategory ?? null,
         data.event_id ?? null
       ]);
@@ -244,7 +317,7 @@ class SyncManager {
         data.color ?? null,
         data.created_at,
         data.updated_at,
-        data.deviceId ?? null
+        data.device_id ?? data.deviceId ?? null
       ]);
     } else if (collection === 'categories') {
       await runWithBindings(`
@@ -257,7 +330,7 @@ class SyncManager {
         data.icon ?? '',
         data.created_at,
         data.updated_at,
-        data.deviceId ?? null,
+        data.device_id ?? data.deviceId ?? null,
         data.parent_id ?? null
       ]);
     } else if (collection === 'goals') {
@@ -273,7 +346,7 @@ class SyncManager {
         data.linked_accounts ?? null,
         data.created_at,
         data.updated_at,
-        data.deviceId ?? null
+        data.device_id ?? data.deviceId ?? null
       ]);
     } else if (collection === 'investments') {
       await runWithBindings(`
@@ -288,7 +361,7 @@ class SyncManager {
         data.current_price ?? 0,
         data.created_at ?? new Date().toISOString(),
         data.updated_at ?? new Date().toISOString(),
-        data.deviceId ?? null
+        data.device_id ?? data.deviceId ?? null
       ]);
     } else if (collection === 'reminders') {
       await runWithBindings(`
@@ -304,7 +377,7 @@ class SyncManager {
         data.status ?? 'pending',
         data.created_at,
         data.updated_at,
-        data.deviceId ?? null,
+        data.device_id ?? data.deviceId ?? null,
         data.whatsapp_phone ?? null,
         data.whatsapp_name ?? null,
         data.whatsapp_date ?? null,
@@ -329,7 +402,7 @@ class SyncManager {
         data.category ?? null,
         data.created_at,
         data.updated_at,
-        data.deviceId ?? null,
+        data.device_id ?? data.deviceId ?? null,
         data.time_spent ?? 0,
         data.last_started_at ?? null
       ]);
@@ -346,7 +419,7 @@ class SyncManager {
         data.duration ?? 0,
         data.created_at || data.timestamp,
         data.updated_at || data.timestamp,
-        data.deviceId ?? null
+        data.device_id ?? data.deviceId ?? null
       ]);
     } else if (collection === 'loan_parties') {
       await runWithBindings(`
@@ -360,7 +433,7 @@ class SyncManager {
         data.notes ?? null,
         data.created_at,
         data.updated_at,
-        data.deviceId ?? null
+        data.device_id ?? data.deviceId ?? null
       ]);
     } else if (collection === 'loans') {
       await runWithBindings(`
@@ -383,7 +456,7 @@ class SyncManager {
         data.loss_remarks ?? null,
         data.created_at,
         data.updated_at,
-        data.deviceId ?? null,
+        data.device_id ?? data.deviceId ?? null,
         data.event_id ?? null
       ]);
     } else if (collection === 'loan_repayments') {
@@ -399,7 +472,7 @@ class SyncManager {
         data.account_id ?? null,
         data.created_at,
         data.updated_at,
-        data.deviceId ?? null
+        data.device_id ?? data.deviceId ?? null
       ]);
     } else if (collection === 'events') {
       await runWithBindings(`
@@ -413,7 +486,7 @@ class SyncManager {
         data.total_cost ?? 0,
         data.created_at,
         data.updated_at,
-        data.deviceId ?? null
+        data.device_id ?? data.deviceId ?? null
       ]);
     } else if (collection === 'fuel_logs') {
       await runWithBindings(`
@@ -430,7 +503,7 @@ class SyncManager {
         data.vehicle_id ?? null,
         data.created_at,
         data.updated_at,
-        data.deviceId ?? null,
+        data.device_id ?? data.deviceId ?? null,
         data.attachment_url ?? null
       ]);
     } else if (collection === 'vehicles') {
@@ -448,7 +521,7 @@ class SyncManager {
         data.custom_type ?? null,
         data.created_at,
         data.updated_at,
-        data.deviceId ?? null,
+        data.device_id ?? data.deviceId ?? null,
         data.purchase_date ?? null,
         data.purchase_price ?? null,
         data.seller_info ?? null,
@@ -476,7 +549,7 @@ class SyncManager {
         data.transaction_id ?? null,
         data.created_at,
         data.updated_at,
-        data.deviceId ?? null
+        data.device_id ?? data.deviceId ?? null
       ]);
     } else if (collection === 'vehicle_reminders') {
       await runWithBindings(`
@@ -492,7 +565,7 @@ class SyncManager {
         data.status ?? 'pending',
         data.created_at,
         data.updated_at,
-        data.deviceId ?? null
+        data.device_id ?? data.deviceId ?? null
       ]);
     } else if (collection === 'config') {
       await runWithBindings(`
@@ -533,30 +606,22 @@ class SyncManager {
   }
 
   public async processQueue() {
-    if (this.isProcessingQueue || !this.isOnline || !this.userId) {
-      console.log('[SyncManager] Skip processQueue:', { processing: this.isProcessingQueue, online: this.isOnline, userId: this.userId });
-      return;
-    }
+    if (this.isProcessingQueue || !this.isOnline || !this.userId) return;
 
     this.isProcessingQueue = true;
-    console.log('[SyncManager] Starting processQueue...');
     window.dispatchEvent(new CustomEvent('sync-status-changed', { detail: { syncing: true } }));
 
     try {
       const ops = await executeQuery(`SELECT * FROM sync_queue WHERE status IN ('pending', 'failed') ORDER BY timestamp ASC LIMIT 50`);
-      console.log(`[SyncManager] Found ${ops.length} items to sync`);
 
       for (const op of ops) {
         const payload = JSON.parse(op.payload);
-        console.log(`[SyncManager] Syncing ${op.type} (ID: ${payload.id})...`);
-        const success = await this.pushToFirestore(op.type, payload);
+        const success = await this.pushToCloud(op.type, payload);
 
         if (success) {
-          console.log(`[SyncManager] Successfully pushed ${payload.id}`);
           await runWithBindings(`DELETE FROM sync_queue WHERE id = ?`, [op.id]);
 
           if (op.type.endsWith('_delete')) {
-            console.log(`[SyncManager] Delete operation completed for ${payload.id}`);
             window.dispatchEvent(new CustomEvent('app-sync-complete'));
             continue;
           }
@@ -578,19 +643,14 @@ class SyncManager {
           else if (tablePrefix === 'vehicle') table = 'vehicles';
           else table = tablePrefix + 's';
 
-          if (['transactions', 'accounts', 'categories', 'goals', 'investments', 'reminders', 'tasks', 'task_logs', 'loan_parties', 'loans', 'loan_repayments', 'events', 'fuel_logs', 'config', 'vehicles', 'vehicle_expenses', 'vehicle_reminders'].includes(table)) {
+          if (Object.keys(COLLECTION_TO_TABLE_MAP).includes(table)) {
             const idCol = table === 'config' ? 'key' : 'id';
             const recordId = table === 'config' ? payload.key : payload.id;
-            console.log(`[SyncManager] Updating ${table} local record ${recordId} to synced=1`);
             await runWithBindings(`UPDATE ${table} SET synced = 1 WHERE ${idCol} = ?`, [recordId]);
-            // Verify and notify UI
             window.dispatchEvent(new CustomEvent('app-sync-complete'));
           }
         } else {
-          console.warn(`[SyncManager] Push FAILED for ${payload.id}`);
-          // Mark as failed but DO NOT break! That halts the entire queue indefinitely!
           await runWithBindings(`UPDATE sync_queue SET status = 'failed' WHERE id = ?`, [op.id]);
-          continue;
         }
       }
       window.dispatchEvent(new CustomEvent('app-sync-complete'));
@@ -598,82 +658,147 @@ class SyncManager {
       console.error('[SyncManager] Queue processing ERROR:', error);
     } finally {
       this.isProcessingQueue = false;
-      console.log('[SyncManager] processQueue finished');
       window.dispatchEvent(new CustomEvent('sync-status-changed', { detail: { syncing: false } }));
     }
   }
 
-  private async pushToFirestore(type: string, payload: any): Promise<boolean> {
-    if (!this.userId) {
-      console.warn('[SyncManager] pushToFirestore: No userId');
-      toast.error('Sync paused: Internal auth state missing. Please refresh the page!', { id: 'sync-error-auth' });
-      return false;
+  private async pushToCloud(type: string, payload: any): Promise<boolean> {
+    if (!this.userId) return false;
+
+    let colName = '';
+    if (type.startsWith('transaction')) colName = 'transactions';
+    else if (type.startsWith('account')) colName = 'accounts';
+    else if (type.startsWith('category')) colName = 'categories';
+    else if (type.startsWith('goal')) colName = 'goals';
+    else if (type.startsWith('investment')) colName = 'investments';
+    else if (type.startsWith('reminder')) colName = 'reminders';
+    else if (type.startsWith('task_log')) colName = 'task_logs';
+    else if (type.startsWith('task')) colName = 'tasks';
+    else if (type.startsWith('loan_party')) colName = 'loan_parties';
+    else if (type.startsWith('loan_repayment')) colName = 'loan_repayments';
+    else if (type.startsWith('loan')) colName = 'loans';
+    else if (type.startsWith('event')) colName = 'events';
+    else if (type.startsWith('fuel_log')) colName = 'fuel_logs';
+    else if (type.startsWith('vehicle_expense')) colName = 'vehicle_expenses';
+    else if (type.startsWith('vehicle_reminder')) colName = 'vehicle_reminders';
+    else if (type.startsWith('vehicle')) colName = 'vehicles';
+    else if (type === 'config_update') colName = 'config';
+
+    const tableName = COLLECTION_TO_TABLE_MAP[colName];
+    let isSuccess = false;
+
+    // 1. Primary Write: Firestore
+    if (db) {
+      try {
+        const recordId = colName === 'config' ? payload.key : payload.id;
+        const docRef = doc(db, 'users', this.userId, colName, recordId);
+
+        if (type.endsWith('_delete')) {
+          await deleteDoc(docRef);
+        } else {
+          await setDoc(docRef, { ...payload, updatedAt: new Date().toISOString(), userId: this.userId }, { merge: true });
+        }
+        isSuccess = true;
+      } catch (fsError) {
+        console.warn(`[SyncManager] Firestore write warning for ${type}:`, fsError);
+      }
     }
 
-    try {
-      let docRef;
-      if (type.startsWith('transaction')) {
-        docRef = doc(firestore, `users/${this.userId}/transactions/${payload.id}`);
-      } else if (type.startsWith('account')) {
-        docRef = doc(firestore, `users/${this.userId}/accounts/${payload.id}`);
-      } else if (type.startsWith('category')) {
-        docRef = doc(firestore, `users/${this.userId}/categories/${payload.id}`);
-      } else if (type.startsWith('goal')) {
-        docRef = doc(firestore, `users/${this.userId}/goals/${payload.id}`);
-      } else if (type.startsWith('investment')) {
-        docRef = doc(firestore, `users/${this.userId}/investments/${payload.id}`);
-      } else if (type.startsWith('reminder')) {
-        docRef = doc(firestore, `users/${this.userId}/reminders/${payload.id}`);
-      } else if (type.startsWith('task_log')) {
-        docRef = doc(firestore, `users/${this.userId}/task_logs/${payload.id}`);
-      } else if (type.startsWith('task')) {
-        docRef = doc(firestore, `users/${this.userId}/tasks/${payload.id}`);
-      } else if (type.startsWith('loan_party')) {
-        docRef = doc(firestore, `users/${this.userId}/loan_parties/${payload.id}`);
-      } else if (type.startsWith('loan_repayment')) {
-        docRef = doc(firestore, `users/${this.userId}/loan_repayments/${payload.id}`);
-      } else if (type.startsWith('loan')) {
-        docRef = doc(firestore, `users/${this.userId}/loans/${payload.id}`);
-      } else if (type.startsWith('event')) {
-        docRef = doc(firestore, `users/${this.userId}/events/${payload.id}`);
-      } else if (type.startsWith('fuel_log')) {
-        docRef = doc(firestore, `users/${this.userId}/fuel_logs/${payload.id}`);
-      } else if (type.startsWith('vehicle_expense')) {
-        docRef = doc(firestore, `users/${this.userId}/vehicle_expenses/${payload.id}`);
-      } else if (type.startsWith('vehicle_reminder')) {
-        docRef = doc(firestore, `users/${this.userId}/vehicle_reminders/${payload.id}`);
-      } else if (type.startsWith('vehicle')) {
-        docRef = doc(firestore, `users/${this.userId}/vehicles/${payload.id}`);
-      } else if (type === 'config_update') {
-        docRef = doc(firestore, `users/${this.userId}/config/${payload.key}`);
-      } else {
-        console.warn('[SyncManager] Unknown operation type:', type);
-        toast.error(`Sync blocked by unknown task type: ${type}`, { id: 'sync-error-type' });
-        return false;
-      }
+    // 2. Secondary Mirror: Supabase
+    if (isSupabaseConfigured && tableName) {
+      try {
+        await this.ensureUserRecordExists();
 
-      if (type.endsWith('_delete')) {
-        await deleteDoc(docRef);
-      } else {
-        await setDoc(docRef, { ...payload, syncedAt: new Date().toISOString() }, { merge: true });
+        if (type.endsWith('_delete')) {
+          const idCol = colName === 'config' ? 'key' : 'id';
+          const recordId = colName === 'config' ? payload.key : payload.id;
+          await supabase.from(tableName).delete().eq(idCol, recordId).eq('user_id', this.userId);
+        } else {
+          const cleanPayload = this.sanitizePostgresPayload(payload);
+          await supabase.from(tableName).upsert(cleanPayload);
+        }
+        isSuccess = true;
+      } catch (supaError) {
+        console.warn(`[SyncManager] Supabase write warning for ${type}:`, supaError);
       }
-      return true;
-    } catch (error: any) {
-      console.error(`[SyncManager] Firestore push failed for ${type}:`, error);
-      toast.error(`Sync Error (${type}): ${error.message || 'Unknown failure'}`, { id: 'sync-error' });
-      return false;
+    }
+
+    return isSuccess;
+  }
+
+  private async ensureUserRecordExists(): Promise<void> {
+    if (!this.userId || !isSupabaseConfigured) return;
+    try {
+      const { data } = await supabase.from('users').select('id').eq('id', this.userId).maybeSingle();
+      if (!data) {
+        const userObj = {
+          id: this.userId,
+          email: localStorage.getItem('userEmail') || `${this.userId}@user.app`,
+          display_name: localStorage.getItem('userName') || 'User',
+          is_pro: false,
+          plan: 'standard',
+          created_at: new Date().toISOString(),
+          updated_at: new Date().toISOString()
+        };
+        const { error } = await supabase.from('users').upsert(userObj, { onConflict: 'id' });
+        if (error && error.code === '23503') {
+          // Missing plan in plans table - seed default plan and retry
+          await supabase.from('plans').upsert({
+            id: 'standard',
+            name: 'Standard',
+            price: 0,
+            currency: 'PKR',
+            billing_cycle: 'forever',
+            features: ['transactions', 'accounts', 'categories', 'dashboard', 'goals', 'reminders', 'calculator', 'converter', 'tasks', 'loans', 'events', 'fuel', 'reports', 'subscriptions', 'projects'],
+            limits: { aiCallsPerDay: 0, maxTransactions: 10000, maxUploadsPerDay: 0 },
+            badge_icon: 'shield',
+            badge_color: '#6B7280',
+            display_order: 1
+          }, { onConflict: 'id' });
+          await supabase.from('users').upsert(userObj, { onConflict: 'id' });
+        }
+      }
+    } catch (e) {
+      console.warn('[SyncManager] ensureUserRecordExists warning:', e);
     }
   }
 
+  private sanitizePostgresPayload(rawPayload: any): any {
+    if (!rawPayload || typeof rawPayload !== 'object') return {};
+
+    const clean: any = {};
+    for (const [key, value] of Object.entries(rawPayload)) {
+      if (key === 'synced' || key === 'deviceId') continue;
+
+      const snakeKey = key.replace(/([A-Z])/g, '_$1').toLowerCase();
+      clean[snakeKey] = value;
+    }
+
+    clean.user_id = this.userId;
+    clean.device_id = rawPayload.deviceId || rawPayload.device_id || this.deviceId;
+    clean.synced_at = new Date().toISOString();
+
+    return clean;
+  }
+
   public async performOperation(type: string, payload: any, localAction: () => Promise<any>) {
-    console.log(`[SyncManager] performOperation: ${type}`, payload);
+    const isSimulating = localStorage.getItem('simulated_user_id') !== null;
+    const isReadOnly = localStorage.getItem('simulated_read_only') !== 'false';
+
+    if (isSimulating && isReadOnly) {
+      try {
+        const { toast } = await import('sonner');
+        toast.warning('🔒 Read-Only Safeguard Active: Edits/deletions are disabled during simulation mode. Toggle Read-Only OFF in the top bar to allow edits.');
+      } catch (e) { }
+      return;
+    }
+
     await localAction();
 
     if (this.isOnline && this.userId) {
-      const success = await this.pushToFirestore(type, payload);
+      const success = await this.pushToCloud(type, payload);
       if (success) {
         if (type.endsWith('_delete')) {
-          console.log(`[SyncManager] Direct delete push success for ${payload.id}`);
           window.dispatchEvent(new CustomEvent('app-sync-complete'));
           return;
         }
@@ -694,20 +819,16 @@ class SyncManager {
         else if (tablePrefix === 'vehicle') table = 'vehicles';
         else table = tablePrefix + 's';
 
-        if (['transactions', 'accounts', 'categories', 'goals', 'investments', 'reminders', 'tasks', 'task_logs', 'loan_parties', 'loans', 'loan_repayments', 'events', 'fuel_logs', 'config', 'vehicles', 'vehicle_expenses', 'vehicle_reminders'].includes(table)) {
-          console.log(`[SyncManager] Direct push success. Updating ${table} local record ${payload.id} to synced=1`);
+        if (Object.keys(COLLECTION_TO_TABLE_MAP).includes(table)) {
           await runWithBindings(`UPDATE ${table} SET synced = 1 WHERE id = ?`, [payload.id]);
         }
         window.dispatchEvent(new CustomEvent('app-sync-complete'));
         return;
-      } else {
-        console.warn(`[SyncManager] Direct push failed, adding to queue: ${payload.id}`);
       }
     }
 
     const deviceId = this.deviceId;
     const timestamp = new Date().toISOString();
-    console.log(`[SyncManager] Queueing operation for ${payload.id}`);
     await runWithBindings(
       `INSERT INTO sync_queue (id, type, payload, timestamp, deviceId, status) VALUES (?, ?, ?, ?, ?, 'pending')`,
       [uuidv4(), type, JSON.stringify(payload), timestamp, deviceId]
@@ -715,20 +836,13 @@ class SyncManager {
   }
 
   public async wipeRemoteData() {
-    if (!this.userId) return;
+    if (!this.userId || !isSupabaseConfigured) return;
 
-    const collections = ['transactions', 'accounts', 'categories', 'goals', 'investments', 'reminders', 'tasks', 'task_logs', 'loan_parties', 'loans', 'loan_repayments', 'events', 'fuel_logs', 'config', 'vehicles', 'vehicle_expenses', 'vehicle_reminders'];
-
-    for (const colName of collections) {
+    for (const tableName of Object.values(COLLECTION_TO_TABLE_MAP)) {
       try {
-        const colRef = collection(firestore, `users/${this.userId}/${colName}`);
-        const snapshot = await getDocs(colRef);
-
-        const deletePromises = snapshot.docs.map(doc => deleteDoc(doc.ref));
-        await Promise.all(deletePromises);
-        console.log(`[SyncManager] Wiped collection: ${colName}`);
+        await supabase.from(tableName).delete().eq('user_id', this.userId);
       } catch (error) {
-        console.error(`[SyncManager] Failed to wipe collection ${colName}:`, error);
+        console.error(`[SyncManager] Failed to wipe table ${tableName}:`, error);
       }
     }
   }

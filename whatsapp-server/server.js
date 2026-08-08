@@ -1356,14 +1356,9 @@ app.post('/api/ai/chat', verifyFirebaseToken, aiRateLimit, async (req, res) => {
   // Use default model if not provided
   const model = modelId || 'gemini-2.5-flash';
   
-  // Use user-provided API key if available, otherwise fall back to system key
+  // Use user-provided API key if available and valid for provider, otherwise fall back to system key
   const userApiKey = req.headers['x-user-api-key'];
-  const apiKey = userApiKey || process.env.NVIDIA_API_KEY || process.env.OPENAI_API_KEY || process.env.GEMINI_API_KEY || process.env.VITE_GEMINI_API_KEY;
-
-  if (!apiKey) {
-    return res.status(500).json({ success: false, error: 'AI Service key is missing for your account. Please set an API key in Settings or Admin Panel.' });
-  }
-
+  
   // Detect if NVIDIA NIM, OpenAI, or GLM model is requested
   const isNvidiaOrOpenAI = 
     provider === 'nvidia' || 
@@ -1374,7 +1369,20 @@ app.post('/api/ai/chat', verifyFirebaseToken, aiRateLimit, async (req, res) => {
     model.includes('llama') || 
     model.includes('nvdev') || 
     model.includes('zhipu') ||
-    apiKey.startsWith('nvapi-');
+    (userApiKey && userApiKey.startsWith('nvapi-'));
+
+  let apiKey = userApiKey;
+  // If requesting NVIDIA NIM/OpenAI but user key is a Google Gemini key (AIza...), fall back to system key
+  if (isNvidiaOrOpenAI && userApiKey && userApiKey.startsWith('AIza')) {
+    apiKey = null;
+  }
+  if (!apiKey) {
+    apiKey = process.env.NVIDIA_API_KEY || process.env.AI_FALLBACK_API_KEY || process.env.OPENAI_API_KEY || process.env.GEMINI_API_KEY || process.env.VITE_GEMINI_API_KEY;
+  }
+
+  if (!apiKey) {
+    return res.status(500).json({ success: false, error: 'AI Service key is missing for your account. Please set an API key in Settings or Admin Panel.' });
+  }
 
   try {
     let data;
@@ -1408,7 +1416,7 @@ app.post('/api/ai/chat', verifyFirebaseToken, aiRateLimit, async (req, res) => {
           'Authorization': `Bearer ${apiKey}`
         },
         body: JSON.stringify({
-          model: model.startsWith('nvapi-') ? 'thudm/glm-4-9b-chat' : model,
+          model: model,
           messages: messages,
           temperature: geminiPayload.generationConfig?.temperature ?? 0.4,
           max_tokens: geminiPayload.generationConfig?.maxOutputTokens ?? 2048

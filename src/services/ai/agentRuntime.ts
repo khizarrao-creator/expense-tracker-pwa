@@ -102,22 +102,28 @@ const executeWithModel = async (
       headers['x-user-api-key'] = userApiKey;
     }
 
+    const provider = localStorage.getItem('ai_provider') || 'gemini';
+    const baseUrl = localStorage.getItem('ai_base_url') || '';
+
     const response = await fetch(proxyUrl, {
       method: 'POST',
       headers,
-      body: JSON.stringify(body),
+      body: JSON.stringify({ ...body, provider, baseUrl }),
     });
 
     if (!response.ok) {
       const errJson = await response.json().catch(() => ({}));
       let errorMsg = errJson?.error || `AI proxy error: ${response.status}`;
+      const providerName = provider === 'nvidia' ? 'NVIDIA NIM' : provider === 'openai' ? 'OpenAI' : 'Google Gemini';
+
       if (
         errorMsg.includes('invalid authentication credentials') ||
         errorMsg.includes('OAuth 2') ||
         errorMsg.includes('API_KEY_INVALID') ||
-        errorMsg.includes('API key not valid')
+        errorMsg.includes('API key not valid') ||
+        errorMsg.includes('401')
       ) {
-        errorMsg = 'Invalid Gemini API key. Google Gemini API keys from Google AI Studio start with "AIzaSy...". Please update your API key in Settings or click the Key icon in AI Copilot.';
+        errorMsg = `Invalid ${providerName} API Key. Please update your API key in Settings or Admin Panel.`;
       }
 
       if (response.status === 404 || response.status === 403) {

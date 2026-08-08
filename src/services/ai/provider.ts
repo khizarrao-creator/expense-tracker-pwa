@@ -9,13 +9,13 @@ let providerConfig: ProviderConfig | null = null;
 const FALLBACK_API_KEYS: string[] = [];
 
 export const getApiKey = (): string => {
-  const customKey = localStorage.getItem('user_gemini_api_key');
+  const customKey = localStorage.getItem('user_ai_api_key') || localStorage.getItem('user_gemini_api_key');
   if (customKey) return customKey;
 
-  const fallbackKey = localStorage.getItem('fallback_gemini_api_key');
+  const fallbackKey = localStorage.getItem('ai_fallback_api_key') || localStorage.getItem('fallback_gemini_api_key');
   if (fallbackKey) return fallbackKey;
 
-  const envKey = import.meta.env.VITE_GEMINI_API_KEY as string | undefined;
+  const envKey = (import.meta.env.VITE_NVIDIA_API_KEY || import.meta.env.VITE_GEMINI_API_KEY) as string | undefined;
   if (envKey) return envKey;
   for (const key of FALLBACK_API_KEYS) {
     if (key) return key;

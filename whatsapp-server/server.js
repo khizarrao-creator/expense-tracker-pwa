@@ -1423,7 +1423,7 @@ app.post('/api/ai/chat', verifyFirebaseToken, aiRateLimit, async (req, res) => {
           'Authorization': `Bearer ${apiKey}`
         },
         body: JSON.stringify({
-          model: model,
+          model: model === 'glm-5.2' ? 'z-ai/glm-5.2' : model,
           messages: messages,
           temperature: geminiPayload.generationConfig?.temperature ?? 0.4,
           max_tokens: geminiPayload.generationConfig?.maxOutputTokens ?? 2048

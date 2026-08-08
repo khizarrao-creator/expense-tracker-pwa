@@ -108,7 +108,7 @@ const NVIDIA_MODELS: ModelInfo[] = [
     id: 'glm-5.2',
     name: 'GLM 5.2 (NVIDIA NIM)',
     category: 'text-out',
-    apiName: 'glm-5.2',
+    apiName: 'z-ai/glm-5.2',
     description: 'High performance GLM 5.2 model hosted on NVIDIA NIM infrastructure',
     capabilities: ['text-generation', 'reasoning', 'chat'],
     isDefault: true,

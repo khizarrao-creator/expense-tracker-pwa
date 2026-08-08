@@ -12,6 +12,30 @@ import urllib.request
 import urllib.error
 import time
 
+if hasattr(sys.stdout, 'reconfigure'):
+    sys.stdout.reconfigure(encoding='utf-8')
+
+def list_nvidia_models(api_key: str, base_url: str = "https://integrate.api.nvidia.com/v1"):
+    print(f"\n==================================================")
+    print(f"📋 Querying Available Models from NVIDIA NIM ({base_url})")
+    print(f"==================================================")
+    endpoint = f"{base_url.rstrip('/')}/models"
+    headers = {"Authorization": f"Bearer {api_key}"}
+    req = urllib.request.Request(endpoint, headers=headers, method="GET")
+    try:
+        with urllib.request.urlopen(req, timeout=10) as response:
+            data = json.loads(response.read().decode('utf-8'))
+            models = [m.get('id') for m in data.get('data', [])]
+            print(f"Found {len(models)} models on NVIDIA NIM:")
+            for m in models[:20]:
+                print(f"  - {m}")
+            if len(models) > 20:
+                print(f"  ... and {len(models) - 20} more.")
+            return models
+    except Exception as e:
+        print(f"❌ Failed to fetch models list: {e}")
+        return []
+
 def test_nvidia_nim(api_key: str, base_url: str = "https://integrate.api.nvidia.com/v1", model: str = "glm-5.2"):
     print(f"\n==================================================")
     print(f"🚀 Testing NVIDIA NIM API Endpoint")
@@ -69,8 +93,10 @@ def test_nvidia_nim(api_key: str, base_url: str = "https://integrate.api.nvidia.
         print(f"❌ CONNECTION ERROR: {e}\n")
         return False
 
+DEFAULT_API_KEY = "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"
+
 def main():
-    api_key = sys.argv[1] if len(sys.argv) > 1 else os.environ.get("NVIDIA_API_KEY", "")
+    api_key = sys.argv[1] if len(sys.argv) > 1 else os.environ.get("NVIDIA_API_KEY", DEFAULT_API_KEY)
 
     if not api_key:
         api_key = input("Enter your NVIDIA NIM API Key (starts with 'nvapi-'): ").strip()
@@ -79,12 +105,20 @@ def main():
         print("❌ Error: API key is required.")
         sys.exit(1)
 
+    available_models = list_nvidia_models(api_key)
+
     models_to_test = [
         "glm-5.2",
         "thudm/glm-4-9b-chat",
         "deepseek-ai/deepseek-r1",
         "meta/llama-3.3-70b-instruct"
     ]
+
+    # Add first 3 available models if list returned models
+    if available_models:
+        for m in available_models[:3]:
+            if m not in models_to_test:
+                models_to_test.append(m)
 
     print("\n🔍 Running test suite across NVIDIA NIM models...")
     successes = 0

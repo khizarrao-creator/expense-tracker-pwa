@@ -29,7 +29,8 @@ export interface GlobalConfig {
   supportedCurrencies: { code: string; symbol: string; name: string; }[];
   version: string;
   exchanges?: { id: string; name: string; logoUrl?: string; enabled: boolean; }[];
-  disabledFeatures?: string[];
+  aiProvider?: 'gemini' | 'nvidia' | 'openai' | 'custom';
+  aiBaseUrl?: string;
   fallbackApiKey?: string;
   fallbackModelId?: string;
   globalSystemInstruction?: string;

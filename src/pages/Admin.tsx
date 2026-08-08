@@ -158,6 +158,8 @@ interface GlobalConfig {
   version: string;
   exchanges?: { id: string; name: string; logoUrl?: string; enabled: boolean; }[];
   disabledFeatures?: string[];
+  aiProvider?: 'gemini' | 'nvidia' | 'openai' | 'custom';
+  aiBaseUrl?: string;
   fallbackApiKey?: string;
   fallbackModelId?: string;
   globalSystemInstruction?: string;
@@ -2326,32 +2328,71 @@ const Admin: React.FC = () => {
                   <h3 className="font-bold text-base">Global AI Copilot Configuration</h3>
                 </div>
 
-                <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                   <div className="space-y-1">
-                    <label className="text-[10px] font-bold uppercase text-muted-foreground ml-1">Global Fallback API Key</label>
+                    <label className="text-[10px] font-bold uppercase text-muted-foreground ml-1">AI Provider</label>
+                    <select
+                      value={globalSettings.aiProvider || 'gemini'}
+                      onChange={(e) => {
+                        const val = e.target.value;
+                        const defaultUrl = val === 'nvidia' ? 'https://integrate.api.nvidia.com/v1' : val === 'openai' ? 'https://api.openai.com/v1' : '';
+                        const defaultModel = val === 'nvidia' ? 'glm-5.2' : val === 'openai' ? 'gpt-4o-mini' : 'gemini-2.5-flash';
+                        setGlobalSettings({ ...globalSettings, aiProvider: val as any, aiBaseUrl: defaultUrl, fallbackModelId: defaultModel });
+                      }}
+                      className="w-full bg-muted border-none rounded-xl p-3 outline-none focus:ring-2 focus:ring-primary text-xs font-bold text-foreground cursor-pointer"
+                    >
+                      <option value="gemini">Google Gemini (Default)</option>
+                      <option value="nvidia">NVIDIA NIM (GLM 5.2 / DeepSeek / Llama)</option>
+                      <option value="openai">OpenAI / Compatible Endpoint</option>
+                    </select>
+                  </div>
+
+                  <div className="space-y-1">
+                    <label className="text-[10px] font-bold uppercase text-muted-foreground ml-1">Provider Base Endpoint URL</label>
+                    <input
+                      type="text"
+                      value={globalSettings.aiBaseUrl || ''}
+                      onChange={(e) => setGlobalSettings({ ...globalSettings, aiBaseUrl: e.target.value })}
+                      placeholder={globalSettings.aiProvider === 'nvidia' ? 'https://integrate.api.nvidia.com/v1' : 'https://generativelanguage.googleapis.com/v1beta'}
+                      className="w-full bg-muted border-none rounded-xl p-3 outline-none focus:ring-2 focus:ring-primary text-xs font-semibold"
+                    />
+                  </div>
+                </div>
+
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                  <div className="space-y-1">
+                    <label className="text-[10px] font-bold uppercase text-muted-foreground ml-1">Global System API Key</label>
                     <input
                       type="password"
                       value={globalSettings.fallbackApiKey || ''}
                       onChange={(e) => setGlobalSettings({ ...globalSettings, fallbackApiKey: e.target.value })}
-                      placeholder={globalSettings.fallbackApiKey ? '••••••••••••••••••••••••' : 'Enter shared API key'}
+                      placeholder={globalSettings.fallbackApiKey ? '••••••••••••••••••••••••' : 'Enter NVIDIA / Gemini / OpenAI API key'}
                       className="w-full bg-muted border-none rounded-xl p-3 outline-none focus:ring-2 focus:ring-primary text-xs font-semibold"
                     />
                   </div>
                   <div className="space-y-1">
-                    <label className="text-[10px] font-bold uppercase text-muted-foreground ml-1">Default Fallback Model</label>
-                    <select
-                      value={globalSettings.fallbackModelId || 'gemini-2.5-flash'}
-                      onChange={(e) => setGlobalSettings({ ...globalSettings, fallbackModelId: e.target.value })}
-                      className="w-full bg-muted border-none rounded-xl p-3 outline-none focus:ring-2 focus:ring-primary text-xs font-bold text-foreground cursor-pointer"
-                    >
-                      <option value="gemini-2.5-flash">Gemini 2.5 Flash</option>
-                      <option value="gemini-3-flash">Gemini 3 Flash</option>
-                      <option value="gemini-3.1-flash-lite">Gemini 3.1 Flash Lite</option>
-                      <option value="gemini-3.5-live-translate">Gemini 3.5 Live Translate</option>
-                      <option value="gemini-3.1-flash-tts">Gemini 3.1 Flash TTS</option>
-                      <option value="gemma-4-31b">Gemma 4 31B (Open weights)</option>
-                      <option value="gemini-robotics-er-1.6-preview">Gemini Robotics ER 1.6 Preview</option>
-                    </select>
+                    <label className="text-[10px] font-bold uppercase text-muted-foreground ml-1">Default Model ID</label>
+                    {globalSettings.aiProvider === 'nvidia' ? (
+                      <select
+                        value={globalSettings.fallbackModelId || 'glm-5.2'}
+                        onChange={(e) => setGlobalSettings({ ...globalSettings, fallbackModelId: e.target.value })}
+                        className="w-full bg-muted border-none rounded-xl p-3 outline-none focus:ring-2 focus:ring-primary text-xs font-bold text-foreground cursor-pointer"
+                      >
+                        <option value="glm-5.2">GLM 5.2 (NVIDIA NIM)</option>
+                        <option value="thudm/glm-4-9b-chat">GLM 4 9B Chat</option>
+                        <option value="deepseek-ai/deepseek-r1">DeepSeek R1</option>
+                        <option value="meta/llama-3.3-70b-instruct">Llama 3.3 70B Instruct</option>
+                        <option value="mistralai/mistral-large-2-instruct">Mistral Large 2</option>
+                      </select>
+                    ) : (
+                      <input
+                        type="text"
+                        value={globalSettings.fallbackModelId || 'gemini-2.5-flash'}
+                        onChange={(e) => setGlobalSettings({ ...globalSettings, fallbackModelId: e.target.value })}
+                        placeholder="e.g. gemini-2.5-flash, glm-5.2, gpt-4o-mini"
+                        className="w-full bg-muted border-none rounded-xl p-3 outline-none focus:ring-2 focus:ring-primary text-xs font-semibold"
+                      />
+                    )}
                   </div>
                 </div>
 

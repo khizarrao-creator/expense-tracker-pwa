@@ -52,10 +52,13 @@ export const initializeProvider = (): ProviderConfig => {
   const routing = getRoutingRules();
   const defaultModel = getDefaultModel();
 
+  const providerType = (localStorage.getItem('ai_provider') || 'gemini') as any;
+  const baseUrl = localStorage.getItem('ai_base_url') || (providerType === 'nvidia' ? 'https://integrate.api.nvidia.com/v1' : GEMINI_BASE_URL);
+
   providerConfig = {
-    provider: 'gemini',
+    provider: providerType,
     apiKey,
-    baseUrl: GEMINI_BASE_URL,
+    baseUrl,
     defaultModelId: defaultModel.id,
     models,
     tools,

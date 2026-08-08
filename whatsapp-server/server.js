@@ -1351,34 +1351,102 @@ const sendAdminWhatsAppAlert = async (message) => {
  * POST /api/ai/chat
  */
 app.post('/api/ai/chat', verifyFirebaseToken, aiRateLimit, async (req, res) => {
-  const { modelId, ...geminiPayload } = req.body;
+  const { modelId, provider, baseUrl, ...geminiPayload } = req.body;
   
   // Use default model if not provided
   const model = modelId || 'gemini-2.5-flash';
   
   // Use user-provided API key if available, otherwise fall back to system key
   const userApiKey = req.headers['x-user-api-key'];
-  const apiKey = userApiKey || process.env.GEMINI_API_KEY || process.env.VITE_GEMINI_API_KEY;
+  const apiKey = userApiKey || process.env.NVIDIA_API_KEY || process.env.OPENAI_API_KEY || process.env.GEMINI_API_KEY || process.env.VITE_GEMINI_API_KEY;
 
   if (!apiKey) {
-    return res.status(500).json({ success: false, error: 'AI Service is not working for your account. Please contact support, or upgrade for better limits.' });
+    return res.status(500).json({ success: false, error: 'AI Service key is missing for your account. Please set an API key in Settings or Admin Panel.' });
   }
 
+  // Detect if NVIDIA NIM, OpenAI, or GLM model is requested
+  const isNvidiaOrOpenAI = 
+    provider === 'nvidia' || 
+    provider === 'openai' || 
+    provider === 'custom' ||
+    model.includes('glm') || 
+    model.includes('deepseek') || 
+    model.includes('llama') || 
+    model.includes('nvdev') || 
+    model.includes('zhipu') ||
+    apiKey.startsWith('nvapi-');
+
   try {
-    const geminiUrl = `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${apiKey}`;
-    
-    const response = await fetch(geminiUrl, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(geminiPayload)
-    });
+    let data;
 
-    if (!response.ok) {
-      const errorData = await response.json();
-      return res.status(response.status).json({ success: false, error: errorData.error?.message || 'Gemini API error' });
+    if (isNvidiaOrOpenAI) {
+      // Build OpenAI-compatible chat messages
+      const messages = [];
+      if (geminiPayload.systemInstruction?.parts?.[0]?.text) {
+        messages.push({ role: 'system', content: geminiPayload.systemInstruction.parts[0].text });
+      }
+      if (Array.isArray(geminiPayload.contents)) {
+        for (const item of geminiPayload.contents) {
+          const role = item.role === 'model' ? 'assistant' : item.role;
+          const text = item.parts?.map(p => p.text).filter(Boolean).join('\n') || '';
+          if (text) {
+            messages.push({ role, content: text });
+          }
+        }
+      }
+
+      let openAiEndpoint = baseUrl || process.env.AI_BASE_URL || 'https://integrate.api.nvidia.com/v1';
+      openAiEndpoint = openAiEndpoint.replace(/\/$/, '');
+      if (!openAiEndpoint.endsWith('/chat/completions')) {
+        openAiEndpoint = `${openAiEndpoint}/chat/completions`;
+      }
+
+      const response = await fetch(openAiEndpoint, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${apiKey}`
+        },
+        body: JSON.stringify({
+          model: model.startsWith('nvapi-') ? 'thudm/glm-4-9b-chat' : model,
+          messages: messages,
+          temperature: geminiPayload.generationConfig?.temperature ?? 0.4,
+          max_tokens: geminiPayload.generationConfig?.maxOutputTokens ?? 2048
+        })
+      });
+
+      if (!response.ok) {
+        const errorData = await response.json().catch(() => ({}));
+        return res.status(response.status).json({ success: false, error: errorData.error?.message || errorData.detail || `NVIDIA/OpenAI API error (${response.status})` });
+      }
+
+      const openAiData = await response.json();
+      const text = openAiData.choices?.[0]?.message?.content || '';
+      data = {
+        candidates: [
+          {
+            content: {
+              parts: [{ text }]
+            }
+          }
+        ]
+      };
+    } else {
+      const geminiUrl = `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${apiKey}`;
+      
+      const response = await fetch(geminiUrl, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(geminiPayload)
+      });
+
+      if (!response.ok) {
+        const errorData = await response.json().catch(() => ({}));
+        return res.status(response.status).json({ success: false, error: errorData.error?.message || 'Gemini API error' });
+      }
+
+      data = await response.json();
     }
-
-    const data = await response.json();
 
     // Increment and persist user usage in Firestore asynchronously via REST API using user's ID token
     const today = new Date().toISOString().split('T')[0];

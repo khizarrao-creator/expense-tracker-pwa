@@ -50,8 +50,10 @@ export interface RoutingRule {
   fallbackModelIds: string[];
 }
 
+export type ProviderType = 'gemini' | 'nvidia' | 'openai' | 'custom';
+
 export interface ProviderConfig {
-  provider: 'gemini';
+  provider: ProviderType;
   apiKey: string;
   baseUrl: string;
   defaultModelId: string;

@@ -153,8 +153,13 @@ const WhatsApp: React.FC = () => {
         } else if (data.event === 'new-message') {
           const { accountId, jid, message } = data.data;
           if (accountId === activeAccountId) {
-            // If it belongs to currently selected contact, append it
-            if (selectedContact && selectedContact.jid === jid) {
+            // Check if message belongs to currently selected contact (supporting phone digit matching)
+            const isSameContact = selectedContact && (
+              selectedContact.jid === jid || 
+              selectedContact.phone.replace(/\D/g, '') === jid.split('@')[0].replace(/\D/g, '')
+            );
+
+            if (isSameContact) {
               setMessages(prev => {
                 if (prev.find(m => m.id === message.id)) return prev;
                 // If it's a sent message, look for an optimistic temp message with the same text to replace it

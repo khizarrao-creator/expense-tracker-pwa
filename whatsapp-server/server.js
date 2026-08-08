@@ -321,12 +321,25 @@ function broadcastToClients(data) {
 
 function getMessageText(message) {
   if (!message) return '';
+
+  // Unwrap ephemeral, viewOnce, and protocol message wrappers
+  if (message.ephemeralMessage?.message) message = message.ephemeralMessage.message;
+  if (message.viewOnceMessage?.message) message = message.viewOnceMessage.message;
+  if (message.viewOnceMessageV2?.message) message = message.viewOnceMessageV2.message;
+  if (message.documentWithCaptionMessage?.message) message = message.documentWithCaptionMessage.message;
+
+  if (!message) return '';
+
   if (message.conversation) return message.conversation;
-  if (message.extendedTextMessage) return message.extendedTextMessage.text;
+  if (message.extendedTextMessage?.text) return message.extendedTextMessage.text;
   if (message.imageMessage) return message.imageMessage.caption || '📷 Photo';
   if (message.videoMessage) return message.videoMessage.caption || '🎥 Video';
   if (message.documentMessage) return '📄 Document';
   if (message.audioMessage) return '🎵 Audio';
+  if (message.stickerMessage) return '🎨 Sticker';
+  if (message.contactMessage || message.contactsArrayMessage) return '🎇 Contact Card';
+  if (message.locationMessage || message.liveLocationMessage) return '📍 Location';
+  
   return '';
 }
 
@@ -965,8 +978,21 @@ app.get('/messages', (req, res) => {
     return res.status(400).json({ success: false, error: 'Missing accountId or jid parameter' });
   }
   
-  const history = messageStore[accountId] && messageStore[accountId][jid] ? messageStore[accountId][jid] : [];
-  res.json({ success: true, messages: history });
+  const store = messageStore[accountId] || {};
+  let history = store[jid];
+
+  // Loose match by phone digits if exact JID not found
+  if (!history) {
+    const targetDigits = jid.split('@')[0].replace(/\D/g, '');
+    if (targetDigits) {
+      const matchedJid = Object.keys(store).find(k => k.split('@')[0].replace(/\D/g, '') === targetDigits);
+      if (matchedJid) {
+        history = store[matchedJid];
+      }
+    }
+  }
+
+  res.json({ success: true, messages: history || [] });
 });
 
 // 8. Get downloaded statuses list

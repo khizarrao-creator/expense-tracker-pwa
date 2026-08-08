@@ -962,11 +962,34 @@ ${snapshotText}`;
 };
 
 const buildModelChain = () => {
-  const preferredModelId = localStorage.getItem('ai_preferred_model_id') || localStorage.getItem('fallback_ai_model_id');
-  const modelIds = preferredModelId
-    ? [preferredModelId, ...selectModelChain('chat')]
-    : selectModelChain('chat');
-  return modelIds.map(id => resolveModel(id, 'chat')).filter(m => m.isAvailable);
+  const provider = localStorage.getItem('ai_provider') || 'gemini';
+  const preferredModelId = localStorage.getItem('ai_preferred_model_id') || localStorage.getItem('ai_fallback_model_id');
+
+  let modelIds: string[] = [];
+  if (preferredModelId) {
+    const resolved = resolveModel(preferredModelId, 'chat');
+    if (provider === 'nvidia' && (resolved.apiName.includes('glm') || resolved.apiName.includes('deepseek') || resolved.apiName.includes('llama') || resolved.apiName.includes('mistral'))) {
+      modelIds = [preferredModelId, ...selectModelChain('chat')];
+    } else if (provider === 'gemini' && resolved.apiName.includes('gemini')) {
+      modelIds = [preferredModelId, ...selectModelChain('chat')];
+    } else {
+      modelIds = selectModelChain('chat');
+    }
+  } else {
+    modelIds = selectModelChain('chat');
+  }
+
+  return modelIds
+    .map(id => resolveModel(id, 'chat'))
+    .filter(m => {
+      if (!m.isAvailable) return false;
+      if (provider === 'nvidia') {
+        return m.apiName.includes('glm') || m.apiName.includes('deepseek') || m.apiName.includes('llama') || m.apiName.includes('mistral') || m.id.includes('glm') || m.id.includes('deepseek') || m.id.includes('llama');
+      } else if (provider === 'gemini') {
+        return m.apiName.includes('gemini') || m.id.includes('gemini');
+      }
+      return true;
+    });
 };
 
 

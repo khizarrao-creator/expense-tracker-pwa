@@ -77,6 +77,11 @@ export const resetRoutingRules = (): void => {
 };
 
 export const selectModelChain = (useCase: UseCase): string[] => {
+  const provider = localStorage.getItem('ai_provider') || 'gemini';
+  if (provider === 'nvidia') {
+    const fallbackId = localStorage.getItem('ai_fallback_model_id') || 'glm-5.2';
+    return [fallbackId, 'glm-5.2', 'thudm/glm-4-9b-chat', 'deepseek-ai/deepseek-r1', 'meta/llama-3.3-70b-instruct'];
+  }
   const rule = getRoutingRule(useCase);
   if (!rule) return ['gemini-2.5-flash'];
   return [rule.preferredModelId, ...rule.fallbackModelIds];

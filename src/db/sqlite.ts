@@ -41,7 +41,19 @@ const flushSave = async () => {
     const data = db.export();
     const sizeMB = (data.length / (1024 * 1024)).toFixed(2);
     console.log(`[SQLite] Flushing database to IndexedDB (${sizeMB} MB)...`);
-    await localforage.setItem(DB_STORE_NAME, data);
+    
+    try {
+      await localforage.setItem(DB_STORE_NAME, data);
+    } catch (err: any) {
+      // If IndexedDB backing store is locked/busy during hot-reload or multi-tab usage, retry once after short delay
+      if (err?.message?.toLowerCase().includes('backing store') || err?.message?.toLowerCase().includes('indexeddb')) {
+        console.warn('[SQLite] Retrying IndexedDB write after backing store delay...');
+        await new Promise(r => setTimeout(r, 200));
+        await localforage.setItem(DB_STORE_NAME, data);
+      } else {
+        throw err;
+      }
+    }
   } catch (e: any) {
     console.error('[SQLite] Storage error:', e);
     const isQuotaError =
@@ -50,11 +62,18 @@ const flushSave = async () => {
       e.message?.toLowerCase().includes('quota') ||
       e.message?.toLowerCase().includes('full disk');
 
+    const isBackingStoreError =
+      e.message?.toLowerCase().includes('backing store') ||
+      e.message?.toLowerCase().includes('indexeddb.open');
+
     if (isQuotaError) {
       toast.error(
         'Storage Full — run "Optimize Database" in Settings → Data Management to free space.',
         { id: 'storage-quota-error', duration: 12000 }
       );
+    } else if (isBackingStoreError) {
+      // Suppress annoying toast for temporary IndexedDB locks during dev/reload
+      console.warn('[SQLite] Suppressed temporary IndexedDB backing store lock error.');
     } else {
       const nowTime = Date.now();
       if (nowTime - lastErrorToastTime > 30000) {

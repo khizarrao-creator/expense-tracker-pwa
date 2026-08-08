@@ -2420,6 +2420,31 @@ const Admin: React.FC = () => {
                     className="w-full bg-muted border-none rounded-xl p-3 outline-none focus:ring-2 focus:ring-primary text-xs font-medium"
                   />
                 </div>
+
+                <div className="pt-2">
+                  <button
+                    type="button"
+                    onClick={() => {
+                      if (globalSettings.aiProvider) {
+                        localStorage.setItem('ai_provider', globalSettings.aiProvider);
+                      }
+                      if (globalSettings.aiBaseUrl) {
+                        localStorage.setItem('ai_base_url', globalSettings.aiBaseUrl);
+                      }
+                      if (globalSettings.fallbackModelId) {
+                        localStorage.setItem('ai_fallback_model_id', globalSettings.fallbackModelId);
+                      }
+                      if (globalSettings.fallbackApiKey) {
+                        localStorage.setItem('ai_fallback_api_key', globalSettings.fallbackApiKey);
+                      }
+                      refreshProviderConfig();
+                      toast.success(`Global AI Copilot settings updated! Active Provider: ${globalSettings.aiProvider || 'gemini'}`);
+                    }}
+                    className="px-6 py-3 bg-primary text-primary-foreground font-bold text-xs uppercase tracking-wider rounded-xl hover:opacity-90 active:scale-95 transition-all shadow-md flex items-center gap-2"
+                  >
+                    <Save size={16} /> Save AI & Global Config
+                  </button>
+                </div>
               </div>
 
               {/* Change Admin Password Section */}

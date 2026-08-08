@@ -304,9 +304,12 @@ const AIChat: React.FC = () => {
   const recognitionRef = useRef<any>(null);
 
   // Model selector state
-  const models = getModelRegistry().filter(m => m.capabilities.includes('chat'));
+  const models = getModelRegistry();
   const [selectedModelId, setSelectedModelId] = useState<string>(() => {
-    return localStorage.getItem('ai_preferred_model_id') || 'gemini-2.5-flash';
+    const saved = localStorage.getItem('ai_preferred_model_id');
+    const registry = getModelRegistry();
+    if (saved && registry.some(m => m.id === saved)) return saved;
+    return getDefaultModel().id;
   });
   const [showModelDropdown, setShowModelDropdown] = useState(false);
   const modelDropdownRef = useRef<HTMLDivElement>(null);
@@ -321,8 +324,14 @@ const AIChat: React.FC = () => {
   useEffect(() => {
     if (userPlan === 'standard') {
       setSelectedModelId('gemma-4-31b');
+    } else {
+      const defaultModelId = getDefaultModel().id;
+      const saved = localStorage.getItem('ai_preferred_model_id');
+      if (!saved || !models.some(m => m.id === saved)) {
+        setSelectedModelId(defaultModelId);
+      }
     }
-  }, [userPlan]);
+  }, [userPlan, models]);
 
   // Chat Mode Setting (Thinking vs Fast)
   const [chatMode, setChatMode] = useState<'thinking' | 'fast'>(() => {

@@ -103,19 +103,108 @@ const MODELS: ModelInfo[] = [
   },
 ];
 
+const NVIDIA_MODELS: ModelInfo[] = [
+  {
+    id: 'glm-5.2',
+    name: 'GLM 5.2 (NVIDIA NIM)',
+    category: 'text-out',
+    apiName: 'glm-5.2',
+    description: 'High performance GLM 5.2 model hosted on NVIDIA NIM infrastructure',
+    capabilities: ['text-generation', 'reasoning', 'chat'],
+    isDefault: true,
+    isAvailable: true,
+    supportedUseCases: ['chat', 'reasoning'],
+    temperature: DEFAULT_TEMPERATURE,
+    maxOutputTokens: DEFAULT_MAX_TOKENS,
+  },
+  {
+    id: 'thudm/glm-4-9b-chat',
+    name: 'GLM 4 9B Chat',
+    category: 'text-out',
+    apiName: 'thudm/glm-4-9b-chat',
+    description: 'Lightweight GLM 4 model for fast response chat',
+    capabilities: ['text-generation', 'chat'],
+    isDefault: false,
+    isAvailable: true,
+    supportedUseCases: ['fast-response', 'chat'],
+    temperature: 0.3,
+    maxOutputTokens: 2048,
+  },
+  {
+    id: 'deepseek-ai/deepseek-r1',
+    name: 'DeepSeek R1',
+    category: 'text-out',
+    apiName: 'deepseek-ai/deepseek-r1',
+    description: 'DeepSeek reasoning model hosted on NVIDIA NIM',
+    capabilities: ['text-generation', 'reasoning', 'chat'],
+    isDefault: false,
+    isAvailable: true,
+    supportedUseCases: ['reasoning', 'chat'],
+    temperature: 0.3,
+    maxOutputTokens: 4096,
+  },
+  {
+    id: 'meta/llama-3.3-70b-instruct',
+    name: 'Llama 3.3 70B Instruct',
+    category: 'text-out',
+    apiName: 'meta/llama-3.3-70b-instruct',
+    description: 'Meta Llama 3.3 70B Instruct model',
+    capabilities: ['text-generation', 'chat'],
+    isDefault: false,
+    isAvailable: true,
+    supportedUseCases: ['chat'],
+    temperature: 0.4,
+    maxOutputTokens: 2048,
+  },
+  {
+    id: 'mistralai/mistral-large-2-instruct',
+    name: 'Mistral Large 2',
+    category: 'text-out',
+    apiName: 'mistralai/mistral-large-2-instruct',
+    description: 'Mistral Large 2 Instruct model',
+    capabilities: ['text-generation', 'chat'],
+    isDefault: false,
+    isAvailable: true,
+    supportedUseCases: ['chat'],
+    temperature: 0.3,
+    maxOutputTokens: 2048,
+  },
+];
+
 let modelRegistry: ModelInfo[] = [...MODELS];
 
 export const getModelRegistry = (): ModelInfo[] => {
+  const provider = localStorage.getItem('ai_provider') || 'gemini';
+  if (provider === 'nvidia') {
+    return NVIDIA_MODELS;
+  }
   return modelRegistry;
 };
 
 export const getModelById = (modelId: string): ModelInfo | undefined => {
-  return modelRegistry.find(m => m.id === modelId);
+  const registry = getModelRegistry();
+  return registry.find(m => m.id === modelId) || {
+    id: modelId,
+    name: modelId,
+    category: 'text-out',
+    apiName: modelId,
+    description: modelId,
+    capabilities: ['text-generation', 'chat'],
+    isDefault: false,
+    isAvailable: true,
+    supportedUseCases: ['chat'],
+  };
 };
 
 export const getDefaultModel = (): ModelInfo => {
-  const defaultModel = modelRegistry.find(m => m.isDefault);
-  return defaultModel || modelRegistry[0];
+  const registry = getModelRegistry();
+  const configuredDefaultId = localStorage.getItem('ai_fallback_model_id');
+  if (configuredDefaultId) {
+    const found = registry.find(m => m.id === configuredDefaultId);
+    if (found) return found;
+  }
+  const defaultModel = registry.find(m => m.isDefault);
+  return defaultModel || registry[0];
 };
 
 export const getModelsByCategory = (category: string): ModelInfo[] => {

@@ -311,7 +311,17 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       if (loadedConfig) {
         setConfig(loadedConfig);
         setShowAnnouncement(true);
+        if (loadedConfig.aiProvider) {
+          localStorage.setItem('ai_provider', loadedConfig.aiProvider);
+        }
+        if (loadedConfig.aiBaseUrl) {
+          localStorage.setItem('ai_base_url', loadedConfig.aiBaseUrl);
+        }
+        if (loadedConfig.fallbackModelId) {
+          localStorage.setItem('ai_fallback_model_id', loadedConfig.fallbackModelId);
+        }
         if (loadedConfig.fallbackApiKey) {
+          localStorage.setItem('ai_fallback_api_key', loadedConfig.fallbackApiKey);
           localStorage.setItem('fallback_gemini_api_key', loadedConfig.fallbackApiKey);
         }
       }

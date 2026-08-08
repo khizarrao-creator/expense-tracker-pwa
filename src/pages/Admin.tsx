@@ -2424,21 +2424,45 @@ const Admin: React.FC = () => {
                 <div className="pt-2">
                   <button
                     type="button"
-                    onClick={() => {
-                      if (globalSettings.aiProvider) {
-                        localStorage.setItem('ai_provider', globalSettings.aiProvider);
+                    onClick={async () => {
+                      try {
+                        const provider = globalSettings.aiProvider || 'gemini';
+                        const baseUrl = globalSettings.aiBaseUrl || (provider === 'nvidia' ? 'https://integrate.api.nvidia.com/v1' : '');
+                        const modelId = globalSettings.fallbackModelId || (provider === 'nvidia' ? 'glm-5.2' : 'gemini-2.5-flash');
+
+                        localStorage.setItem('ai_provider', provider);
+                        if (baseUrl) localStorage.setItem('ai_base_url', baseUrl);
+                        localStorage.setItem('ai_fallback_model_id', modelId);
+                        localStorage.removeItem('ai_preferred_model_id'); // Clear override so default NVIDIA model takes effect
+                        if (globalSettings.fallbackApiKey) {
+                          localStorage.setItem('ai_fallback_api_key', globalSettings.fallbackApiKey);
+                          localStorage.setItem('fallback_gemini_api_key', globalSettings.fallbackApiKey);
+                        }
+
+                        if (isSupabaseConfigured) {
+                          const keysToSave = [
+                            { key: 'aiProvider', value: provider },
+                            { key: 'aiBaseUrl', value: baseUrl },
+                            { key: 'fallbackModelId', value: modelId },
+                            { key: 'fallbackApiKey', value: globalSettings.fallbackApiKey || '' },
+                            { key: 'globalSystemInstruction', value: globalSettings.globalSystemInstruction || '' },
+                            { key: 'tldrawLicenseKey', value: globalSettings.tldrawLicenseKey || '' },
+                            { key: 'announcement', value: globalSettings.announcement || '' },
+                            { key: 'emergencyMessage', value: globalSettings.emergencyMessage || '' },
+                            { key: 'version', value: globalSettings.version || '1.0.0' },
+                          ];
+
+                          for (const item of keysToSave) {
+                            await supabase.from('app_config').upsert(item, { onConflict: 'key' });
+                          }
+                        }
+
+                        refreshProviderConfig();
+                        toast.success(`Global AI Copilot settings saved! Active Provider: ${provider.toUpperCase()}`);
+                      } catch (err: any) {
+                        console.error('Failed to save settings:', err);
+                        toast.error(`Save failed: ${err.message || 'Unknown error'}`);
                       }
-                      if (globalSettings.aiBaseUrl) {
-                        localStorage.setItem('ai_base_url', globalSettings.aiBaseUrl);
-                      }
-                      if (globalSettings.fallbackModelId) {
-                        localStorage.setItem('ai_fallback_model_id', globalSettings.fallbackModelId);
-                      }
-                      if (globalSettings.fallbackApiKey) {
-                        localStorage.setItem('ai_fallback_api_key', globalSettings.fallbackApiKey);
-                      }
-                      refreshProviderConfig();
-                      toast.success(`Global AI Copilot settings updated! Active Provider: ${globalSettings.aiProvider || 'gemini'}`);
                     }}
                     className="px-6 py-3 bg-primary text-primary-foreground font-bold text-xs uppercase tracking-wider rounded-xl hover:opacity-90 active:scale-95 transition-all shadow-md flex items-center gap-2"
                   >

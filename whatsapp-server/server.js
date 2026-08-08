@@ -1353,9 +1353,15 @@ const sendAdminWhatsAppAlert = async (message) => {
 app.post('/api/ai/chat', verifyFirebaseToken, aiRateLimit, async (req, res) => {
   const { modelId, provider, baseUrl, ...geminiPayload } = req.body;
   
+  // Clean payload for Gemini REST API (strips non-Gemini properties)
+  delete geminiPayload.provider;
+  delete geminiPayload.baseUrl;
+  delete geminiPayload.modelId;
+
   // Use default model if not provided
   const model = modelId || 'gemini-2.5-flash';
-  
+  const cleanModel = model.toLowerCase();
+
   // Use user-provided API key if available and valid for provider, otherwise fall back to system key
   const userApiKey = req.headers['x-user-api-key'];
   
@@ -1364,11 +1370,12 @@ app.post('/api/ai/chat', verifyFirebaseToken, aiRateLimit, async (req, res) => {
     provider === 'nvidia' || 
     provider === 'openai' || 
     provider === 'custom' ||
-    model.includes('glm') || 
-    model.includes('deepseek') || 
-    model.includes('llama') || 
-    model.includes('nvdev') || 
-    model.includes('zhipu') ||
+    cleanModel.includes('glm') || 
+    cleanModel.includes('deepseek') || 
+    cleanModel.includes('llama') || 
+    cleanModel.includes('nvdev') || 
+    cleanModel.includes('zhipu') ||
+    cleanModel.includes('mistral') ||
     (userApiKey && userApiKey.startsWith('nvapi-'));
 
   let apiKey = userApiKey;

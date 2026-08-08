@@ -104,13 +104,11 @@ const WhatsApp: React.FC = () => {
     }
   };
 
-  // Load contacts when active account changes or connects
+  // Load contacts when active account connects
   const fetchContacts = useCallback(async () => {
-    if (activeAccount.status !== 'connected' && activeAccount.status !== 'reconnecting') {
-      setContacts([]);
+    if (activeAccount.status !== 'connected') {
       return;
     }
-    if (activeAccount.status === 'reconnecting') return; // keep existing contacts visible
     setLoadingContacts(true);
     const list = await getWhatsAppContacts(activeAccountId);
     setContacts(list);
@@ -578,22 +576,18 @@ const WhatsApp: React.FC = () => {
 
               {/* Contacts List */}
               <div className="flex-1 overflow-y-auto p-2 space-y-1">
+                {activeAccount.status !== 'connected' && (
+                  <div className="p-2 mb-2 bg-amber-500/10 border border-amber-500/20 rounded-xl text-center">
+                    <span className="text-[10px] text-amber-500 font-bold flex items-center justify-center gap-1">
+                      <WifiOff size={12} /> WhatsApp Offline — Connect in Settings
+                    </span>
+                  </div>
+                )}
+
                 {loadingContacts ? (
                   <div className="flex flex-col items-center justify-center h-48 gap-2">
                     <Loader2 className="animate-spin text-muted-foreground" size={20} />
                     <span className="text-[10px] text-muted-foreground uppercase font-bold tracking-wider">Loading contacts...</span>
-                  </div>
-                ) : activeAccount.status !== 'connected' ? (
-                  <div className="flex flex-col items-center justify-center p-6 text-center h-full space-y-3">
-                    <div className="p-3 bg-muted rounded-full text-muted-foreground">
-                      <WifiOff size={24} />
-                    </div>
-                    <div>
-                      <h4 className="font-bold text-xs">Account Offline</h4>
-                      <p className="text-[10px] text-muted-foreground leading-relaxed mt-1">
-                        Please go to the <b>Settings</b> tab to initialize and scan the QR code to load contacts.
-                      </p>
-                    </div>
                   </div>
                 ) : filteredContacts.length === 0 ? (
                   <div className="text-center py-12 text-xs text-muted-foreground uppercase font-bold tracking-wider">

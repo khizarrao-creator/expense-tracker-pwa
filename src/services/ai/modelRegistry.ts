@@ -105,13 +105,26 @@ const MODELS: ModelInfo[] = [
 
 const NVIDIA_MODELS: ModelInfo[] = [
   {
+    id: 'openai/gpt-oss-120b',
+    name: 'GPT OSS 120B',
+    category: 'text-out',
+    apiName: 'openai/gpt-oss-120b',
+    description: 'High-capacity GPT OSS 120B model hosted on NVIDIA NIM infrastructure',
+    capabilities: ['text-generation', 'reasoning', 'chat'],
+    isDefault: true,
+    isAvailable: true,
+    supportedUseCases: ['chat', 'reasoning'],
+    temperature: DEFAULT_TEMPERATURE,
+    maxOutputTokens: DEFAULT_MAX_TOKENS,
+  },
+  {
     id: 'glm-5.2',
     name: 'GLM 5.2 (NVIDIA NIM)',
     category: 'text-out',
     apiName: 'z-ai/glm-5.2',
     description: 'High performance GLM 5.2 model hosted on NVIDIA NIM infrastructure',
     capabilities: ['text-generation', 'reasoning', 'chat'],
-    isDefault: true,
+    isDefault: false,
     isAvailable: true,
     supportedUseCases: ['chat', 'reasoning'],
     temperature: DEFAULT_TEMPERATURE,

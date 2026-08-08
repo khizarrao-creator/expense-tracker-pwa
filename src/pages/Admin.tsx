@@ -2336,15 +2336,14 @@ const Admin: React.FC = () => {
                       value={globalSettings.aiProvider || 'gemini'}
                       onChange={(e) => {
                         const val = e.target.value;
-                        const defaultUrl = val === 'nvidia' ? 'https://integrate.api.nvidia.com/v1' : val === 'openai' ? 'https://api.openai.com/v1' : '';
-                        const defaultModel = val === 'nvidia' ? 'glm-5.2' : val === 'openai' ? 'gpt-4o-mini' : 'gemini-2.5-flash';
+                        const defaultUrl = val === 'nvidia' ? 'https://integrate.api.nvidia.com/v1' : '';
+                        const defaultModel = val === 'nvidia' ? 'openai/gpt-oss-120b' : 'gemini-2.5-flash';
                         setGlobalSettings({ ...globalSettings, aiProvider: val as any, aiBaseUrl: defaultUrl, fallbackModelId: defaultModel });
                       }}
                       className="w-full bg-muted border-none rounded-xl p-3 outline-none focus:ring-2 focus:ring-primary text-xs font-bold text-foreground cursor-pointer"
                     >
                       <option value="gemini">Google Gemini (Default)</option>
-                      <option value="nvidia">NVIDIA NIM (GLM 5.2 / DeepSeek / Llama)</option>
-                      <option value="openai">OpenAI / Compatible Endpoint</option>
+                      <option value="nvidia">NVIDIA NIM (GPT OSS 120B / GLM 5.2 / DeepSeek / Llama)</option>
                     </select>
                   </div>
 
@@ -2367,7 +2366,7 @@ const Admin: React.FC = () => {
                       type="password"
                       value={globalSettings.fallbackApiKey || ''}
                       onChange={(e) => setGlobalSettings({ ...globalSettings, fallbackApiKey: e.target.value })}
-                      placeholder={globalSettings.fallbackApiKey ? '••••••••••••••••••••••••' : 'Enter NVIDIA / Gemini / OpenAI API key'}
+                      placeholder={globalSettings.fallbackApiKey ? '••••••••••••••••••••••••' : 'Enter NVIDIA / Gemini API key'}
                       className="w-full bg-muted border-none rounded-xl p-3 outline-none focus:ring-2 focus:ring-primary text-xs font-semibold"
                     />
                   </div>
@@ -2375,10 +2374,11 @@ const Admin: React.FC = () => {
                     <label className="text-[10px] font-bold uppercase text-muted-foreground ml-1">Default Model ID</label>
                     {globalSettings.aiProvider === 'nvidia' ? (
                       <select
-                        value={globalSettings.fallbackModelId || 'glm-5.2'}
+                        value={globalSettings.fallbackModelId || 'openai/gpt-oss-120b'}
                         onChange={(e) => setGlobalSettings({ ...globalSettings, fallbackModelId: e.target.value })}
                         className="w-full bg-muted border-none rounded-xl p-3 outline-none focus:ring-2 focus:ring-primary text-xs font-bold text-foreground cursor-pointer"
                       >
+                        <option value="openai/gpt-oss-120b">GPT OSS 120B (Default)</option>
                         <option value="glm-5.2">GLM 5.2 (NVIDIA NIM)</option>
                         <option value="thudm/glm-4-9b-chat">GLM 4 9B Chat</option>
                         <option value="deepseek-ai/deepseek-r1">DeepSeek R1</option>
@@ -2390,7 +2390,7 @@ const Admin: React.FC = () => {
                         type="text"
                         value={globalSettings.fallbackModelId || 'gemini-2.5-flash'}
                         onChange={(e) => setGlobalSettings({ ...globalSettings, fallbackModelId: e.target.value })}
-                        placeholder="e.g. gemini-2.5-flash, glm-5.2, gpt-4o-mini"
+                        placeholder="e.g. gemini-2.5-flash, openai/gpt-oss-120b"
                         className="w-full bg-muted border-none rounded-xl p-3 outline-none focus:ring-2 focus:ring-primary text-xs font-semibold"
                       />
                     )}
@@ -2429,7 +2429,7 @@ const Admin: React.FC = () => {
                       try {
                         const provider = globalSettings.aiProvider || 'gemini';
                         const baseUrl = globalSettings.aiBaseUrl || (provider === 'nvidia' ? 'https://integrate.api.nvidia.com/v1' : '');
-                        const modelId = globalSettings.fallbackModelId || (provider === 'nvidia' ? 'glm-5.2' : 'gemini-2.5-flash');
+                        const modelId = globalSettings.fallbackModelId || (provider === 'nvidia' ? 'openai/gpt-oss-120b' : 'gemini-2.5-flash');
 
                         localStorage.setItem('ai_provider', provider);
                         if (baseUrl) localStorage.setItem('ai_base_url', baseUrl);

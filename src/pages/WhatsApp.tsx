@@ -404,8 +404,37 @@ const WhatsApp: React.FC = () => {
     }
   };
 
+  // Combine WhatsApp synced contacts + Ledger Counterparties so saved counterparties appear automatically
+  const allAvailableContacts = React.useMemo(() => {
+    const map = new Map<string, WhatsAppContact>();
+
+    // 1. Add WhatsApp API synced contacts
+    contacts.forEach(c => {
+      const cleanPhone = c.phone.replace(/\D/g, '');
+      if (cleanPhone) {
+        map.set(cleanPhone, c);
+      }
+    });
+
+    // 2. Include Ledger Counterparties with phone numbers
+    ledgerParties.forEach(party => {
+      if (party.phone) {
+        const cleanPhone = party.phone.replace(/\D/g, '');
+        if (cleanPhone && !map.has(cleanPhone)) {
+          map.set(cleanPhone, {
+            jid: `${cleanPhone}@s.whatsapp.net`,
+            name: party.name,
+            phone: cleanPhone
+          });
+        }
+      }
+    });
+
+    return Array.from(map.values());
+  }, [contacts, ledgerParties]);
+
   // Filter contacts
-  const filteredContacts = contacts.filter(c => 
+  const filteredContacts = allAvailableContacts.filter(c => 
     c.name.toLowerCase().includes(searchQuery.toLowerCase()) || 
     c.phone.includes(searchQuery)
   );

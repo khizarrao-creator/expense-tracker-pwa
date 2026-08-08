@@ -810,10 +810,16 @@ export const sendToGemini = async (
       const provider = localStorage.getItem('ai_provider') || 'gemini';
       const baseUrl = localStorage.getItem('ai_base_url') || '';
 
+      const payload: any = { ...body };
+      if (provider !== 'gemini') {
+        payload.provider = provider;
+        payload.baseUrl = baseUrl;
+      }
+
       const response = await fetch(getApiUrl('/api/ai/chat'), {
         method: 'POST',
         headers,
-        body: JSON.stringify({ ...body, provider, baseUrl }),
+        body: JSON.stringify(payload),
       });
 
       if (!response.ok) {
@@ -1052,10 +1058,16 @@ export const sendToGeminiStream = async (
       const provider = localStorage.getItem('ai_provider') || 'gemini';
       const baseUrl = localStorage.getItem('ai_base_url') || '';
 
+      const payload: any = { ...body };
+      if (provider !== 'gemini') {
+        payload.provider = provider;
+        payload.baseUrl = baseUrl;
+      }
+
       const response = await fetch(getApiUrl('/api/ai/chat'), {
         method: 'POST',
         headers,
-        body: JSON.stringify({ ...body, provider, baseUrl }),
+        body: JSON.stringify(payload),
       });
 
       if (!response.ok) {

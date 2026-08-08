@@ -110,7 +110,15 @@ const executeWithModel = async (
 
     if (!response.ok) {
       const errJson = await response.json().catch(() => ({}));
-      const errorMsg = errJson?.error || `AI proxy error: ${response.status}`;
+      let errorMsg = errJson?.error || `AI proxy error: ${response.status}`;
+      if (
+        errorMsg.includes('invalid authentication credentials') ||
+        errorMsg.includes('OAuth 2') ||
+        errorMsg.includes('API_KEY_INVALID') ||
+        errorMsg.includes('API key not valid')
+      ) {
+        errorMsg = 'Invalid Gemini API key. Google Gemini API keys from Google AI Studio start with "AIzaSy...". Please update your API key in Settings or click the Key icon in AI Copilot.';
+      }
 
       if (response.status === 404 || response.status === 403) {
         markModelUnavailable(model.id);

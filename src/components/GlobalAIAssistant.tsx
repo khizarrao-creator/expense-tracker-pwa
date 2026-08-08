@@ -15,7 +15,7 @@ import {
   loadSession, saveMessage, clearSession, sendToGeminiStream,
   type ChatMessage
 } from '../services/aiChatService';
-import { getModelRegistry, getModelById, getApiKey } from '../services/ai';
+import { getModelRegistry, getModelById, getDefaultModel, getApiKey } from '../services/ai';
 import { uploadToCloudinary } from '../services/cloudinaryService';
 import {
   getWhatsAppStatus,

@@ -1,4 +1,6 @@
 import React, { createContext, useContext, useEffect, useState } from 'react';
+import { db } from '../firebase';
+import { doc, getDoc } from 'firebase/firestore';
 import { supabase, isSupabaseConfigured } from '../supabase';
 import { toast } from 'sonner';
 import { ShieldAlert, Info, X, AlertTriangle } from 'lucide-react';
@@ -192,8 +194,9 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
   }, []);
 
   // Load User details and notifications from Supabase
+  // Load User details and notifications
   useEffect(() => {
-    if (!user || !isSupabaseConfigured) {
+    if (!user) {
       setIsPro(false);
       setIsBanned(false);
       setDisabledFeatures([]);
@@ -203,75 +206,113 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     }
 
     const loadUser = async () => {
-      const { data } = await supabase.from('users').select('*').eq('id', user.uid).maybeSingle();
-      if (data) {
-        const planName = data.plan || (data.is_pro ? 'pro' : 'standard');
-        setUserPlan(planName);
-        setIsPro(planName !== 'standard' || !!data.is_pro);
-        setIsBanned(!!data.is_banned);
-        setDisabledFeatures(data.disabled_features || []);
+      if (isSupabaseConfigured) {
+        const { data } = await supabase.from('users').select('*').eq('id', user.uid).maybeSingle();
+        if (data) {
+          const planName = data.plan || (data.is_pro ? 'pro' : 'standard');
+          setUserPlan(planName);
+          setIsPro(planName !== 'standard' || !!data.is_pro);
+          setIsBanned(!!data.is_banned);
+          setDisabledFeatures(data.disabled_features || []);
 
-        if (data.plan_expires_at) {
-          const expiresDate = new Date(data.plan_expires_at);
-          setPlanExpiresAt(expiresDate);
-          if (expiresDate < new Date() && planName !== 'standard') {
-            await supabase.from('users').update({
-              plan: 'standard',
-              is_pro: false,
-              plan_expires_at: null,
-              plan_assigned_by: 'expiry_daemon'
-            }).eq('id', user.uid);
+          if (data.plan_expires_at) {
+            const expiresDate = new Date(data.plan_expires_at);
+            setPlanExpiresAt(expiresDate);
+            if (expiresDate < new Date() && planName !== 'standard') {
+              await supabase.from('users').update({
+                plan: 'standard',
+                is_pro: false,
+                plan_expires_at: null,
+                plan_assigned_by: 'expiry_daemon'
+              }).eq('id', user.uid);
+            }
+          } else {
+            setPlanExpiresAt(null);
           }
-        } else {
-          setPlanExpiresAt(null);
+        }
+      } else if (db) {
+        try {
+          const userDoc = await getDoc(doc(db, 'registered_users', user.uid));
+          if (userDoc.exists()) {
+            const data = userDoc.data();
+            const planName = data.plan || (data.isPro ? 'pro' : 'standard');
+            setUserPlan(planName);
+            setIsPro(planName !== 'standard' || !!data.isPro);
+            setIsBanned(!!data.isBanned);
+            setDisabledFeatures(data.disabledFeatures || []);
+
+            if (data.planExpiresAt) {
+              setPlanExpiresAt(new Date(data.planExpiresAt));
+            } else {
+              setPlanExpiresAt(null);
+            }
+          }
+        } catch (e) {
+          console.warn('[AppContext] Firestore loadUser error:', e);
         }
       }
     };
 
     loadUser();
 
-    // Listeners for user notifications and broadcasts
-    const notifSub = supabase
-      .channel(`user-notifs-${user.uid}`)
-      .on(
-        'postgres_changes',
-        { event: 'INSERT', schema: 'public', table: 'notifications', filter: `user_id=eq.${user.uid}` },
-        (payload: any) => {
-          if (payload.new && !payload.new.read) {
-            toast.info(payload.new.message || 'New notification', { duration: 8000 });
+    if (isSupabaseConfigured) {
+      // Listeners for user notifications and broadcasts
+      const notifSub = supabase
+        .channel(`user-notifs-${user.uid}`)
+        .on(
+          'postgres_changes',
+          { event: 'INSERT', schema: 'public', table: 'notifications', filter: `user_id=eq.${user.uid}` },
+          (payload: any) => {
+            if (payload.new && !payload.new.read) {
+              toast.info(payload.new.message || 'New notification', { duration: 8000 });
+            }
           }
-        }
-      )
-      .on(
-        'postgres_changes',
-        { event: 'INSERT', schema: 'public', table: 'broadcast_notifications' },
-        (payload: any) => {
-          if (payload.new) {
-            toast.success(`📢 BROADCAST: ${payload.new.message}`, { duration: 10000 });
+        )
+        .on(
+          'postgres_changes',
+          { event: 'INSERT', schema: 'public', table: 'broadcast_notifications' },
+          (payload: any) => {
+            if (payload.new) {
+              toast.success(`📢 BROADCAST: ${payload.new.message}`, { duration: 10000 });
+            }
           }
-        }
-      )
-      .subscribe();
+        )
+        .subscribe();
 
-    return () => { supabase.removeChannel(notifSub); };
+      return () => { supabase.removeChannel(notifSub); };
+    }
   }, [user]);
 
   // Load global app config
   useEffect(() => {
-    if (!isSupabaseConfigured) {
-      setIsLoading(false);
-      return;
-    }
-
     const loadGlobalConfig = async () => {
-      const { data } = await supabase.from('app_config').select('*');
-      if (data) {
-        const newConfig: any = { ...config };
-        data.forEach((row: any) => {
-          newConfig[row.key] = row.value;
-        });
-        setConfig(newConfig);
+      let loadedConfig: any = null;
+      if (isSupabaseConfigured) {
+        const { data } = await supabase.from('app_config').select('*');
+        if (data) {
+          const newConfig: any = { ...config };
+          data.forEach((row: any) => {
+            newConfig[row.key] = row.value;
+          });
+          loadedConfig = newConfig;
+        }
+      } else if (db) {
+        try {
+          const settingsDoc = await getDoc(doc(db, 'system', 'global_config'));
+          if (settingsDoc.exists()) {
+            loadedConfig = { ...config, ...(settingsDoc.data() as GlobalConfig) };
+          }
+        } catch (e) {
+          console.warn('[AppContext] Firestore loadGlobalConfig error:', e);
+        }
+      }
+
+      if (loadedConfig) {
+        setConfig(loadedConfig);
         setShowAnnouncement(true);
+        if (loadedConfig.fallbackApiKey) {
+          localStorage.setItem('fallback_gemini_api_key', loadedConfig.fallbackApiKey);
+        }
       }
       setIsLoading(false);
     };

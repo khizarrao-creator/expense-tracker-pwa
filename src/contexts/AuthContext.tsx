@@ -8,10 +8,12 @@ import {
   signOut as firebaseSignOut
 } from 'firebase/auth';
 import type { User } from 'firebase/auth';
-import { auth } from '../firebase';
+import { auth, db } from '../firebase';
+import { doc, getDoc, setDoc, serverTimestamp } from 'firebase/firestore';
 import { syncManager } from '../db/SyncManager';
 import { clearDB } from '../db/sqlite';
 import { supabase, isSupabaseConfigured } from '../supabase';
+import { saveCustomApiKey } from '../services/ai/provider';
 
 import { userMigrationSyncManager } from '../services/UserMigrationSyncManager';
 import { toast } from 'sonner';
@@ -144,73 +146,114 @@ export const AuthProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
     const unsubscribe = onAuthStateChanged(auth, async (currentUser) => {
       setUser(currentUser);
 
-      if (currentUser && isSupabaseConfigured) {
-        // 1. Fetch initial user profile from Supabase
-        const { data: userProfile } = await supabase
-          .from('users')
-          .select('is_pro, plan')
-          .eq('id', currentUser.uid)
-          .maybeSingle();
+      if (currentUser) {
+        if (isSupabaseConfigured) {
+          // 1. Fetch initial user profile from Supabase
+          const { data: userProfile } = await supabase
+            .from('users')
+            .select('is_pro, plan, gemini_api_key')
+            .eq('id', currentUser.uid)
+            .maybeSingle();
 
-        if (userProfile) {
-          setIsPro(userProfile.is_pro || userProfile.plan !== 'standard');
+          if (userProfile) {
+            setIsPro(userProfile.is_pro || userProfile.plan !== 'standard');
+            if (userProfile.gemini_api_key) {
+              saveCustomApiKey(userProfile.gemini_api_key);
+            }
+          }
+
+          // Realtime subscription for user profile changes
+          userSubscription = supabase
+            .channel(`user-profile-${currentUser.uid}`)
+            .on(
+              'postgres_changes',
+              {
+                event: '*',
+                schema: 'public',
+                table: 'users',
+                filter: `id=eq.${currentUser.uid}`,
+              },
+              (payload: any) => {
+                if (payload.new) {
+                  setIsPro(payload.new.is_pro || payload.new.plan !== 'standard');
+                  if (payload.new.gemini_api_key) {
+                    saveCustomApiKey(payload.new.gemini_api_key);
+                  }
+                }
+              }
+            )
+            .subscribe();
+
+          // 2. Register/Update user info in Supabase users table
+          try {
+            let ip = 'Unknown';
+            try {
+              const response = await fetch('https://api.ipify.org?format=json');
+              const data = await response.json();
+              ip = data.ip;
+            } catch (e) { }
+
+            const userPayload = {
+              id: currentUser.uid,
+              email: currentUser.email || '',
+              display_name: currentUser.displayName || null,
+              photo_url: currentUser.photoURL || null,
+              last_login: new Date().toISOString(),
+              last_ip: ip,
+              updated_at: new Date().toISOString()
+            };
+            const { error } = await supabase.from('users').upsert(userPayload, { onConflict: 'id' });
+            if (error && error.code === '23503') {
+              await supabase.from('plans').upsert({
+                id: 'standard',
+                name: 'Standard',
+                price: 0,
+                currency: 'PKR',
+                billing_cycle: 'forever',
+                features: ['transactions', 'accounts', 'categories', 'dashboard', 'goals', 'reminders', 'calculator', 'converter', 'tasks', 'loans', 'events', 'fuel', 'reports', 'subscriptions', 'projects'],
+                limits: { aiCallsPerDay: 0, maxTransactions: 10000, maxUploadsPerDay: 0 },
+                badge_icon: 'shield',
+                badge_color: '#6B7280',
+                display_order: 1
+              }, { onConflict: 'id' });
+              await supabase.from('users').upsert(userPayload, { onConflict: 'id' });
+            }
+          } catch (e) {
+            console.warn('Failed to register user in directory:', e);
+          }
         }
 
-        // Realtime subscription for user profile changes
-        userSubscription = supabase
-          .channel(`user-profile-${currentUser.uid}`)
-          .on(
-            'postgres_changes',
-            {
-              event: '*',
-              schema: 'public',
-              table: 'users',
-              filter: `id=eq.${currentUser.uid}`,
-            },
-            (payload: any) => {
-              if (payload.new) {
-                setIsPro(payload.new.is_pro || payload.new.plan !== 'standard');
+        if (db) {
+          try {
+            const userRef = doc(db, 'registered_users', currentUser.uid);
+            const userDoc = await getDoc(userRef);
+            if (userDoc.exists()) {
+              const data = userDoc.data();
+              setIsPro(!!data.isPro || data.plan !== 'standard');
+              if (data.geminiApiKey) {
+                saveCustomApiKey(data.geminiApiKey);
               }
             }
-          )
-          .subscribe();
 
-        // 2. Register/Update user info in Supabase users table
-        try {
-          let ip = 'Unknown';
-          try {
-            const response = await fetch('https://api.ipify.org?format=json');
-            const data = await response.json();
-            ip = data.ip;
-          } catch (e) { }
+            let ip = 'Unknown';
+            try {
+              const response = await fetch('https://api.ipify.org?format=json');
+              const data = await response.json();
+              ip = data.ip;
+            } catch (e) { }
 
-          const userPayload = {
-            id: currentUser.uid,
-            email: currentUser.email || '',
-            display_name: currentUser.displayName || null,
-            photo_url: currentUser.photoURL || null,
-            last_login: new Date().toISOString(),
-            last_ip: ip,
-            updated_at: new Date().toISOString()
-          };
-          const { error } = await supabase.from('users').upsert(userPayload, { onConflict: 'id' });
-          if (error && error.code === '23503') {
-            await supabase.from('plans').upsert({
-              id: 'standard',
-              name: 'Standard',
-              price: 0,
-              currency: 'PKR',
-              billing_cycle: 'forever',
-              features: ['transactions', 'accounts', 'categories', 'dashboard', 'goals', 'reminders', 'calculator', 'converter', 'tasks', 'loans', 'events', 'fuel', 'reports', 'subscriptions', 'projects'],
-              limits: { aiCallsPerDay: 0, maxTransactions: 10000, maxUploadsPerDay: 0 },
-              badge_icon: 'shield',
-              badge_color: '#6B7280',
-              display_order: 1
-            }, { onConflict: 'id' });
-            await supabase.from('users').upsert(userPayload, { onConflict: 'id' });
+            await setDoc(userRef, {
+              email: currentUser.email || '',
+              displayName: currentUser.displayName || currentUser.email || '',
+              photoURL: currentUser.photoURL || null,
+              lastLoginServer: serverTimestamp(),
+              lastLogin: new Date().toISOString(),
+              lastIP: ip,
+              updatedAt: new Date().toISOString()
+            }, { merge: true });
+          } catch (e) {
+            console.warn('[AuthContext] Firestore profile fetch error:', e);
           }
-        } catch (e) {
-          console.warn('Failed to register user in directory:', e);
         }
       } else {
         setIsPro(false);

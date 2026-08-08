@@ -76,6 +76,8 @@ ChartJS.register(
   Legend,
   ArcElement
 );
+import { db } from '../firebase';
+import { collection, getDocs, doc, getDoc, setDoc, query, orderBy, limit } from 'firebase/firestore';
 import { supabase, isSupabaseConfigured } from '../supabase';
 import { getWhatsAppStatus } from '../services/whatsappService';
 import { toast } from 'sonner';
@@ -111,6 +113,7 @@ interface UserProfile {
   email: string;
   displayName?: string;
   lastLogin: string;
+  lastLoginServer?: any;
   photoURL?: string;
   isPro?: boolean;
   isBanned?: boolean;
@@ -125,6 +128,17 @@ interface UserProfile {
   planExpiresAt?: any;
   geminiApiKey?: string;
 }
+
+const formatUserDate = (dateVal: any, fmt: string = 'MMM dd, hh:mm a'): string => {
+  if (!dateVal) return 'Never';
+  try {
+    const d = dateVal?.toDate ? dateVal.toDate() : new Date(dateVal);
+    if (isNaN(d.getTime())) return 'Never';
+    return format(d, fmt);
+  } catch {
+    return 'Never';
+  }
+};
 
 interface AdminLog {
   id: string;
@@ -788,6 +802,40 @@ const Admin: React.FC = () => {
           });
           setPlansConfigLocal(plansMap);
         }
+      } else if (db) {
+        // Fetch Users from Firestore
+        try {
+          const usersSnap = await getDocs(collection(db, 'registered_users'));
+          const usersList = usersSnap.docs.map(docSnap => ({ id: docSnap.id, ...docSnap.data() } as UserProfile));
+          setUsers(usersList);
+        } catch (e) {
+          console.warn('[Admin] Firestore users fetch warning:', e);
+        }
+
+        // Fetch Global Settings from Firestore
+        try {
+          const settingsDoc = await getDoc(doc(db, 'system', 'global_config'));
+          if (settingsDoc.exists()) {
+            const data = settingsDoc.data() as GlobalConfig;
+            if (!data.exchanges) {
+              data.exchanges = [{ id: 'mexc', name: 'MEXC Global', logoUrl: '', enabled: true }];
+            }
+            setGlobalSettings(data);
+            setInitialSettings(data);
+          }
+        } catch (e) { }
+
+        // Fetch Logs from Firestore
+        try {
+          const logsSnap = await getDocs(query(collection(db, 'admin_logs'), orderBy('timestamp', 'desc'), limit(50)));
+          setAdminLogs(logsSnap.docs.map(docSnap => ({ id: docSnap.id, ...docSnap.data() } as AdminLog)));
+        } catch (e) { }
+
+        // Fetch Payment Requests from Firestore
+        try {
+          const paymentsSnap = await getDocs(query(collection(db, 'payment_requests'), orderBy('submittedAt', 'desc')));
+          setPaymentRequests(paymentsSnap.docs.map(docSnap => ({ id: docSnap.id, ...docSnap.data() }) as any));
+        } catch (e) { }
       }
     } catch (error) {
       console.error('Admin fetch error:', error);
@@ -800,33 +848,49 @@ const Admin: React.FC = () => {
   // ── PAYMENTS & PLANS CONFIGURATION HANDLERS ──────────────────────────────
 
   const handleApproveRequest = async () => {
-    if (!selectedRequest || !isSupabaseConfigured) return;
+    if (!selectedRequest) return;
     setIsLoading(true);
     try {
       const expiry = new Date(customExpiryDate).toISOString();
 
-      await supabase.from('payment_requests').update({
-        status: 'approved',
-        verified_at: new Date().toISOString()
-      }).eq('id', selectedRequest.id);
+      if (db) {
+        await setDoc(doc(db, 'payment_requests', selectedRequest.id), {
+          status: 'approved',
+          verifiedAt: new Date().toISOString()
+        }, { merge: true });
 
-      await supabase.from('users').update({
-        plan: selectedRequest.selectedPlan,
-        is_pro: selectedRequest.selectedPlan !== 'standard',
-        plan_expires_at: expiry,
-        plan_assigned_by: adminUsername || 'admin'
-      }).eq('id', selectedRequest.userId);
+        await setDoc(doc(db, 'registered_users', selectedRequest.userId), {
+          plan: selectedRequest.selectedPlan,
+          isPro: selectedRequest.selectedPlan !== 'standard',
+          planExpiresAt: expiry,
+          planAssignedBy: adminUsername || 'admin'
+        }, { merge: true });
+      }
 
-      await supabase.from('notifications').insert({
-        user_id: selectedRequest.userId,
-        message: `Your payment has been verified! The ${selectedRequest.selectedPlan.toUpperCase()} plan is now active.`
-      });
+      if (isSupabaseConfigured) {
+        await supabase.from('payment_requests').update({
+          status: 'approved',
+          verified_at: new Date().toISOString()
+        }).eq('id', selectedRequest.id);
 
-      await supabase.from('admin_logs').insert({
-        action: 'Approve Payment',
-        admin: adminUsername || 'admin',
-        details: { requestId: selectedRequest.id, userId: selectedRequest.userId, plan: selectedRequest.selectedPlan }
-      });
+        await supabase.from('users').update({
+          plan: selectedRequest.selectedPlan,
+          is_pro: selectedRequest.selectedPlan !== 'standard',
+          plan_expires_at: expiry,
+          plan_assigned_by: adminUsername || 'admin'
+        }).eq('id', selectedRequest.userId);
+
+        await supabase.from('notifications').insert({
+          user_id: selectedRequest.userId,
+          message: `Your payment has been verified! The ${selectedRequest.selectedPlan.toUpperCase()} plan is now active.`
+        });
+
+        await supabase.from('admin_logs').insert({
+          action: 'Approve Payment',
+          admin: adminUsername || 'admin',
+          details: { requestId: selectedRequest.id, userId: selectedRequest.userId, plan: selectedRequest.selectedPlan }
+        });
+      }
 
       toast.success('Subscription activated successfully!');
       setShowApprovalModal(false);
@@ -842,38 +906,47 @@ const Admin: React.FC = () => {
   };
 
   const handleRejectRequest = async () => {
-    if (!selectedRequest || !rejectionReason.trim() || !isSupabaseConfigured) {
+    if (!selectedRequest || !rejectionReason.trim()) {
       toast.error('Rejection reason is required.');
       return;
     }
     setIsLoading(true);
     try {
-      await supabase.from('payment_requests').update({
-        status: 'rejected',
-        rejection_reason: rejectionReason,
-        verified_at: new Date().toISOString()
-      }).eq('id', selectedRequest.id);
+      if (db) {
+        await setDoc(doc(db, 'payment_requests', selectedRequest.id), {
+          status: 'rejected',
+          rejectionReason: rejectionReason,
+          verifiedAt: new Date().toISOString()
+        }, { merge: true });
+      }
 
-      await supabase.from('notifications').insert({
-        user_id: selectedRequest.userId,
-        message: `Your payment request was rejected. Reason: ${rejectionReason}`
-      });
+      if (isSupabaseConfigured) {
+        await supabase.from('payment_requests').update({
+          status: 'rejected',
+          rejection_reason: rejectionReason,
+          verified_at: new Date().toISOString()
+        }).eq('id', selectedRequest.id);
 
-      await supabase.from('admin_logs').insert({
-        action: 'Reject Payment',
-        admin: adminUsername || 'admin',
-        details: { requestId: selectedRequest.id, userId: selectedRequest.userId, reason: rejectionReason }
-      });
+        await supabase.from('notifications').insert({
+          user_id: selectedRequest.userId,
+          message: `Your payment request was rejected. Reason: ${rejectionReason}`
+        });
+
+        await supabase.from('admin_logs').insert({
+          action: 'Reject Payment',
+          admin: adminUsername || 'admin',
+          details: { requestId: selectedRequest.id, reason: rejectionReason }
+        });
+      }
 
       toast.success('Payment request rejected.');
-      setShowRejectionModal(false);
+      setShowApprovalModal(false);
       setSelectedRequest(null);
       setRejectionReason('');
-      setInternalNotes('');
       fetchData();
     } catch (e: any) {
       console.error(e);
-      toast.error('Failed to reject request: ' + e.message);
+      toast.error('Failed to reject payment: ' + e.message);
     } finally {
       setIsLoading(false);
     }
@@ -1043,25 +1116,37 @@ const Admin: React.FC = () => {
   }, [isAuthorized]);
 
   const saveGlobalSettings = async () => {
-    if (!isSupabaseConfigured) return;
     try {
-      for (const [key, value] of Object.entries(globalSettings)) {
-        await supabase.from('app_config').upsert({
-          key,
-          value,
-          updated_at: new Date().toISOString()
+      if (db) {
+        await setDoc(doc(db, 'system', 'global_config'), globalSettings, { merge: true });
+      }
+
+      if (isSupabaseConfigured) {
+        for (const [key, value] of Object.entries(globalSettings)) {
+          await supabase.from('app_config').upsert({
+            key,
+            value,
+            updated_at: new Date().toISOString()
+          });
+        }
+
+        await supabase.from('admin_logs').insert({
+          action: 'Updated global configuration',
+          admin: adminUsername || 'admin'
         });
       }
 
-      await supabase.from('admin_logs').insert({
-        action: 'Updated global configuration',
-        admin: adminUsername || 'admin'
-      });
+      if (globalSettings.fallbackApiKey) {
+        localStorage.setItem('fallback_gemini_api_key', globalSettings.fallbackApiKey);
+      } else {
+        localStorage.removeItem('fallback_gemini_api_key');
+      }
 
       setInitialSettings(globalSettings);
       toast.success('Global settings updated');
       fetchData();
     } catch (error) {
+      console.error(error);
       toast.error('Failed to save settings');
     }
   };
@@ -1090,68 +1175,104 @@ const Admin: React.FC = () => {
   }, [selectedUserForFeatures]);
 
   const saveUserFeatures = async () => {
-    if (!selectedUserForFeatures || !isSupabaseConfigured) return;
+    if (!selectedUserForFeatures) return;
     try {
-      await supabase.from('users').update({
-        disabled_features: userDisabledFeatures,
-        updated_at: new Date().toISOString()
-      }).eq('id', selectedUserForFeatures.id);
+      const apiKeyVal = userGeminiApiKey.trim();
 
-      await supabase.from('admin_logs').insert({
-        action: `Updated feature access for ${selectedUserForFeatures.email}`,
-        admin: adminUsername || 'admin'
-      });
+      if (db) {
+        await setDoc(doc(db, 'registered_users', selectedUserForFeatures.id), {
+          disabledFeatures: userDisabledFeatures,
+          geminiApiKey: apiKeyVal
+        }, { merge: true });
+      }
+
+      if (isSupabaseConfigured) {
+        await supabase.from('users').update({
+          disabled_features: userDisabledFeatures,
+          gemini_api_key: apiKeyVal,
+          updated_at: new Date().toISOString()
+        }).eq('id', selectedUserForFeatures.id);
+
+        await supabase.from('admin_logs').insert({
+          action: `Updated feature access & API key for ${selectedUserForFeatures.email}`,
+          admin: adminUsername || 'admin'
+        });
+      }
 
       setUsers(users.map(u => u.id === selectedUserForFeatures.id ? {
         ...u,
         disabledFeatures: userDisabledFeatures,
-        geminiApiKey: userGeminiApiKey.trim()
+        geminiApiKey: apiKeyVal
       } : u));
       setSelectedUserForFeatures(null);
       toast.success('User features and API key override updated successfully');
     } catch (e) {
+      console.error(e);
       toast.error('Failed to update user features');
     }
   };
 
   const toggleProStatus = async (user: UserProfile) => {
-    if (!isSupabaseConfigured) return;
     try {
       const newIsPro = !user.isPro;
-      await supabase.from('users').update({
-        is_pro: newIsPro,
-        plan: newIsPro ? 'pro' : 'standard',
-        updated_at: new Date().toISOString()
-      }).eq('id', user.id);
+      const newPlan = newIsPro ? 'pro' : 'standard';
 
-      await supabase.from('admin_logs').insert({
-        action: `${user.isPro ? 'Demoted' : 'Promoted'} ${user.email} to PRO`,
-        admin: adminUsername || 'admin'
-      });
+      if (db) {
+        await setDoc(doc(db, 'registered_users', user.id), {
+          isPro: newIsPro,
+          plan: newPlan,
+          updatedAt: new Date().toISOString()
+        }, { merge: true });
+      }
 
-      setUsers(users.map(u => u.id === user.id ? { ...u, isPro: !u.isPro } : u));
+      if (isSupabaseConfigured) {
+        await supabase.from('users').update({
+          is_pro: newIsPro,
+          plan: newPlan,
+          updated_at: new Date().toISOString()
+        }).eq('id', user.id);
+
+        await supabase.from('admin_logs').insert({
+          action: `${user.isPro ? 'Demoted' : 'Promoted'} ${user.email} to PRO`,
+          admin: adminUsername || 'admin'
+        });
+      }
+
+      setUsers(users.map(u => u.id === user.id ? { ...u, isPro: newIsPro, plan: newPlan } : u));
       toast.success(`User ${user.isPro ? 'demoted' : 'promoted to PRO'}`);
     } catch (e) {
+      console.error(e);
       toast.error('Failed to update user status');
     }
   };
 
   const toggleBanStatus = async (user: UserProfile) => {
-    if (!isSupabaseConfigured) return;
     try {
-      await supabase.from('users').update({
-        is_banned: !user.isBanned,
-        updated_at: new Date().toISOString()
-      }).eq('id', user.id);
+      const newIsBanned = !user.isBanned;
 
-      await supabase.from('admin_logs').insert({
-        action: `${user.isBanned ? 'Unbanned' : 'Banned'} user ${user.email}`,
-        admin: adminUsername || 'admin'
-      });
+      if (db) {
+        await setDoc(doc(db, 'registered_users', user.id), {
+          isBanned: newIsBanned,
+          updatedAt: new Date().toISOString()
+        }, { merge: true });
+      }
 
-      setUsers(users.map(u => u.id === user.id ? { ...u, isBanned: !u.isBanned } : u));
+      if (isSupabaseConfigured) {
+        await supabase.from('users').update({
+          is_banned: newIsBanned,
+          updated_at: new Date().toISOString()
+        }).eq('id', user.id);
+
+        await supabase.from('admin_logs').insert({
+          action: `${user.isBanned ? 'Unbanned' : 'Banned'} user ${user.email}`,
+          admin: adminUsername || 'admin'
+        });
+      }
+
+      setUsers(users.map(u => u.id === user.id ? { ...u, isBanned: newIsBanned } : u));
       toast.success(`User ${user.isBanned ? 'unbanned' : 'BANNED'}`);
     } catch (e) {
+      console.error(e);
       toast.error('Failed to update user status');
     }
   };
@@ -1162,7 +1283,7 @@ const Admin: React.FC = () => {
         ID: u.id,
         Name: u.displayName || 'Unnamed',
         Email: u.email,
-        'Last Active': u.lastLogin ? format(new Date(u.lastLogin), 'yyyy-MM-dd HH:mm') : 'N/A',
+        'Last Active': formatUserDate(u.lastLoginServer || u.lastLogin, 'yyyy-MM-dd hh:mm a'),
         'Is Pro': u.isPro ? 'Yes' : 'No',
         'Is Banned': u.isBanned ? 'Yes' : 'No'
       }));
@@ -1870,7 +1991,7 @@ const Admin: React.FC = () => {
                             <div className="text-left sm:text-right">
                               <p className="text-[9px] uppercase font-bold text-muted-foreground tracking-widest">Last Active</p>
                               <p className="text-xs font-semibold text-foreground">
-                                {u.lastLogin ? format(new Date(u.lastLogin), 'MMM dd, HH:mm') : 'Never'}
+                                {formatUserDate(u.lastLoginServer || u.lastLogin, 'MMM dd, hh:mm a')}
                               </p>
                             </div>
 

@@ -1332,7 +1332,7 @@ app.post('/api/ai/chat', verifyFirebaseToken, aiRateLimit, async (req, res) => {
   
   // Use user-provided API key if available, otherwise fall back to system key
   const userApiKey = req.headers['x-user-api-key'];
-  const apiKey = userApiKey || process.env.GEMINI_API_KEY;
+  const apiKey = userApiKey || process.env.GEMINI_API_KEY || process.env.VITE_GEMINI_API_KEY;
 
   if (!apiKey) {
     return res.status(500).json({ success: false, error: 'AI Service is not working for your account. Please contact support, or upgrade for better limits.' });

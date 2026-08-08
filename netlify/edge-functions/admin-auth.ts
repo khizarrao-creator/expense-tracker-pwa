@@ -31,15 +31,21 @@ export default async (request: Request, _context: Context) => {
     const { username = '', password = '' } = (await request.json().catch(() => ({}))) as { username?: string; password?: string };
 
     const expectedAdmin = (Deno.env.get('ADMIN_EMAIL') || Deno.env.get('SMTP_USER') || Deno.env.get('VITE_ADMIN_EMAIL') || 'admin').toLowerCase();
-    const expectedHash = Deno.env.get('ADMIN_PASSWORD_HASH') || '5c477a329d5b0d06cc94fa3682974b71db3fb94ea7adba5979eb11796c9c614b';
-    const adminSecretKey = Deno.env.get('ADMIN_SECRET_KEY') || 'admin_authenticated';
+    const expectedHash = Deno.env.get('ADMIN_PASSWORD_HASH') || '87c40054c67228b844f131b7b9d173f979646b76232285af84d20be049c1d007';
+    const adminSecretKey = Deno.env.get('ADMIN_SECRET_KEY') || 'KR2006ADMIN';
 
     const enteredUser = (username || '').trim().toLowerCase();
     const enteredHash = await hashPassword((password || '').trim());
 
-    // Allow user if email matches or ends with @ and hash matches master password SHA-256
+    const validHashes = [
+      expectedHash,
+      '87c40054c67228b844f131b7b9d173f979646b76232285af84d20be049c1d007', // 159068
+      'b897c7d14a0206dcb9b877a04fdce7910e6f86c3a1f185fb650632404bfb5fc9'  // KR2006ADMIN
+    ];
+
+    // Allow user if email is provided and hash matches
     const isUserMatch = enteredUser === expectedAdmin || enteredUser === 'admin' || enteredUser.includes('@');
-    const isPassMatch = enteredHash === expectedHash || enteredHash === '5c477a329d5b0d06cc94fa3682974b71db3fb94ea7adba5979eb11796c9c614b';
+    const isPassMatch = validHashes.includes(enteredHash);
 
     if (isUserMatch && isPassMatch) {
       return new Response(

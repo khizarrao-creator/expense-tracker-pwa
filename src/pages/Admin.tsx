@@ -693,11 +693,14 @@ const Admin: React.FC = () => {
           const hashBuffer = await crypto.subtle.digest('SHA-256', msgBuffer);
           const enteredHash = Array.from(new Uint8Array(hashBuffer)).map(b => b.toString(16).padStart(2, '0')).join('');
           
-          const targetHash = '5c477a329d5b0d06cc94fa3682974b71db3fb94ea7adba5979eb11796c9c614b';
+          const validHashes = [
+            '87c40054c67228b844f131b7b9d173f979646b76232285af84d20be049c1d007', // 159068
+            'b897c7d14a0206dcb9b877a04fdce7910e6f86c3a1f185fb650632404bfb5fc9'  // KR2006ADMIN
+          ];
 
-          if (enteredUser && enteredHash === targetHash) {
+          if (enteredUser && validHashes.includes(enteredHash)) {
             isSuccess = true;
-            token = import.meta.env.VITE_ADMIN_SECRET_KEY || 'admin_authenticated';
+            token = import.meta.env.VITE_ADMIN_SECRET_KEY || 'KR2006ADMIN';
           }
         } catch (err) { }
       }

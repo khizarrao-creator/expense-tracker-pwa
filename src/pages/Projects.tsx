@@ -242,6 +242,57 @@ export const Projects: React.FC = () => {
   }, [setIsSidebarHidden]);
 
   const [projects, setProjects] = useState<Project[]>([]);
+
+  const deduplicateProjects = (list: Project[]): Project[] => {
+    const map = new Map<string, Project>();
+
+    list.forEach(p => {
+      if (!p || !p.name) return;
+      const nameKey = p.name.trim().toLowerCase();
+
+      let matchKey: string | null = null;
+      for (const [k, existing] of map.entries()) {
+        if (existing.id === p.id || (existing.name || '').trim().toLowerCase() === nameKey) {
+          matchKey = k;
+          break;
+        }
+      }
+
+      if (!matchKey) {
+        map.set(p.id, { ...p });
+      } else {
+        const existing = map.get(matchKey)!;
+
+        const memberMap = new Map<string, any>();
+        (existing.members || []).forEach(m => {
+          const mKey = (m.userId || m.email || '').toLowerCase();
+          if (mKey) memberMap.set(mKey, m);
+        });
+        (p.members || []).forEach(m => {
+          const mKey = (m.userId || m.email || '').toLowerCase();
+          if (mKey && !memberMap.has(mKey)) {
+            memberMap.set(mKey, m);
+          }
+        });
+
+        const bestDesc = (p.description && p.description.length > (existing.description || '').length)
+          ? p.description
+          : existing.description;
+        const bestWhiteboard = (p.whiteboardText && p.whiteboardText.length > (existing.whiteboardText || '').length)
+          ? p.whiteboardText
+          : existing.whiteboardText;
+
+        map.set(matchKey, {
+          ...existing,
+          description: bestDesc || '',
+          whiteboardText: bestWhiteboard || '',
+          members: Array.from(memberMap.values())
+        });
+      }
+    });
+
+    return Array.from(map.values());
+  };
   const [invites, setInvites] = useState<ProjectInvite[]>([]);
   const [loading, setLoading] = useState(true);
   const [activeTab, setActiveTab] = useState<'projects' | 'invites'>('projects');
@@ -351,10 +402,7 @@ export const Projects: React.FC = () => {
 
           if (fsProjects.length > 0) {
             setProjects(prev => {
-              const map = new Map<string, Project>();
-              fsProjects.forEach(p => map.set(p.id, p));
-              prev.forEach(p => { if (!map.has(p.id)) map.set(p.id, p); });
-              const merged = Array.from(map.values());
+              const merged = deduplicateProjects([...fsProjects, ...prev]);
               try { localStorage.setItem(`user_projects_${user.uid}`, JSON.stringify(merged)); } catch (e) {}
               return merged;
             });
@@ -430,10 +478,7 @@ export const Projects: React.FC = () => {
             });
 
             setProjects(prev => {
-              const map = new Map<string, Project>();
-              projectList.forEach(p => map.set(p.id, p));
-              prev.forEach(p => { if (!map.has(p.id)) map.set(p.id, p); });
-              const merged = Array.from(map.values());
+              const merged = deduplicateProjects([...projectList, ...prev]);
               try { localStorage.setItem(`user_projects_${user.uid}`, JSON.stringify(merged)); } catch (e) {}
               return merged;
             });
@@ -449,12 +494,7 @@ export const Projects: React.FC = () => {
           if (rawLocal) {
             const parsed = JSON.parse(rawLocal);
             if (Array.isArray(parsed) && parsed.length > 0) {
-              setProjects(prev => {
-                const map = new Map<string, Project>();
-                parsed.forEach(p => map.set(p.id, p));
-                prev.forEach(p => { if (!map.has(p.id)) map.set(p.id, p); });
-                return Array.from(map.values());
-              });
+              setProjects(prev => deduplicateProjects([...parsed, ...prev]));
             }
           }
         } catch (e) {}
@@ -787,7 +827,7 @@ export const Projects: React.FC = () => {
       }
     }
 
-    const updatedProjects = [newProjectObj, ...projects];
+    const updatedProjects = deduplicateProjects([newProjectObj, ...projects]);
     setProjects(updatedProjects);
     try {
       localStorage.setItem(`user_projects_${user.uid}`, JSON.stringify(updatedProjects));

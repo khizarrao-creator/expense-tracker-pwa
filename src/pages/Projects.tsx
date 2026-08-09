@@ -3,7 +3,7 @@ import { useAuth } from '../contexts/AuthContext';
 import { useApp } from '../contexts/AppContext';
 import { supabase, isSupabaseConfigured } from '../supabase';
 import { db } from '../firebase';
-import { collection, doc, onSnapshot, getDocs, setDoc, updateDoc, deleteDoc, serverTimestamp } from 'firebase/firestore';
+import { collection, doc, onSnapshot, getDocs, setDoc, updateDoc, deleteDoc, serverTimestamp, getDoc } from 'firebase/firestore';
 import {
   FolderKanban,
   Plus,
@@ -363,6 +363,7 @@ export const Projects: React.FC = () => {
   const [activeSheetId, setActiveSheetId] = useState<string>('sheet_1');
   const [isSavingGrid, setIsSavingGrid] = useState(false);
   const savingGridRef = React.useRef(false);
+  const hasUserEditedGrid = React.useRef(false);
 
   const activeSheet = gridSheets.find(s => s.id === activeSheetId) || gridSheets[0] || defaultSheet;
 
@@ -420,7 +421,7 @@ export const Projects: React.FC = () => {
           if (fsProjects.length > 0) {
             setProjects(prev => {
               const merged = deduplicateProjects([...fsProjects, ...prev]);
-              try { localStorage.setItem(`user_projects_${user.uid}`, JSON.stringify(merged)); } catch (e) {}
+              try { localStorage.setItem(`user_projects_${user.uid}`, JSON.stringify(merged)); } catch (e) { }
               return merged;
             });
             setLoading(false);
@@ -497,7 +498,7 @@ export const Projects: React.FC = () => {
 
             setProjects(prev => {
               const merged = deduplicateProjects([...projectList, ...prev]);
-              try { localStorage.setItem(`user_projects_${user.uid}`, JSON.stringify(merged)); } catch (e) {}
+              try { localStorage.setItem(`user_projects_${user.uid}`, JSON.stringify(merged)); } catch (e) { }
               return merged;
             });
           }
@@ -515,7 +516,7 @@ export const Projects: React.FC = () => {
               setProjects(prev => deduplicateProjects([...parsed, ...prev]));
             }
           }
-        } catch (e) {}
+        } catch (e) { }
       }
 
       // Fetch pending invites
@@ -539,7 +540,7 @@ export const Projects: React.FC = () => {
             status: 'pending',
             createdAt: i.created_at
           })));
-        } catch (e) {}
+        } catch (e) { }
       }
 
       setLoading(false);
@@ -569,8 +570,7 @@ export const Projects: React.FC = () => {
   useEffect(() => {
     if (!selectedProject) return;
 
-    // Reset grid to empty (not defaultSheet) so stale data doesn't linger
-    setGridSheets([]);
+    hasUserEditedGrid.current = false;
     setProjectTasks([]);
     setProjectLeads([]);
 
@@ -628,7 +628,7 @@ export const Projects: React.FC = () => {
               }
             });
           }
-        } catch (e) {}
+        } catch (e) { }
       }
 
       if (isSupabaseConfigured && validSbUuids.length > 0) {
@@ -660,49 +660,59 @@ export const Projects: React.FC = () => {
               });
             }
           });
-        } catch (e) {}
+        } catch (e) { }
       }
 
       setProjectTasks(Array.from(taskMap.values()));
 
-      // 2. Fetch Grid sheets from Firestore & Supabase
+      // 2. Fetch Grid sheets from Firestore & Supabase (Multi-path fallback)
       let loadedSheets: ProjectGridSheet[] = [];
 
-      if (db) {
-        try {
-          const gridSnap = await getDocs(collection(db, `projects/${fsProjId}/grid`));
-          gridSnap.forEach(gDoc => {
-            const gd = gDoc.data();
-            if (gd.sheets && Array.isArray(gd.sheets) && gd.sheets.length > 0) {
-              loadedSheets = gd.sheets;
-            } else if ((gd.columns && Array.isArray(gd.columns)) || (gd.rows && Array.isArray(gd.rows))) {
-              loadedSheets.push({
-                id: gDoc.id,
-                name: gd.name || gd.sheet_name || 'Sheet 1',
-                columns: gd.columns || [],
-                rows: gd.rows || []
-              });
-            }
-          });
-        } catch (e) {}
+      const parseSheetsData = (data: any, docId: string): ProjectGridSheet[] => {
+        if (!data) return [];
+        if (data.sheets && Array.isArray(data.sheets) && data.sheets.length > 0) {
+          return data.sheets;
+        }
+        if (data.gridSheets && Array.isArray(data.gridSheets) && data.gridSheets.length > 0) {
+          return data.gridSheets;
+        }
+        if (data.grid && Array.isArray(data.grid) && data.grid.length > 0) {
+          return data.grid;
+        }
+        if ((data.columns && Array.isArray(data.columns)) || (data.rows && Array.isArray(data.rows))) {
+          return [{
+            id: docId,
+            name: data.name || data.sheet_name || 'Sheet 1',
+            columns: data.columns || [],
+            rows: data.rows || []
+          }];
+        }
+        return [];
+      };
 
-        if (loadedSheets.length === 0 && sbProjId !== fsProjId) {
+      if (db) {
+        const pIdsToTry = Array.from(new Set([fsProjId, sbProjId, selectedProject.id].filter(Boolean)));
+
+        for (const pId of pIdsToTry) {
+          if (loadedSheets.length > 0) break;
           try {
-            const gridSnap2 = await getDocs(collection(db, `projects/${sbProjId}/grid`));
-            gridSnap2.forEach(gDoc => {
-              const gd = gDoc.data();
-              if (gd.sheets && Array.isArray(gd.sheets) && gd.sheets.length > 0) {
-                loadedSheets = gd.sheets;
-              } else if ((gd.columns && Array.isArray(gd.columns)) || (gd.rows && Array.isArray(gd.rows))) {
-                loadedSheets.push({
-                  id: gDoc.id,
-                  name: gd.name || gd.sheet_name || 'Sheet 1',
-                  columns: gd.columns || [],
-                  rows: gd.rows || []
-                });
-              }
+            const gridSnap = await getDocs(collection(db, `projects/${pId}/grid`));
+            gridSnap.forEach(gDoc => {
+              const parsed = parseSheetsData(gDoc.data(), gDoc.id);
+              if (parsed.length > 0) loadedSheets.push(...parsed);
             });
-          } catch (e) {}
+          } catch (e) { }
+        }
+
+        for (const pId of pIdsToTry) {
+          if (loadedSheets.length > 0) break;
+          try {
+            const pDoc = await getDoc(doc(db, 'projects', pId));
+            if (pDoc.exists()) {
+              const parsed = parseSheetsData(pDoc.data(), pDoc.id);
+              if (parsed.length > 0) loadedSheets.push(...parsed);
+            }
+          } catch (e) { }
         }
       }
 
@@ -725,19 +735,27 @@ export const Projects: React.FC = () => {
               rows: s.rows || []
             }));
           }
-        } catch (e) {}
+        } catch (e) { }
       }
 
       if (loadedSheets.length === 0) {
         try {
-          const rawLocal = localStorage.getItem(`project_grid_sheets_${fsProjId}`) || localStorage.getItem(`project_grid_sheets_${sbProjId}`);
-          if (rawLocal) {
-            const parsed = JSON.parse(rawLocal);
-            if (Array.isArray(parsed) && parsed.length > 0) {
-              loadedSheets = parsed;
+          const keysToTry = [
+            `project_grid_sheets_${fsProjId}`,
+            `project_grid_sheets_${sbProjId}`,
+            `project_grid_sheets_${selectedProject.id}`
+          ];
+          for (const k of keysToTry) {
+            const rawLocal = localStorage.getItem(k);
+            if (rawLocal) {
+              const parsed = JSON.parse(rawLocal);
+              if (Array.isArray(parsed) && parsed.length > 0) {
+                loadedSheets = parsed;
+                break;
+              }
             }
           }
-        } catch (e) {}
+        } catch (e) { }
       }
 
       // Only update grid state if we're not in the middle of a save
@@ -812,7 +830,7 @@ export const Projects: React.FC = () => {
               }
             });
           }
-        } catch (e) {}
+        } catch (e) { }
       }
 
       if (isSupabaseConfigured && validSbUuids.length > 0) {
@@ -847,7 +865,7 @@ export const Projects: React.FC = () => {
               });
             }
           });
-        } catch (e) {}
+        } catch (e) { }
       }
 
       setProjectLeads(Array.from(leadMap.values()));
@@ -954,7 +972,7 @@ export const Projects: React.FC = () => {
     setProjects(updatedProjects);
     try {
       localStorage.setItem(`user_projects_${user.uid}`, JSON.stringify(updatedProjects));
-    } catch (e) {}
+    } catch (e) { }
 
     toast.success('Project created successfully!');
     setShowCreateModal(false);
@@ -1094,7 +1112,7 @@ export const Projects: React.FC = () => {
             createdByName: user.displayName || user.email || 'User',
             createdAt: serverTimestamp()
           });
-        } catch (e) {}
+        } catch (e) { }
       }
 
       if (isSupabaseConfigured) {
@@ -1110,7 +1128,7 @@ export const Projects: React.FC = () => {
             assigned_name: assigneeName,
             created_by: user.uid
           });
-        } catch (e) {}
+        } catch (e) { }
       }
 
       if (newTaskAssignee === user.uid) {
@@ -1153,7 +1171,7 @@ export const Projects: React.FC = () => {
         await updateDoc(doc(db, `projects/${selectedProject.id}/tasks`, task.id), {
           status: nextStatus
         });
-      } catch (e) {}
+      } catch (e) { }
     }
 
     if (isSupabaseConfigured) {
@@ -1162,7 +1180,7 @@ export const Projects: React.FC = () => {
           status: nextStatus,
           updated_at: new Date().toISOString()
         }).eq('id', task.id);
-      } catch (e) {}
+      } catch (e) { }
     }
 
     toast.success(`Task status updated to ${nextStatus.replace('-', ' ')}`);
@@ -1182,7 +1200,7 @@ export const Projects: React.FC = () => {
             assignedTo: user.uid,
             assignedToName: assigneeName
           });
-        } catch (e) {}
+        } catch (e) { }
       }
 
       if (isSupabaseConfigured) {
@@ -1192,7 +1210,7 @@ export const Projects: React.FC = () => {
             assigned_name: assigneeName,
             updated_at: new Date().toISOString()
           }).eq('id', task.id);
-        } catch (e) {}
+        } catch (e) { }
       }
 
       try {
@@ -1239,7 +1257,7 @@ export const Projects: React.FC = () => {
           description: whiteboardHtml,
           updated_at: new Date().toISOString()
         }).eq('id', selectedProject.id);
-      } catch (e) {}
+      } catch (e) { }
     }
 
     setIsSavingWhiteboard(false);
@@ -1297,6 +1315,7 @@ export const Projects: React.FC = () => {
   };
 
   const handleAddSheet = () => {
+    hasUserEditedGrid.current = true;
     const newSheetId = `sheet_${Date.now()}`;
     const newSheetName = `Sheet ${gridSheets.length + 1}`;
     const newSheet: ProjectGridSheet = {
@@ -1318,6 +1337,7 @@ export const Projects: React.FC = () => {
   };
 
   const handleRenameSheet = (sheetId: string, newName: string) => {
+    hasUserEditedGrid.current = true;
     const updatedSheets = gridSheets.map(s => s.id === sheetId ? { ...s, name: newName } : s);
     setGridSheets(updatedSheets);
   };
@@ -1329,6 +1349,7 @@ export const Projects: React.FC = () => {
       return;
     }
     if (!confirm('Delete this sheet?')) return;
+    hasUserEditedGrid.current = true;
     const updatedSheets = gridSheets.filter(s => s.id !== sheetId);
     setGridSheets(updatedSheets);
     if (activeSheetId === sheetId) {
@@ -1338,6 +1359,7 @@ export const Projects: React.FC = () => {
   };
 
   const handleAddGridColumn = () => {
+    hasUserEditedGrid.current = true;
     const newColId = `col_${Date.now()}`;
     const newCol: ProjectGridColumn = {
       id: newColId,
@@ -1354,6 +1376,7 @@ export const Projects: React.FC = () => {
   };
 
   const handleRenameColumn = (colId: string, newName: string) => {
+    hasUserEditedGrid.current = true;
     const updatedCols = activeSheet.columns.map(c => c.id === colId ? { ...c, name: newName } : c);
     const updatedSheets = gridSheets.map(s =>
       s.id === activeSheet.id ? { ...s, columns: updatedCols } : s
@@ -1366,6 +1389,7 @@ export const Projects: React.FC = () => {
       toast.error('Cannot delete the last column');
       return;
     }
+    hasUserEditedGrid.current = true;
     const colObj = activeSheet.columns.find(c => c.id === colId);
     const updatedCols = activeSheet.columns.filter(c => c.id !== colId);
     const updatedRows = activeSheet.rows.map(r => {
@@ -1382,6 +1406,7 @@ export const Projects: React.FC = () => {
   };
 
   const handleAddGridRow = () => {
+    hasUserEditedGrid.current = true;
     const newRowId = `row_${Date.now()}`;
     const newRow: ProjectGridRow = { id: newRowId };
     activeSheet.columns.forEach(c => {
@@ -1397,6 +1422,7 @@ export const Projects: React.FC = () => {
   };
 
   const handleDeleteGridRow = (rowId: string) => {
+    hasUserEditedGrid.current = true;
     const updatedRows = activeSheet.rows.filter(r => r.id !== rowId);
     const updatedSheets = gridSheets.map(s =>
       s.id === activeSheet.id ? { ...s, rows: updatedRows } : s
@@ -1406,6 +1432,7 @@ export const Projects: React.FC = () => {
   };
 
   const handleCellChange = (rowId: string, colId: string, value: any) => {
+    hasUserEditedGrid.current = true;
     const colObj = activeSheet.columns.find(c => c.id === colId);
     const updatedRows = activeSheet.rows.map(r => {
       if (r.id !== rowId) return r;
@@ -1422,12 +1449,19 @@ export const Projects: React.FC = () => {
     if (selectedProject) {
       try {
         localStorage.setItem(`project_grid_sheets_${selectedProject.id}`, JSON.stringify(updatedSheets));
-      } catch (e) {}
+      } catch (e) { }
     }
   };
 
   const saveGridToFirestore = async (sheets: ProjectGridSheet[]) => {
     if (!selectedProject) return;
+    if (!sheets || !Array.isArray(sheets) || sheets.length === 0) return;
+
+    // Safety guard: only write to database if user actually edited or initiated save
+    if (!hasUserEditedGrid.current) {
+      return;
+    }
+
     const fsProjId = selectedProject.fsId || selectedProject.id;
     const sbProjId = selectedProject.sbId || selectedProject.id;
 
@@ -1439,7 +1473,7 @@ export const Projects: React.FC = () => {
       localStorage.setItem(`project_grid_sheets_${selectedProject.id}`, JSON.stringify(sheets));
       localStorage.setItem(`project_grid_sheets_${fsProjId}`, JSON.stringify(sheets));
       localStorage.setItem(`project_grid_sheets_${sbProjId}`, JSON.stringify(sheets));
-    } catch (e) {}
+    } catch (e) { }
 
     // 1. Write to Firestore (primary)
     if (db) {
@@ -1606,7 +1640,7 @@ export const Projects: React.FC = () => {
             updatedAt: serverTimestamp(),
             ...(editingLead ? {} : { createdAt: serverTimestamp() })
           }, { merge: true });
-        } catch (e) {}
+        } catch (e) { }
       }
 
       if (isSupabaseConfigured) {
@@ -1722,7 +1756,7 @@ export const Projects: React.FC = () => {
       if (db) {
         try {
           await deleteDoc(doc(db, `projects/${selectedProject.id}/leads`, leadId));
-        } catch (e) {}
+        } catch (e) { }
       }
       if (isSupabaseConfigured) {
         await supabase.from('project_leads').delete().eq('id', leadId);

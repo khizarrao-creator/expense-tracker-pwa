@@ -61,6 +61,8 @@ export interface ProjectMember {
 
 export interface Project {
   id: string;
+  fsId?: string;
+  sbId?: string;
   name: string;
   description: string;
   createdBy: string;
@@ -252,14 +254,23 @@ export const Projects: React.FC = () => {
 
       let matchKey: string | null = null;
       for (const [k, existing] of map.entries()) {
-        if (existing.id === p.id || (existing.name || '').trim().toLowerCase() === nameKey) {
+        if (
+          existing.id === p.id ||
+          (existing.fsId && p.fsId && existing.fsId === p.fsId) ||
+          (existing.sbId && p.sbId && existing.sbId === p.sbId) ||
+          (existing.name || '').trim().toLowerCase() === nameKey
+        ) {
           matchKey = k;
           break;
         }
       }
 
       if (!matchKey) {
-        map.set(p.id, { ...p });
+        map.set(p.id, {
+          ...p,
+          fsId: p.fsId || p.id,
+          sbId: p.sbId || p.id
+        });
       } else {
         const existing = map.get(matchKey)!;
 
@@ -284,6 +295,8 @@ export const Projects: React.FC = () => {
 
         map.set(matchKey, {
           ...existing,
+          fsId: existing.fsId || p.fsId || existing.id,
+          sbId: p.sbId || existing.sbId || p.id,
           description: bestDesc || '',
           whiteboardText: bestWhiteboard || '',
           members: Array.from(memberMap.values())
@@ -387,6 +400,7 @@ export const Projects: React.FC = () => {
             if (isMemberOrOwner) {
               fsProjects.push({
                 id: docSnap.id,
+                fsId: docSnap.id,
                 name: data.name || 'Untitled Project',
                 description: data.description || '',
                 createdBy: data.createdBy || user.uid,
@@ -465,6 +479,7 @@ export const Projects: React.FC = () => {
 
               return {
                 id: p.id,
+                sbId: p.id,
                 name: p.name,
                 description: p.description || '',
                 createdBy: p.owner_id,
@@ -552,12 +567,15 @@ export const Projects: React.FC = () => {
     if (!selectedProject) return;
 
     const loadProjectSubItems = async () => {
+      const fsProjId = selectedProject.fsId || selectedProject.id;
+      const sbProjId = selectedProject.sbId || selectedProject.id;
+
       // 1. Fetch tasks from Firestore & Supabase
       const taskMap = new Map<string, ProjectTask>();
 
       if (db) {
         try {
-          const fsTaskSnaps = await getDocs(collection(db, `projects/${selectedProject.id}/tasks`));
+          const fsTaskSnaps = await getDocs(collection(db, `projects/${fsProjId}/tasks`));
           fsTaskSnaps.forEach(tDoc => {
             const td = tDoc.data();
             taskMap.set(tDoc.id, {
@@ -575,6 +593,29 @@ export const Projects: React.FC = () => {
               createdAt: td.createdAt?.toDate?.()?.toISOString() || td.createdAt || new Date().toISOString()
             });
           });
+
+          if (sbProjId !== fsProjId) {
+            const fsTaskSnaps2 = await getDocs(collection(db, `projects/${sbProjId}/tasks`));
+            fsTaskSnaps2.forEach(tDoc => {
+              const td = tDoc.data();
+              if (!taskMap.has(tDoc.id)) {
+                taskMap.set(tDoc.id, {
+                  id: tDoc.id,
+                  projectId: selectedProject.id,
+                  title: td.title || '',
+                  description: td.description || '',
+                  status: td.status || 'pending',
+                  priority: td.priority || 'medium',
+                  assignedTo: td.assignedTo || null,
+                  assignedToName: td.assignedToName || '',
+                  createdBy: td.createdBy || user?.uid || '',
+                  createdByName: td.createdByName || 'User',
+                  dueDate: td.dueDate || null,
+                  createdAt: td.createdAt?.toDate?.()?.toISOString() || td.createdAt || new Date().toISOString()
+                });
+              }
+            });
+          }
         } catch (e) {}
       }
 
@@ -583,24 +624,26 @@ export const Projects: React.FC = () => {
           const { data: taskRows } = await supabase
             .from('project_tasks')
             .select('*')
-            .eq('project_id', selectedProject.id)
+            .or(`project_id.eq.${sbProjId},project_id.eq.${fsProjId}`)
             .order('created_at', { ascending: false });
 
           (taskRows || []).forEach((t: Record<string, any>) => {
-            taskMap.set(t.id, {
-              id: t.id,
-              projectId: t.project_id,
-              title: t.title,
-              description: t.description || '',
-              status: t.status as any,
-              priority: t.priority as any,
-              assignedTo: t.assigned_to,
-              assignedToName: t.assigned_name,
-              createdBy: t.created_by,
-              createdByName: 'User',
-              dueDate: t.due_date,
-              createdAt: t.created_at
-            });
+            if (!taskMap.has(t.id)) {
+              taskMap.set(t.id, {
+                id: t.id,
+                projectId: t.project_id,
+                title: t.title,
+                description: t.description || '',
+                status: t.status as any,
+                priority: t.priority as any,
+                assignedTo: t.assigned_to,
+                assignedToName: t.assigned_name,
+                createdBy: t.created_by,
+                createdByName: 'User',
+                dueDate: t.due_date,
+                createdAt: t.created_at
+              });
+            }
           });
         } catch (e) {}
       }
@@ -612,7 +655,7 @@ export const Projects: React.FC = () => {
 
       if (db) {
         try {
-          const gridSnap = await getDocs(collection(db, `projects/${selectedProject.id}/grid`));
+          const gridSnap = await getDocs(collection(db, `projects/${fsProjId}/grid`));
           gridSnap.forEach(gDoc => {
             const gd = gDoc.data();
             if (gd.sheets && Array.isArray(gd.sheets) && gd.sheets.length > 0) {
@@ -620,6 +663,18 @@ export const Projects: React.FC = () => {
             }
           });
         } catch (e) {}
+
+        if (loadedSheets.length === 0 && sbProjId !== fsProjId) {
+          try {
+            const gridSnap2 = await getDocs(collection(db, `projects/${sbProjId}/grid`));
+            gridSnap2.forEach(gDoc => {
+              const gd = gDoc.data();
+              if (gd.sheets && Array.isArray(gd.sheets) && gd.sheets.length > 0) {
+                loadedSheets = gd.sheets;
+              }
+            });
+          } catch (e) {}
+        }
       }
 
       if (loadedSheets.length === 0 && isSupabaseConfigured) {
@@ -627,7 +682,7 @@ export const Projects: React.FC = () => {
           const { data: sheetRows } = await supabase
             .from('grid_sheets')
             .select('*')
-            .eq('project_id', selectedProject.id)
+            .or(`project_id.eq.${sbProjId},project_id.eq.${fsProjId}`)
             .order('sheet_order', { ascending: true });
 
           if (sheetRows && sheetRows.length > 0) {
@@ -643,7 +698,7 @@ export const Projects: React.FC = () => {
 
       if (loadedSheets.length === 0) {
         try {
-          const rawLocal = localStorage.getItem(`project_grid_sheets_${selectedProject.id}`);
+          const rawLocal = localStorage.getItem(`project_grid_sheets_${fsProjId}`) || localStorage.getItem(`project_grid_sheets_${sbProjId}`);
           if (rawLocal) {
             const parsed = JSON.parse(rawLocal);
             if (Array.isArray(parsed) && parsed.length > 0) {
@@ -673,7 +728,7 @@ export const Projects: React.FC = () => {
 
       if (db) {
         try {
-          const fsLeadSnaps = await getDocs(collection(db, `projects/${selectedProject.id}/leads`));
+          const fsLeadSnaps = await getDocs(collection(db, `projects/${fsProjId}/leads`));
           fsLeadSnaps.forEach(lDoc => {
             const ld = lDoc.data();
             leadMap.set(lDoc.id, {
@@ -694,6 +749,32 @@ export const Projects: React.FC = () => {
               updatedAt: ld.updatedAt?.toDate?.()?.toISOString() || ld.updatedAt || new Date().toISOString()
             });
           });
+
+          if (sbProjId !== fsProjId) {
+            const fsLeadSnaps2 = await getDocs(collection(db, `projects/${sbProjId}/leads`));
+            fsLeadSnaps2.forEach(lDoc => {
+              const ld = lDoc.data();
+              if (!leadMap.has(lDoc.id)) {
+                leadMap.set(lDoc.id, {
+                  id: lDoc.id,
+                  projectId: selectedProject.id,
+                  title: ld.title || '',
+                  clientName: ld.clientName || '',
+                  company: ld.company || '',
+                  email: ld.email || '',
+                  phone: ld.phone || '',
+                  value: ld.value || 0,
+                  currency: ld.currency || 'USD',
+                  stage: ld.stage || 'new',
+                  assignedTo: ld.assignedTo || null,
+                  assignedToName: ld.assignedToName || '',
+                  notes: ld.notes || '',
+                  createdAt: ld.createdAt?.toDate?.()?.toISOString() || ld.createdAt || new Date().toISOString(),
+                  updatedAt: ld.updatedAt?.toDate?.()?.toISOString() || ld.updatedAt || new Date().toISOString()
+                });
+              }
+            });
+          }
         } catch (e) {}
       }
 
@@ -702,27 +783,29 @@ export const Projects: React.FC = () => {
           const { data: leadRows } = await supabase
             .from('project_leads')
             .select('*')
-            .eq('project_id', selectedProject.id)
+            .or(`project_id.eq.${sbProjId},project_id.eq.${fsProjId}`)
             .order('created_at', { ascending: false });
 
           (leadRows || []).forEach((l: Record<string, any>) => {
-            leadMap.set(l.id, {
-              id: l.id,
-              projectId: l.project_id,
-              title: l.title,
-              clientName: l.client_name || '',
-              company: l.company || '',
-              email: l.email || '',
-              phone: l.phone || '',
-              value: l.value || 0,
-              currency: l.currency || 'PKR',
-              stage: l.stage as any,
-              assignedTo: l.assigned_to,
-              assignedToName: l.assigned_name,
-              notes: l.notes || '',
-              createdAt: l.created_at,
-              updatedAt: l.updated_at
-            });
+            if (!leadMap.has(l.id)) {
+              leadMap.set(l.id, {
+                id: l.id,
+                projectId: l.project_id,
+                title: l.title,
+                clientName: l.client_name,
+                company: l.company || '',
+                email: l.email || '',
+                phone: l.phone || '',
+                value: l.value || 0,
+                currency: l.currency || 'USD',
+                stage: l.stage as any,
+                assignedTo: l.assigned_to,
+                assignedToName: l.assigned_name,
+                notes: l.notes || '',
+                createdAt: l.created_at,
+                updatedAt: l.updated_at
+              });
+            }
           });
         } catch (e) {}
       }
@@ -1295,17 +1378,28 @@ export const Projects: React.FC = () => {
 
   const saveGridToFirestore = async (sheets: ProjectGridSheet[]) => {
     if (!selectedProject) return;
+    const fsProjId = selectedProject.fsId || selectedProject.id;
+    const sbProjId = selectedProject.sbId || selectedProject.id;
+
     try {
       localStorage.setItem(`project_grid_sheets_${selectedProject.id}`, JSON.stringify(sheets));
+      localStorage.setItem(`project_grid_sheets_${fsProjId}`, JSON.stringify(sheets));
+      localStorage.setItem(`project_grid_sheets_${sbProjId}`, JSON.stringify(sheets));
     } catch (e) {}
 
     // 1. Dual-write to Firestore
     if (db) {
       try {
-        await setDoc(doc(db, `projects/${selectedProject.id}/grid`, 'main'), {
+        await setDoc(doc(db, `projects/${fsProjId}/grid`, 'main'), {
           sheets: sheets,
           updatedAt: serverTimestamp()
         });
+        if (sbProjId !== fsProjId) {
+          await setDoc(doc(db, `projects/${sbProjId}/grid`, 'main'), {
+            sheets: sheets,
+            updatedAt: serverTimestamp()
+          });
+        }
       } catch (e) {
         console.warn('[Grid] Firestore save warning:', e);
       }
@@ -1319,7 +1413,7 @@ export const Projects: React.FC = () => {
         for (let idx = 0; idx < sheets.length; idx++) {
           const sh = sheets[idx];
           const payload: any = {
-            project_id: selectedProject.id,
+            project_id: sbProjId,
             sheet_name: sh.name,
             sheet_order: idx,
             columns: sh.columns,

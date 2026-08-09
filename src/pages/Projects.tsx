@@ -660,6 +660,13 @@ export const Projects: React.FC = () => {
             const gd = gDoc.data();
             if (gd.sheets && Array.isArray(gd.sheets) && gd.sheets.length > 0) {
               loadedSheets = gd.sheets;
+            } else if ((gd.columns && Array.isArray(gd.columns)) || (gd.rows && Array.isArray(gd.rows))) {
+              loadedSheets.push({
+                id: gDoc.id,
+                name: gd.name || gd.sheet_name || 'Sheet 1',
+                columns: gd.columns || [],
+                rows: gd.rows || []
+              });
             }
           });
         } catch (e) {}
@@ -671,6 +678,13 @@ export const Projects: React.FC = () => {
               const gd = gDoc.data();
               if (gd.sheets && Array.isArray(gd.sheets) && gd.sheets.length > 0) {
                 loadedSheets = gd.sheets;
+              } else if ((gd.columns && Array.isArray(gd.columns)) || (gd.rows && Array.isArray(gd.rows))) {
+                loadedSheets.push({
+                  id: gDoc.id,
+                  name: gd.name || gd.sheet_name || 'Sheet 1',
+                  columns: gd.columns || [],
+                  rows: gd.rows || []
+                });
               }
             });
           } catch (e) {}
@@ -1215,9 +1229,19 @@ export const Projects: React.FC = () => {
     if (isNonEmpty(row[col.name])) return String(row[col.name]);
 
     if (cIdx !== undefined) {
-      if (isNonEmpty(row[cIdx])) return String(row[cIdx]);
-      if (isNonEmpty(row[`col_${cIdx + 1}`])) return String(row[`col_${cIdx + 1}`]);
-      if (isNonEmpty(row[`col_${cIdx}`])) return String(row[`col_${cIdx}`]);
+      const letterUpper = String.fromCharCode(65 + cIdx);
+      const letterLower = String.fromCharCode(97 + cIdx);
+      const idx1 = cIdx + 1;
+      const idx0 = cIdx;
+
+      if (isNonEmpty(row[idx0])) return String(row[idx0]);
+      if (isNonEmpty(row[idx1])) return String(row[idx1]);
+      if (isNonEmpty(row[`col_${idx1}`])) return String(row[`col_${idx1}`]);
+      if (isNonEmpty(row[`col_${idx0}`])) return String(row[`col_${idx0}`]);
+      if (isNonEmpty(row[`col${idx1}`])) return String(row[`col${idx1}`]);
+      if (isNonEmpty(row[`col${idx0}`])) return String(row[`col${idx0}`]);
+      if (isNonEmpty(row[letterUpper])) return String(row[letterUpper]);
+      if (isNonEmpty(row[letterLower])) return String(row[letterLower]);
     }
 
     const colIdLower = (col.id || '').toLowerCase().trim();

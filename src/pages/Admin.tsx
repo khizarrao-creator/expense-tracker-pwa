@@ -703,7 +703,7 @@ const Admin: React.FC = () => {
 
           if (enteredUser && validHashes.includes(enteredHash)) {
             isSuccess = true;
-            token = import.meta.env.VITE_ADMIN_SECRET_KEY || 'KR2006ADMIN';
+            token = import.meta.env.VITE_ADMIN_SECRET_KEY || 'admin_secret';
           }
         } catch (err) { }
       }

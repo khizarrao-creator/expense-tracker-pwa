@@ -32,7 +32,7 @@ export default async (request: Request, _context: Context) => {
 
     const expectedAdmin = (Deno.env.get('ADMIN_EMAIL') || Deno.env.get('SMTP_USER') || Deno.env.get('VITE_ADMIN_EMAIL') || 'admin').toLowerCase();
     const expectedHash = Deno.env.get('ADMIN_PASSWORD_HASH') || '87c40054c67228b844f131b7b9d173f979646b76232285af84d20be049c1d007';
-    const adminSecretKey = Deno.env.get('ADMIN_SECRET_KEY') || 'KR2006ADMIN';
+    const adminSecretKey = Deno.env.get('ADMIN_SECRET_KEY') || 'admin_secret';
 
     const enteredUser = (username || '').trim().toLowerCase();
     const enteredHash = await hashPassword((password || '').trim());

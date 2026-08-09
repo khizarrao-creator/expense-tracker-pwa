@@ -1,10 +1,10 @@
 [build]
   command = "npm run build"
   publish = "dist"
-  SECRETS_SCAN_ENABLED = false
 
 [build.environment]
   NPM_FLAGS = "--legacy-peer-deps"
+  SECRETS_SCAN_ENABLED = "false"
 
 [[edge_functions]]
   path = "/api/admin/auth"

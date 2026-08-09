@@ -1083,23 +1083,43 @@ export const Projects: React.FC = () => {
     toast.success('Whiteboard saved!');
   };
 
-  // --- Multi-Sheet Spreadsheet Grid Handlers ---
   const getCellValue = (row: ProjectGridRow, col: ProjectGridColumn, cIdx?: number): string => {
     if (!row) return '';
-    if (row[col.id] !== undefined && row[col.id] !== null) return String(row[col.id]);
-    if (row[col.name] !== undefined && row[col.name] !== null) return String(row[col.name]);
-    if (cIdx !== undefined && row[cIdx] !== undefined && row[cIdx] !== null) return String(row[cIdx]);
-    if (cIdx !== undefined && row[`col_${cIdx + 1}`] !== undefined && row[`col_${cIdx + 1}`] !== null) return String(row[`col_${cIdx + 1}`]);
 
-    const colIdLower = (col.id || '').toLowerCase();
-    const colNameLower = (col.name || '').toLowerCase();
+    const isNonEmpty = (val: any) => val !== undefined && val !== null && String(val).trim() !== '';
+
+    if (isNonEmpty(row[col.id])) return String(row[col.id]);
+    if (isNonEmpty(row[col.name])) return String(row[col.name]);
+
+    if (cIdx !== undefined) {
+      if (isNonEmpty(row[cIdx])) return String(row[cIdx]);
+      if (isNonEmpty(row[`col_${cIdx + 1}`])) return String(row[`col_${cIdx + 1}`]);
+      if (isNonEmpty(row[`col_${cIdx}`])) return String(row[`col_${cIdx}`]);
+    }
+
+    const colIdLower = (col.id || '').toLowerCase().trim();
+    const colNameLower = (col.name || '').toLowerCase().trim();
+
     for (const k of Object.keys(row)) {
       if (k === 'id') continue;
-      const kLower = k.toLowerCase();
-      if (kLower === colIdLower || kLower === colNameLower) {
-        return String(row[k] ?? '');
+      const kLower = k.toLowerCase().trim();
+      if ((kLower === colIdLower || kLower === colNameLower) && isNonEmpty(row[k])) {
+        return String(row[k]);
       }
     }
+
+    // Positional fallback: match by N-th non-id key
+    if (cIdx !== undefined) {
+      const dataKeys = Object.keys(row).filter(k => k !== 'id');
+      if (dataKeys[cIdx] !== undefined && isNonEmpty(row[dataKeys[cIdx]])) {
+        return String(row[dataKeys[cIdx]]);
+      }
+    }
+
+    // Default fallback to col.id or col.name if explicitly present
+    if (row[col.id] !== undefined && row[col.id] !== null) return String(row[col.id]);
+    if (row[col.name] !== undefined && row[col.name] !== null) return String(row[col.name]);
+
     return '';
   };
 

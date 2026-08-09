@@ -208,31 +208,39 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     }
 
     const loadUser = async () => {
+      let loadedFromSupabase = false;
       if (isSupabaseConfigured) {
-        const { data } = await supabase.from('users').select('*').eq('id', user.uid).maybeSingle();
-        if (data) {
-          const planName = data.plan || (data.is_pro ? 'pro' : 'standard');
-          setUserPlan(planName);
-          setIsPro(planName !== 'standard' || !!data.is_pro);
-          setIsBanned(!!data.is_banned);
-          setDisabledFeatures(data.disabled_features || []);
+        try {
+          const { data, error } = await supabase.from('users').select('*').eq('id', user.uid).maybeSingle();
+          if (!error && data) {
+            loadedFromSupabase = true;
+            const planName = data.plan || (data.is_pro ? 'pro' : 'standard');
+            setUserPlan(planName);
+            setIsPro(planName !== 'standard' || !!data.is_pro);
+            setIsBanned(!!data.is_banned);
+            setDisabledFeatures(data.disabled_features || []);
 
-          if (data.plan_expires_at) {
-            const expiresDate = new Date(data.plan_expires_at);
-            setPlanExpiresAt(expiresDate);
-            if (expiresDate < new Date() && planName !== 'standard') {
-              await supabase.from('users').update({
-                plan: 'standard',
-                is_pro: false,
-                plan_expires_at: null,
-                plan_assigned_by: 'expiry_daemon'
-              }).eq('id', user.uid);
+            if (data.plan_expires_at) {
+              const expiresDate = new Date(data.plan_expires_at);
+              setPlanExpiresAt(expiresDate);
+              if (expiresDate < new Date() && planName !== 'standard') {
+                await supabase.from('users').update({
+                  plan: 'standard',
+                  is_pro: false,
+                  plan_expires_at: null,
+                  plan_assigned_by: 'expiry_daemon'
+                }).eq('id', user.uid);
+              }
+            } else {
+              setPlanExpiresAt(null);
             }
-          } else {
-            setPlanExpiresAt(null);
           }
+        } catch (e) {
+          console.warn('[AppContext] Supabase loadUser error:', e);
         }
-      } else if (db) {
+      }
+
+      if (!loadedFromSupabase && db) {
         try {
           const userDoc = await getDoc(doc(db, 'registered_users', user.uid));
           if (userDoc.exists()) {

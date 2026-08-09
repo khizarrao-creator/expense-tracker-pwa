@@ -49,6 +49,8 @@ try {
   console.log('[Projects] tldraw loading fallback to canvas notepad');
 }
 
+const isUuid = (id?: string) => !!id && /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(id);
+
 export interface ProjectMember {
   userId: string;
   email: string;
@@ -360,6 +362,7 @@ export const Projects: React.FC = () => {
   const [gridSheets, setGridSheets] = useState<ProjectGridSheet[]>([defaultSheet]);
   const [activeSheetId, setActiveSheetId] = useState<string>('sheet_1');
   const [isSavingGrid, setIsSavingGrid] = useState(false);
+  const savingGridRef = React.useRef(false);
 
   const activeSheet = gridSheets.find(s => s.id === activeSheetId) || gridSheets[0] || defaultSheet;
 
@@ -566,9 +569,18 @@ export const Projects: React.FC = () => {
   useEffect(() => {
     if (!selectedProject) return;
 
+    // Reset grid to empty (not defaultSheet) so stale data doesn't linger
+    setGridSheets([]);
+    setProjectTasks([]);
+    setProjectLeads([]);
+
     const loadProjectSubItems = async () => {
+      // Skip reload if we are currently saving to avoid race condition
+      if (savingGridRef.current) return;
+
       const fsProjId = selectedProject.fsId || selectedProject.id;
       const sbProjId = selectedProject.sbId || selectedProject.id;
+      const validSbUuids = Array.from(new Set([sbProjId, fsProjId, selectedProject.id].filter(isUuid)));
 
       // 1. Fetch tasks from Firestore & Supabase
       const taskMap = new Map<string, ProjectTask>();
@@ -619,13 +631,16 @@ export const Projects: React.FC = () => {
         } catch (e) {}
       }
 
-      if (isSupabaseConfigured) {
+      if (isSupabaseConfigured && validSbUuids.length > 0) {
         try {
-          const { data: taskRows } = await supabase
-            .from('project_tasks')
-            .select('*')
-            .or(`project_id.eq.${sbProjId},project_id.eq.${fsProjId}`)
-            .order('created_at', { ascending: false });
+          let taskQuery = supabase.from('project_tasks').select('*');
+          if (validSbUuids.length === 1) {
+            taskQuery = taskQuery.eq('project_id', validSbUuids[0]);
+          } else {
+            taskQuery = taskQuery.or(validSbUuids.map(id => `project_id.eq.${id}`).join(','));
+          }
+
+          const { data: taskRows } = await taskQuery.order('created_at', { ascending: false });
 
           (taskRows || []).forEach((t: Record<string, any>) => {
             if (!taskMap.has(t.id)) {
@@ -691,13 +706,16 @@ export const Projects: React.FC = () => {
         }
       }
 
-      if (loadedSheets.length === 0 && isSupabaseConfigured) {
+      if (loadedSheets.length === 0 && isSupabaseConfigured && validSbUuids.length > 0) {
         try {
-          const { data: sheetRows } = await supabase
-            .from('grid_sheets')
-            .select('*')
-            .or(`project_id.eq.${sbProjId},project_id.eq.${fsProjId}`)
-            .order('sheet_order', { ascending: true });
+          let sheetQuery = supabase.from('grid_sheets').select('*');
+          if (validSbUuids.length === 1) {
+            sheetQuery = sheetQuery.eq('project_id', validSbUuids[0]);
+          } else {
+            sheetQuery = sheetQuery.or(validSbUuids.map(id => `project_id.eq.${id}`).join(','));
+          }
+
+          const { data: sheetRows } = await sheetQuery.order('sheet_order', { ascending: true });
 
           if (sheetRows && sheetRows.length > 0) {
             loadedSheets = sheetRows.map((s: Record<string, any>) => ({
@@ -722,6 +740,9 @@ export const Projects: React.FC = () => {
         } catch (e) {}
       }
 
+      // Only update grid state if we're not in the middle of a save
+      if (savingGridRef.current) return;
+
       if (loadedSheets.length > 0) {
         loadedSheets = loadedSheets.map(s => {
           if (!s.rows || s.rows.length === 0) {
@@ -735,6 +756,8 @@ export const Projects: React.FC = () => {
         if (!loadedSheets.some(s => s.id === activeSheetId)) {
           setActiveSheetId(loadedSheets[0].id);
         }
+      } else {
+        setGridSheets([defaultSheet]);
       }
 
       // 3. Fetch Leads from Firestore & Supabase
@@ -792,13 +815,16 @@ export const Projects: React.FC = () => {
         } catch (e) {}
       }
 
-      if (isSupabaseConfigured) {
+      if (isSupabaseConfigured && validSbUuids.length > 0) {
         try {
-          const { data: leadRows } = await supabase
-            .from('project_leads')
-            .select('*')
-            .or(`project_id.eq.${sbProjId},project_id.eq.${fsProjId}`)
-            .order('created_at', { ascending: false });
+          let leadQuery = supabase.from('project_leads').select('*');
+          if (validSbUuids.length === 1) {
+            leadQuery = leadQuery.eq('project_id', validSbUuids[0]);
+          } else {
+            leadQuery = leadQuery.or(validSbUuids.map(id => `project_id.eq.${id}`).join(','));
+          }
+
+          const { data: leadRows } = await leadQuery.order('created_at', { ascending: false });
 
           (leadRows || []).forEach((l: Record<string, any>) => {
             if (!leadMap.has(l.id)) {
@@ -1405,13 +1431,17 @@ export const Projects: React.FC = () => {
     const fsProjId = selectedProject.fsId || selectedProject.id;
     const sbProjId = selectedProject.sbId || selectedProject.id;
 
+    // Guard: prevent realtime reload from overwriting during save
+    savingGridRef.current = true;
+    setIsSavingGrid(true);
+
     try {
       localStorage.setItem(`project_grid_sheets_${selectedProject.id}`, JSON.stringify(sheets));
       localStorage.setItem(`project_grid_sheets_${fsProjId}`, JSON.stringify(sheets));
       localStorage.setItem(`project_grid_sheets_${sbProjId}`, JSON.stringify(sheets));
     } catch (e) {}
 
-    // 1. Dual-write to Firestore
+    // 1. Write to Firestore (primary)
     if (db) {
       try {
         await setDoc(doc(db, `projects/${fsProjId}/grid`, 'main'), {
@@ -1429,11 +1459,9 @@ export const Projects: React.FC = () => {
       }
     }
 
-    // 2. Dual-write to Supabase
-    if (isSupabaseConfigured) {
-      setIsSavingGrid(true);
+    // 2. Write to Supabase (secondary, fire-and-forget — do NOT update gridSheets state from response)
+    if (isSupabaseConfigured && isUuid(sbProjId)) {
       try {
-        const updatedSheets: ProjectGridSheet[] = [];
         for (let idx = 0; idx < sheets.length; idx++) {
           const sh = sheets[idx];
           const payload: any = {
@@ -1449,35 +1477,18 @@ export const Projects: React.FC = () => {
             payload.id = sh.id;
           }
 
-          const { data, error } = await supabase.from('grid_sheets').upsert(payload).select().single();
+          const { error } = await supabase.from('grid_sheets').upsert(payload);
           if (error) {
-            console.error('Grid sheet upsert error:', error);
-            updatedSheets.push(sh);
-          } else if (data) {
-            updatedSheets.push({
-              id: data.id,
-              name: data.sheet_name,
-              columns: data.columns || [],
-              rows: data.rows || []
-            });
-          }
-        }
-
-        if (updatedSheets.length > 0) {
-          setGridSheets(updatedSheets);
-          try {
-            localStorage.setItem(`project_grid_sheets_${selectedProject.id}`, JSON.stringify(updatedSheets));
-          } catch (e) {}
-          if (!updatedSheets.some(s => s.id === activeSheetId)) {
-            setActiveSheetId(updatedSheets[0].id);
+            console.warn('[Grid] Supabase upsert warning:', error.message);
           }
         }
       } catch (e) {
-        console.error(e);
-      } finally {
-        setIsSavingGrid(false);
+        console.warn('[Grid] Supabase save error:', e);
       }
     }
+
+    setIsSavingGrid(false);
+    savingGridRef.current = false;
     toast.success('Grid saved!');
   };
 

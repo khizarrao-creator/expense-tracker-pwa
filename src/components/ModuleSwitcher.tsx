@@ -97,7 +97,21 @@ export const getBreadcrumbs = (pathname: string): { module: string; page: string
   else if (activeModule === 'home') moduleName = 'Home';
   else if (moduleMeta) moduleName = moduleMeta.name;
 
-  const page = BREADCRUMB_MAP[pathname] || pathname.split('/').pop() || '';
+  let page = BREADCRUMB_MAP[pathname];
+  if (!page) {
+    const parts = pathname.split('/').filter(Boolean);
+    const lastPart = parts[parts.length - 1];
+    if (lastPart === 'tasks') page = 'Project Tasks';
+    else if (lastPart === 'leads') page = 'Sales / Leads CRM';
+    else if (lastPart === 'customers') page = 'Customers';
+    else if (lastPart === 'members') page = 'Team & HR';
+    else if (lastPart === 'sheets') page = 'Spreadsheets';
+    else if (lastPart === 'ai') page = 'AI Knowledge Chat';
+    else if (lastPart === 'whatsapp') page = 'WhatsApp';
+    else if (lastPart === 'whiteboard') page = 'Whiteboard';
+    else if (lastPart === 'settings') page = 'Project Settings';
+    else page = lastPart || '';
+  }
 
   return { module: moduleName, page };
 };

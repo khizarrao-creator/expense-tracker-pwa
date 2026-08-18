@@ -70,6 +70,21 @@ const ProtectedRoute: React.FC<{ children: React.ReactNode }> = ({ children }) =
   return <>{children}</>;
 };
 
+import { WorkProvider } from './contexts/WorkContext';
+
+const ProjectList = lazy(() => import('./pages/work/ProjectList').then(m => ({ default: m.ProjectList })));
+const ProjectLayout = lazy(() => import('./pages/work/ProjectLayout').then(m => ({ default: m.ProjectLayout })));
+const ProjectDashboard = lazy(() => import('./pages/work/ProjectDashboard').then(m => ({ default: m.ProjectDashboard })));
+const ProjectTasks = lazy(() => import('./pages/work/ProjectTasks').then(m => ({ default: m.ProjectTasks })));
+const ProjectLeads = lazy(() => import('./pages/work/ProjectLeads').then(m => ({ default: m.ProjectLeads })));
+const ProjectMembers = lazy(() => import('./pages/work/ProjectMembers').then(m => ({ default: m.ProjectMembers })));
+const ProjectCustomers = lazy(() => import('./pages/work/ProjectCustomers').then(m => ({ default: m.ProjectCustomers })));
+const ProjectSheets = lazy(() => import('./pages/work/ProjectSheets').then(m => ({ default: m.ProjectSheets })));
+const ProjectAIChat = lazy(() => import('./pages/work/ProjectAIChat').then(m => ({ default: m.ProjectAIChat })));
+const ProjectWhatsApp = lazy(() => import('./pages/work/ProjectWhatsApp').then(m => ({ default: m.ProjectWhatsApp })));
+const ProjectWhiteboard = lazy(() => import('./pages/work/ProjectWhiteboard').then(m => ({ default: m.ProjectWhiteboard })));
+const ProjectSettings = lazy(() => import('./pages/work/ProjectSettings').then(m => ({ default: m.ProjectSettings })));
+
 const FeatureRoute: React.FC<{ featureId: string; children: React.ReactNode }> = ({ featureId, children }) => {
   const { config, disabledFeatures, planFeatures } = useApp();
   
@@ -103,38 +118,51 @@ const App: React.FC = () => {
     <BrowserRouter>
       <AuthProvider>
         <AppProvider>
-          <SQLiteProvider>
-            <SyncProvider>
-              <CurrencyProvider>
-                <ThemeProvider>
-                  <AppHooks />
-                  <Toaster position="top-center" richColors closeButton visibleToasts={3} />
-                  <Suspense fallback={<SuspenseSpinner />}>
-                    <Routes>
-                      <Route path="/login" element={<Login />} />
-                      
-                      <Route path="/" element={<ProtectedRoute><Layout /></ProtectedRoute>}>
-                        <Route index element={<BaseDashboard />} />
+          <WorkProvider>
+            <SQLiteProvider>
+              <SyncProvider>
+                <CurrencyProvider>
+                  <ThemeProvider>
+                    <AppHooks />
+                    <Toaster position="top-center" richColors closeButton visibleToasts={3} />
+                    <Suspense fallback={<SuspenseSpinner />}>
+                      <Routes>
+                        <Route path="/login" element={<Login />} />
                         
-                        {/* 📊 LEDGER — Complete Financial Suite */}
-                        <Route path="ledger/overview" element={<Dashboard />} />
-                        <Route path="ledger/transactions" element={<Transactions />} />
-                        <Route path="ledger/accounts" element={<Accounts />} />
-                        <Route path="ledger/categories" element={<Categories />} />
-                        <Route path="ledger/goals" element={<FeatureRoute featureId="goals"><Goals /></FeatureRoute>} />
-                        <Route path="ledger/investments" element={<FeatureRoute featureId="investments"><Investments /></FeatureRoute>} />
-                        <Route path="ledger/loans" element={<FeatureRoute featureId="loans"><Loans /></FeatureRoute>} />
-                        <Route path="ledger/subscriptions" element={<FeatureRoute featureId="subscriptions"><Subscriptions /></FeatureRoute>} />
-                        <Route path="ledger/reminders" element={<FeatureRoute featureId="reminders"><Reminders /></FeatureRoute>} />
-                        <Route path="ledger/events" element={<FeatureRoute featureId="events"><Events /></FeatureRoute>} />
-                        <Route path="ledger/vehicles" element={<FeatureRoute featureId="fuel"><FuelTracking /></FeatureRoute>} />
-                        <Route path="ledger/reports" element={<FeatureRoute featureId="reports"><Reports /></FeatureRoute>} />
-                        <Route path="ledger/calculator" element={<FeatureRoute featureId="calculator"><Calculator /></FeatureRoute>} />
-                        <Route path="ledger/converter" element={<FeatureRoute featureId="converter"><Converter /></FeatureRoute>} />
+                        <Route path="/" element={<ProtectedRoute><Layout /></ProtectedRoute>}>
+                          <Route index element={<BaseDashboard />} />
+                          
+                          {/* 📊 LEDGER — Complete Financial Suite */}
+                          <Route path="ledger/overview" element={<Dashboard />} />
+                          <Route path="ledger/transactions" element={<Transactions />} />
+                          <Route path="ledger/accounts" element={<Accounts />} />
+                          <Route path="ledger/categories" element={<Categories />} />
+                          <Route path="ledger/goals" element={<FeatureRoute featureId="goals"><Goals /></FeatureRoute>} />
+                          <Route path="ledger/investments" element={<FeatureRoute featureId="investments"><Investments /></FeatureRoute>} />
+                          <Route path="ledger/loans" element={<FeatureRoute featureId="loans"><Loans /></FeatureRoute>} />
+                          <Route path="ledger/subscriptions" element={<FeatureRoute featureId="subscriptions"><Subscriptions /></FeatureRoute>} />
+                          <Route path="ledger/reminders" element={<FeatureRoute featureId="reminders"><Reminders /></FeatureRoute>} />
+                          <Route path="ledger/events" element={<FeatureRoute featureId="events"><Events /></FeatureRoute>} />
+                          <Route path="ledger/vehicles" element={<FeatureRoute featureId="fuel"><FuelTracking /></FeatureRoute>} />
+                          <Route path="ledger/reports" element={<FeatureRoute featureId="reports"><Reports /></FeatureRoute>} />
+                          <Route path="ledger/calculator" element={<FeatureRoute featureId="calculator"><Calculator /></FeatureRoute>} />
+                          <Route path="ledger/converter" element={<FeatureRoute featureId="converter"><Converter /></FeatureRoute>} />
 
-                        {/* 💼 WORK — Projects + Tasks */}
-                        <Route path="work/projects" element={<FeatureRoute featureId="projects"><Projects /></FeatureRoute>} />
-                        <Route path="work/tasks" element={<FeatureRoute featureId="tasks"><Tasks /></FeatureRoute>} />
+                          {/* 💼 WORK — Unified Work Engine */}
+                          <Route path="work/projects" element={<FeatureRoute featureId="projects"><ProjectList /></FeatureRoute>} />
+                          <Route path="work/projects/:projectId" element={<FeatureRoute featureId="projects"><ProjectLayout /></FeatureRoute>}>
+                            <Route index element={<ProjectDashboard />} />
+                            <Route path="tasks" element={<ProjectTasks />} />
+                            <Route path="leads" element={<ProjectLeads />} />
+                            <Route path="members" element={<ProjectMembers />} />
+                            <Route path="customers" element={<ProjectCustomers />} />
+                            <Route path="sheets" element={<ProjectSheets />} />
+                            <Route path="ai" element={<ProjectAIChat />} />
+                            <Route path="whatsapp" element={<ProjectWhatsApp />} />
+                            <Route path="whiteboard" element={<ProjectWhiteboard />} />
+                            <Route path="settings" element={<ProjectSettings />} />
+                          </Route>
+                          <Route path="work/tasks" element={<FeatureRoute featureId="tasks"><Tasks /></FeatureRoute>} />
 
                         {/* 💬 COMMUNICATIONS */}
                         <Route path="comms/whatsapp" element={<FeatureRoute featureId="whatsapp"><WhatsApp /></FeatureRoute>} />
@@ -184,10 +212,11 @@ const App: React.FC = () => {
               </CurrencyProvider>
             </SyncProvider>
           </SQLiteProvider>
-        </AppProvider>
-      </AuthProvider>
-    </BrowserRouter>
-  );
+        </WorkProvider>
+      </AppProvider>
+    </AuthProvider>
+  </BrowserRouter>
+);
 };
 
 export default App;

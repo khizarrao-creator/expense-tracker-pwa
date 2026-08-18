@@ -2,7 +2,7 @@ import React, { useState, useEffect, useRef } from 'react';
 import { useWork } from '../../contexts/WorkContext';
 import { db } from '../../firebase';
 import { supabase, isSupabaseConfigured } from '../../supabase';
-import { collection, getDocs, setDoc, serverTimestamp } from 'firebase/firestore';
+import { collection, doc, getDocs, setDoc, serverTimestamp } from 'firebase/firestore';
 import {
   Table,
   Download,
@@ -277,8 +277,8 @@ export const ProjectSheets: React.FC = () => {
     gridSheets.forEach((sh, idx) => {
       const exportData = sh.rows.map(r => {
         const formatted: any = {};
-        sh.columns.forEach((col, cIdx) => {
-          formatted[col.name] = getCellValue(r, col, cIdx);
+        sh.columns.forEach((col) => {
+          formatted[col.name] = getCellValue(r, col);
         });
         return formatted;
       });

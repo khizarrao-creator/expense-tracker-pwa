@@ -84,13 +84,13 @@ ${knowledgeBaseText || 'No custom knowledge base specified.'}
 Answer user queries accurately adhering strictly to this project's context.`;
 
     const chatHistory = [
-      { id: 'sys', role: 'user' as const, parts: [{ text: systemPrompt }] },
+      { role: 'user' as const, content: systemPrompt, timestamp: new Date().toISOString() },
       ...messages.filter(m => m.id !== 'welcome').map(m => ({
-        id: m.id,
         role: m.sender === 'user' ? ('user' as const) : ('model' as const),
-        parts: [{ text: m.text }]
+        content: m.text,
+        timestamp: new Date().toISOString()
       })),
-      { id: `usr_${Date.now()}`, role: 'user' as const, parts: [{ text: userText }] }
+      { role: 'user' as const, content: userText, timestamp: new Date().toISOString() }
     ];
 
     try {

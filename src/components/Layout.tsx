@@ -86,8 +86,6 @@ const COMMS_SECTION: NavSection = {
   ]
 };
 
-const ALL_SECTIONS: NavSection[] = [LEDGER_SECTION, WORK_SECTION, COMMS_SECTION];
-
 // ─── Layout Component ───────────────────────────────────────────────────────
 
 import { useWork } from '../contexts/WorkContext';

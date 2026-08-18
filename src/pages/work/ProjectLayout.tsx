@@ -1,23 +1,13 @@
 import React, { useEffect, useState } from 'react';
-import { useParams, Outlet, useNavigate, useLocation, Link } from 'react-router-dom';
+import { useParams, Outlet, useNavigate, Link } from 'react-router-dom';
 import { useWork } from '../../contexts/WorkContext';
 import { useApp } from '../../contexts/AppContext';
 import {
-  Layout,
-  CheckCircle2,
-  Palette,
-  Table,
-  Briefcase,
-  Users,
   UserPlus,
-  MessageSquare,
-  Sparkles,
-  Settings,
   Maximize2,
   Minimize2,
   ChevronLeft,
-  Search,
-  UserCheck
+  Search
 } from 'lucide-react';
 import { supabase, isSupabaseConfigured } from '../../supabase';
 import { useAuth } from '../../contexts/AuthContext';
@@ -29,7 +19,6 @@ export const ProjectLayout: React.FC = () => {
   const { isSidebarHidden, setIsSidebarHidden } = useApp();
   const { user } = useAuth();
   const navigate = useNavigate();
-  const location = useLocation();
 
   // Invite Modal State
   const [showInviteModal, setShowInviteModal] = useState(false);
@@ -65,19 +54,6 @@ export const ProjectLayout: React.FC = () => {
 
   const currentUserMember = selectedProject.members?.find(m => m.userId === user?.uid);
   const currentRole = currentUserMember?.role || 'member';
-
-  const navTabs = [
-    { id: '', label: 'Overview', icon: Layout, path: `/work/projects/${projectId}` },
-    { id: 'tasks', label: 'Tasks', icon: CheckCircle2, path: `/work/projects/${projectId}/tasks` },
-    { id: 'leads', label: 'Sales / Leads', icon: Briefcase, path: `/work/projects/${projectId}/leads` },
-    { id: 'customers', label: 'Customers', icon: UserCheck, path: `/work/projects/${projectId}/customers` },
-    { id: 'members', label: `Members (${selectedProject.members?.length || 0})`, icon: Users, path: `/work/projects/${projectId}/members` },
-    { id: 'sheets', label: 'Spreadsheets', icon: Table, path: `/work/projects/${projectId}/sheets` },
-    { id: 'ai', label: 'AI Knowledge Chat', icon: Sparkles, path: `/work/projects/${projectId}/ai` },
-    { id: 'whatsapp', label: 'WhatsApp', icon: MessageSquare, path: `/work/projects/${projectId}/whatsapp` },
-    { id: 'whiteboard', label: 'Whiteboard', icon: Palette, path: `/work/projects/${projectId}/whiteboard` },
-    { id: 'settings', label: 'Settings', icon: Settings, path: `/work/projects/${projectId}/settings` }
-  ];
 
   const handleSearchUsers = async () => {
     if (!inviteEmailSearch.trim() || !isSupabaseConfigured) return;

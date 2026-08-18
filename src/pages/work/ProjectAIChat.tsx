@@ -4,6 +4,8 @@ import { sendToGeminiStream } from '../../services/aiChatService';
 import { Sparkles, Send, Bot, Loader2 } from 'lucide-react';
 import { toast } from 'sonner';
 
+import type { FinancialSnapshot } from '../../services/aiDataService';
+
 export interface ChatMessage {
   id: string;
   sender: 'user' | 'ai';
@@ -11,15 +13,30 @@ export interface ChatMessage {
   timestamp: string;
 }
 
-const emptySnapshot = {
-  totalBalance: 0,
-  totalIncome: 0,
-  totalExpenses: 0,
-  accountBalances: [],
-  monthlyTrends: [],
+const emptySnapshot: FinancialSnapshot = {
+  generatedAt: new Date().toISOString(),
+  accounts: [],
+  monthlySummary: {
+    month: 'Current Month',
+    income: 0,
+    expenses: 0,
+    netSavings: 0,
+    prevMonthIncome: 0,
+    prevMonthExpenses: 0
+  },
   topCategories: [],
-  netSavings: 0,
-  activeBudgetsCount: 0
+  recentTransactions: [],
+  budgets: [],
+  goals: [],
+  loans: [],
+  upcomingReminders: [],
+  investments: [],
+  portfolioSummary: {
+    totalValue: 0,
+    totalProfitLoss: 0,
+    totalProfitLossPct: 0
+  },
+  fuelLogs: []
 };
 
 export const ProjectAIChat: React.FC = () => {

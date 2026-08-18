@@ -90,9 +90,19 @@ const ALL_SECTIONS: NavSection[] = [LEDGER_SECTION, WORK_SECTION, COMMS_SECTION]
 
 // ─── Layout Component ───────────────────────────────────────────────────────
 
+import { useWork } from '../contexts/WorkContext';
+import {
+  Layout as LayoutIcon,
+  CheckCircle2,
+  Palette,
+  Table as TableIcon,
+  UserCheck
+} from 'lucide-react';
+
 const Layout: React.FC = () => {
   const { signOut } = useAuth();
   const { isSyncing, lastSynced, isOnline } = useSync();
+  const { selectedProject } = useWork();
   const location = useLocation();
   const navigate = useNavigate();
   const [showLogoutConfirm, setShowLogoutConfirm] = useState(false);
@@ -101,10 +111,48 @@ const Layout: React.FC = () => {
   const activeModule = getActiveModuleFromPath(location.pathname);
   const breadcrumbs = getBreadcrumbs(location.pathname);
 
+  // Dynamic Work/CRM navigation items
+  const workSectionItems = useMemo(() => {
+    const baseItems: NavSection['items'] = [
+      { name: 'Projects', path: '/work/projects', icon: FolderKanban, featureId: 'projects' },
+      { name: 'Personal Tasks', path: '/work/tasks', icon: CheckSquare, featureId: 'tasks' },
+    ];
+
+    if (selectedProject && location.pathname.includes('/work/projects/')) {
+      const pId = selectedProject.id;
+      baseItems.push(
+        { name: `— ${selectedProject.name}`, path: `/work/projects/${pId}`, icon: LayoutIcon },
+        { name: 'Tasks', path: `/work/projects/${pId}/tasks`, icon: CheckCircle2 },
+        { name: 'Sales / Leads', path: `/work/projects/${pId}/leads`, icon: Briefcase },
+        { name: 'Members (HR)', path: `/work/projects/${pId}/members`, icon: CheckSquare },
+        { name: 'AI Chat', path: `/work/projects/${pId}/ai`, icon: Sparkles },
+        { name: 'Customers', path: `/work/projects/${pId}/customers`, icon: UserCheck },
+        { name: 'Sheets', path: `/work/projects/${pId}/sheets`, icon: TableIcon },
+        { name: 'WhatsApp', path: `/work/projects/${pId}/whatsapp`, icon: MessageSquare },
+        { name: 'Whiteboard', path: `/work/projects/${pId}/whiteboard`, icon: Palette },
+        { name: 'Settings', path: `/work/projects/${pId}/settings`, icon: Settings }
+      );
+    }
+    return baseItems;
+  }, [selectedProject, location.pathname]);
+
+  const workSection: NavSection = useMemo(() => ({
+    module: 'work',
+    label: 'CRM & Work',
+    icon: Briefcase,
+    items: workSectionItems
+  }), [workSectionItems]);
+
+  const allSections: NavSection[] = useMemo(() => [
+    LEDGER_SECTION,
+    workSection,
+    COMMS_SECTION
+  ], [workSection]);
+
   // Collapsible sidebar state — expand active module by default
   const [expandedSections, setExpandedSections] = useState<Record<string, boolean>>(() => {
     const initial: Record<string, boolean> = {};
-    ALL_SECTIONS.forEach(s => {
+    [LEDGER_SECTION, WORK_SECTION, COMMS_SECTION].forEach(s => {
       initial[s.module] = s.module === activeModule;
     });
     return initial;
@@ -183,7 +231,7 @@ const Layout: React.FC = () => {
 
         {/* Collapsible Module Sections */}
         <nav className="flex-1 px-3 py-2 space-y-1 overflow-y-auto">
-          {ALL_SECTIONS.map(section => (
+          {allSections.map(section => (
             <CollapsibleSection
               key={section.module}
               section={section}

@@ -170,28 +170,6 @@ export const ProjectLayout: React.FC = () => {
         </div>
       </div>
 
-      {/* Sub-navigation Tabs Bar */}
-      <div className="flex border-b border-border overflow-x-auto no-scrollbar gap-1">
-        {navTabs.map(t => {
-          const Icon = t.icon;
-          const isActive = location.pathname === t.path || (t.id !== '' && location.pathname.startsWith(t.path));
-          return (
-            <button
-              key={t.id}
-              onClick={() => navigate(t.path)}
-              className={`py-3 px-5 text-xs font-semibold border-b-2 transition-all flex items-center gap-2 whitespace-nowrap rounded-t-xl ${
-                isActive
-                  ? 'border-primary text-primary bg-primary/5 font-bold'
-                  : 'border-transparent text-muted-foreground hover:text-foreground hover:bg-muted/40'
-              }`}
-            >
-              <Icon size={15} />
-              {t.label}
-            </button>
-          );
-        })}
-      </div>
-
       {/* Sub-screen Content Rendered via Outlet */}
       <main>
         <Outlet />

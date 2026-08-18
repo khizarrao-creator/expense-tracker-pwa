@@ -29,3 +29,4 @@ dist-ssr
 .env
 whatsapp-server/auth_info_baileys
 serviceAccountKey.json
+backups/

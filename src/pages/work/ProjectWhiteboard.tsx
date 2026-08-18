@@ -3,7 +3,7 @@ import { useWork } from '../../contexts/WorkContext';
 import { db } from '../../firebase';
 import { supabase, isSupabaseConfigured } from '../../supabase';
 import { doc, updateDoc, serverTimestamp } from 'firebase/firestore';
-import { Palette, Bold, Italic, Underline, List, ListOrdered, Save, Maximize2 } from 'lucide-react';
+import { Palette, Save } from 'lucide-react';
 import { toast } from 'sonner';
 
 let TldrawComponent: any = null;

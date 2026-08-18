@@ -8,10 +8,8 @@ import {
   Table,
   Sparkles,
   ArrowRight,
-  Clock,
   UserCheck,
-  MessageSquare,
-  FileText
+  MessageSquare
 } from 'lucide-react';
 
 export const ProjectDashboard: React.FC = () => {

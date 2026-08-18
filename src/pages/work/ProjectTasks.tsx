@@ -8,15 +8,7 @@ import { addTask as addSqliteTask } from '../../db/queries';
 import {
   CheckCircle2,
   Plus,
-  Clock,
-  User,
-  AlertCircle,
-  Filter,
-  Check,
-  Play,
-  Pause,
-  Trash2,
-  Sparkles
+  User
 } from 'lucide-react';
 import { toast } from 'sonner';
 

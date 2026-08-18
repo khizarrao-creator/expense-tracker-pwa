@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { useWork } from '../../contexts/WorkContext';
-import { MessageSquare, QrCode, Send, Smartphone, Loader2, CheckCheck } from 'lucide-react';
+import { MessageSquare, Send, Smartphone, Loader2, CheckCheck } from 'lucide-react';
 import { getWhatsAppStatus, sendWhatsAppMessage } from '../../services/whatsappService';
 import { toast } from 'sonner';
 
@@ -15,7 +15,7 @@ export const ProjectWhatsApp: React.FC = () => {
 
   useEffect(() => {
     if (selectedProject) {
-      getWhatsAppStatus(1)
+      getWhatsAppStatus()
         .then(res => setStatus(res))
         .catch(() => setStatus({ success: false, connected: false }))
         .finally(() => setLoading(false));
@@ -28,7 +28,7 @@ export const ProjectWhatsApp: React.FC = () => {
     setIsSending(true);
 
     try {
-      await sendWhatsAppMessage(recipient.trim(), message.trim());
+      await sendWhatsAppMessage('account1', recipient.trim(), message.trim());
       toast.success('WhatsApp message dispatched!');
       setMessage('');
     } catch (e) {

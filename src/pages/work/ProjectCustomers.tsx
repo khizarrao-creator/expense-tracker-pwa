@@ -1,7 +1,7 @@
 import React, { useEffect, useState } from 'react';
 import { useWork } from '../../contexts/WorkContext';
 import { supabase, isSupabaseConfigured } from '../../supabase';
-import { UserCheck, Plus, Search, Mail, Phone, Building2, Tag, Trash2, Edit2 } from 'lucide-react';
+import { UserCheck, Plus, Search, Mail, Phone, Building2, Trash2 } from 'lucide-react';
 import { toast } from 'sonner';
 
 export interface ProjectCustomer {

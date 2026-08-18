@@ -3,7 +3,6 @@ import { useParams, Outlet, useNavigate, useLocation, Link } from 'react-router-
 import { useWork } from '../../contexts/WorkContext';
 import { useApp } from '../../contexts/AppContext';
 import {
-  FolderKanban,
   Layout,
   CheckCircle2,
   Palette,

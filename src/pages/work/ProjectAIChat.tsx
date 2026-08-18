@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { useWork } from '../../contexts/WorkContext';
 import { sendToGeminiStream } from '../../services/aiChatService';
-import { Sparkles, Send, Bot, User, BookOpen, Upload, Loader2 } from 'lucide-react';
+import { Sparkles, Send, Bot, Loader2 } from 'lucide-react';
 import { toast } from 'sonner';
 
 export interface ChatMessage {
@@ -10,6 +10,17 @@ export interface ChatMessage {
   text: string;
   timestamp: string;
 }
+
+const emptySnapshot = {
+  totalBalance: 0,
+  totalIncome: 0,
+  totalExpenses: 0,
+  accountBalances: [],
+  monthlyTrends: [],
+  topCategories: [],
+  netSavings: 0,
+  activeBudgetsCount: 0
+};
 
 export const ProjectAIChat: React.FC = () => {
   const { selectedProject } = useWork();
@@ -73,20 +84,27 @@ ${knowledgeBaseText || 'No custom knowledge base specified.'}
 Answer user queries accurately adhering strictly to this project's context.`;
 
     const chatHistory = [
-      { role: 'user', parts: [{ text: systemPrompt }] },
+      { id: 'sys', role: 'user' as const, parts: [{ text: systemPrompt }] },
       ...messages.filter(m => m.id !== 'welcome').map(m => ({
-        role: m.sender === 'user' ? 'user' : 'model',
+        id: m.id,
+        role: m.sender === 'user' ? ('user' as const) : ('model' as const),
         parts: [{ text: m.text }]
       })),
-      { role: 'user', parts: [{ text: userText }] }
+      { id: `usr_${Date.now()}`, role: 'user' as const, parts: [{ text: userText }] }
     ];
 
     try {
       let fullText = '';
-      await sendToGeminiStream(chatHistory, (chunk) => {
-        fullText += chunk;
-        setMessages(prev => prev.map(m => m.id === aiMsgId ? { ...m, text: fullText } : m));
-      });
+      await sendToGeminiStream(
+        chatHistory,
+        emptySnapshot,
+        'USD',
+        '$',
+        (chunk: string) => {
+          fullText += chunk;
+          setMessages(prev => prev.map(m => m.id === aiMsgId ? { ...m, text: fullText } : m));
+        }
+      );
     } catch (err: any) {
       console.error(err);
       toast.error('AI response error');

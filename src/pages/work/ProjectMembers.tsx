@@ -1,8 +1,8 @@
-import React, { useState } from 'react';
-import { useWork, ProjectMember } from '../../contexts/WorkContext';
+import React from 'react';
+import { useWork } from '../../contexts/WorkContext';
 import { useAuth } from '../../contexts/AuthContext';
 import { supabase, isSupabaseConfigured } from '../../supabase';
-import { Users, UserPlus, Shield, Trash2, Mail, CheckCircle2, Building2, Briefcase } from 'lucide-react';
+import { Users, Trash2 } from 'lucide-react';
 import { toast } from 'sonner';
 
 export const ProjectMembers: React.FC = () => {

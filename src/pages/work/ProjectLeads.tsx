@@ -7,17 +7,8 @@ import { collection, doc, getDocs, setDoc, deleteDoc, serverTimestamp } from 'fi
 import {
   Briefcase,
   Plus,
-  DollarSign,
-  User,
-  Phone,
-  Mail,
-  Building2,
-  ChevronLeft,
-  ChevronRight,
   Trash2,
-  Edit2,
-  CheckCircle2,
-  UserCheck
+  Edit2
 } from 'lucide-react';
 import { toast } from 'sonner';
 
@@ -53,7 +44,6 @@ export const ProjectLeads: React.FC = () => {
   const { user } = useAuth();
 
   const [leads, setLeads] = useState<ProjectLead[]>([]);
-  const [loading, setLoading] = useState(true);
   const [showAddLeadModal, setShowAddLeadModal] = useState(false);
   const [editingLead, setEditingLead] = useState<ProjectLead | null>(null);
 

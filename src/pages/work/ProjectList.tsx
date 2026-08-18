@@ -1,18 +1,13 @@
 import React, { useState } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { useWork, Project, ProjectInvite } from '../../contexts/WorkContext';
+import { useWork } from '../../contexts/WorkContext';
 import {
   FolderKanban,
   Plus,
   Users,
-  CheckCircle2,
-  Clock,
   ChevronRight,
   X,
   Check,
-  Briefcase,
-  TrendingUp,
-  Building2,
   Search,
   Sparkles,
   Inbox

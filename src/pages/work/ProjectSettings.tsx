@@ -1,7 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { useWork } from '../../contexts/WorkContext';
 import { supabase, isSupabaseConfigured } from '../../supabase';
-import { Settings, Save, BookOpen, Mail, AlertTriangle, Trash2 } from 'lucide-react';
+import { Settings, Save, BookOpen } from 'lucide-react';
 import { toast } from 'sonner';
 
 export const ProjectSettings: React.FC = () => {

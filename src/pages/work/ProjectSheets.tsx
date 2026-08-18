@@ -2,17 +2,12 @@ import React, { useState, useEffect, useRef } from 'react';
 import { useWork } from '../../contexts/WorkContext';
 import { db } from '../../firebase';
 import { supabase, isSupabaseConfigured } from '../../supabase';
-import { collection, doc, getDocs, getDoc, setDoc, serverTimestamp } from 'firebase/firestore';
+import { collection, getDocs, setDoc, serverTimestamp } from 'firebase/firestore';
 import {
   Table,
-  Plus,
-  Trash2,
   Download,
-  Upload,
   Save,
-  Mail,
-  Loader2,
-  X
+  Mail
 } from 'lucide-react';
 import { toast } from 'sonner';
 import * as XLSX from 'xlsx';
@@ -163,7 +158,7 @@ export const ProjectSheets: React.FC = () => {
     loadGridSheets();
   }, [selectedProject]);
 
-  const getCellValue = (row: ProjectGridRow, col: ProjectGridColumn, cIdx?: number): string => {
+  const getCellValue = (row: ProjectGridRow, col: ProjectGridColumn): string => {
     if (!row) return '';
     if (row[col.id] !== undefined && row[col.id] !== null) return String(row[col.id]);
     if (row[col.name] !== undefined && row[col.name] !== null) return String(row[col.name]);

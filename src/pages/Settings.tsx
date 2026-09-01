@@ -10,7 +10,7 @@ import { useAuth } from '../contexts/AuthContext';
 import { useApp } from '../contexts/AppContext';
 import { toast } from 'sonner';
 import { syncManager } from '../db/SyncManager';
-import { userMigrationSyncManager } from '../services/UserMigrationSyncManager';
+// UserMigrationSyncManager imported on-demand where needed
 import ConfirmModal from '../components/ConfirmModal';
 import AdminTransitionOverlay from '../components/AdminTransitionOverlay';
 import { getQuotaUsage, type QuotaStatus } from '../services/ai';
@@ -19,7 +19,7 @@ const Settings: React.FC = () => {
   const { currency, setCurrency, currencies } = useCurrency();
   const navigate = useNavigate();
   const { theme, setTheme } = useTheme();
-  const { forceSync, isSyncing, lastSynced, activeDataSource, setDataSource } = useSync();
+  const { forceSync, isSyncing, lastSynced } = useSync();
   const { user, isPro, signOut } = useAuth();
   const { config: appConfig, userPlan, plansConfig, planLimits } = useApp();
 

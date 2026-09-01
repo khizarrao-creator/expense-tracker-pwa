@@ -44,7 +44,7 @@ export const ProjectLeads: React.FC = () => {
   const { user } = useAuth();
 
   const [leads, setLeads] = useState<ProjectLead[]>([]);
-  const [loading, setLoading] = useState(true);
+  const [_loading, setLoading] = useState(true);
   const [showAddLeadModal, setShowAddLeadModal] = useState(false);
   const [editingLead, setEditingLead] = useState<ProjectLead | null>(null);
 

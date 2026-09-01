@@ -30,3 +30,4 @@ dist-ssr
 whatsapp-server/auth_info_baileys
 serviceAccountKey.json
 backups/
+whatsapp-server/history_account1.json

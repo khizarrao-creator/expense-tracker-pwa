@@ -206,6 +206,7 @@ const App: React.FC = () => {
                         <Route path="ops/reminders" element={<FeatureRoute featureId="reminders"><Reminders /></FeatureRoute>} />
                       </Route>
                       <Route path="/admin" element={<Admin />} />
+                      <Route path="/admin/payments" element={<Admin />} />
                     </Routes>
                   </Suspense>
                 </ThemeProvider>

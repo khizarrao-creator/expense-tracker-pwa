@@ -17,59 +17,46 @@ const pino = require('pino');
 const cloudinary = require('cloudinary').v2;
 const { default: makeWASocket, useMultiFileAuthState, DisconnectReason, fetchLatestBaileysVersion, downloadMediaMessage } = require('@whiskeysockets/baileys');
 
-const { initializeApp } = require('firebase/app');
-const { getFirestore, doc, getDoc, setDoc, deleteDoc, collection, getDocs } = require('firebase/firestore');
-const { getAuth, signInWithEmailAndPassword } = require('firebase/auth');
+const { initializeApp, cert, getApps } = require('firebase-admin/app');
+const { getFirestore } = require('firebase-admin/firestore');
 
 const app = express();
 const PORT = process.env.PORT || 3001;
 
-// Initialize Firebase client SDK
-const firebaseConfig = {
-  apiKey: process.env.VITE_FIREBASE_API_KEY,
-  authDomain: process.env.VITE_FIREBASE_AUTH_DOMAIN,
-  projectId: process.env.VITE_FIREBASE_PROJECT_ID,
-  storageBucket: process.env.VITE_FIREBASE_STORAGE_BUCKET,
-  messagingSenderId: process.env.VITE_FIREBASE_MESSAGING_SENDER_ID,
-  appId: process.env.VITE_FIREBASE_APP_ID
-};
-
+// Initialize Firebase Admin SDK
 let db = null;
-let auth = null;
 try {
-  const firebaseApp = initializeApp(firebaseConfig);
-  db = getFirestore(firebaseApp);
-  auth = getAuth(firebaseApp);
-  console.log('[Firebase] Connected to Firestore successfully');
+  const rootServiceAccountPath = path.join(__dirname, '../serviceAccountKey.json');
+  const localServiceAccountPath = path.join(__dirname, 'serviceAccountKey.json');
+
+  let serviceAccount = null;
+  if (fs.existsSync(rootServiceAccountPath)) {
+    serviceAccount = JSON.parse(fs.readFileSync(rootServiceAccountPath, 'utf8'));
+  } else if (fs.existsSync(localServiceAccountPath)) {
+    serviceAccount = JSON.parse(fs.readFileSync(localServiceAccountPath, 'utf8'));
+  } else if (process.env.FIREBASE_SERVICE_ACCOUNT_KEY) {
+    try {
+      serviceAccount = JSON.parse(process.env.FIREBASE_SERVICE_ACCOUNT_KEY);
+    } catch (err) {}
+  }
+
+  if (!getApps().length) {
+    if (serviceAccount) {
+      initializeApp({
+        credential: cert(serviceAccount),
+        projectId: process.env.VITE_FIREBASE_PROJECT_ID || serviceAccount.project_id
+      });
+      console.log('[Firebase Admin] Connected to Firestore with service account credentials.');
+    } else {
+      initializeApp({
+        projectId: process.env.VITE_FIREBASE_PROJECT_ID || 'expense-tracker-2006'
+      });
+      console.log('[Firebase Admin] Initialized with default credentials.');
+    }
+  }
+  db = getFirestore();
 } catch (e) {
-  console.error('[Firebase] Initialization error:', e.message);
-}
-
-// Authenticate server if credentials are provided
-async function authenticateFirebaseServer() {
-  const email = process.env.FIREBASE_SERVER_EMAIL;
-  const password = process.env.FIREBASE_SERVER_PASSWORD;
-
-  if (!email || !password) {
-    console.warn('\n⚠️  [Firebase Auth] FIREBASE_SERVER_EMAIL or FIREBASE_SERVER_PASSWORD not set in .env.');
-    console.warn('⚠️  The server will run unauthenticated. Make sure your Firestore Rules allow unauthenticated access to /whatsapp_sessions.');
-    console.warn('⚠️  Alternatively, add credentials to .env to authenticate securely.\n');
-    return;
-  }
-
-  if (!auth) {
-    console.warn('[Firebase Auth] Auth service not initialized. Skipping sign-in.');
-    return;
-  }
-
-  try {
-    console.log(`[Firebase Auth] Attempting sign-in as service user: ${email}...`);
-    await signInWithEmailAndPassword(auth, email, password);
-    console.log('[Firebase Auth] Signed in successfully! Credentials will now sync securely.');
-  } catch (err) {
-    console.error('[Firebase Auth] Failed to authenticate service user:', err.message);
-    console.error('[Firebase Auth] Running unauthenticated. Sync operations may fail if Firestore Rules are strict.');
-  }
+  console.error('[Firebase Admin] Initialization error:', e.message);
 }
 
 // Active watchers dictionary
@@ -89,8 +76,8 @@ async function downloadSessionFromFirestore(sessionId) {
 
   try {
     console.log(`[${sessionId}] Checking Firestore for existing session credentials...`);
-    const filesColRef = collection(db, 'whatsapp_sessions', sessionId, 'files');
-    const querySnapshot = await getDocs(filesColRef);
+    const filesColRef = db.collection('whatsapp_sessions').doc(sessionId).collection('files');
+    const querySnapshot = await filesColRef.get();
     let fileCount = 0;
 
     querySnapshot.forEach((docSnap) => {
@@ -140,7 +127,7 @@ function watchSessionFolder(sessionId) {
           try {
             const content = fs.readFileSync(filePath, 'utf-8');
             if (db) {
-              await setDoc(doc(db, 'whatsapp_sessions', sessionId, 'files', docId), {
+              await db.collection('whatsapp_sessions').doc(sessionId).collection('files').doc(docId).set({
                 content,
                 updatedAt: Date.now()
               });
@@ -154,7 +141,7 @@ function watchSessionFolder(sessionId) {
         // File deleted
         try {
           if (db) {
-            await deleteDoc(doc(db, 'whatsapp_sessions', sessionId, 'files', docId));
+            await db.collection('whatsapp_sessions').doc(sessionId).collection('files').doc(docId).delete();
             console.log(`[Firestore Sync] Deleted: ${filename} (${sessionId})`);
           }
         } catch (e) {
@@ -168,7 +155,7 @@ function watchSessionFolder(sessionId) {
           try {
             const content = fs.readFileSync(filePath, 'utf-8');
             if (db) {
-              await setDoc(doc(db, 'whatsapp_sessions', sessionId, 'files', docId), {
+              await db.collection('whatsapp_sessions').doc(sessionId).collection('files').doc(docId).set({
                 content,
                 updatedAt: Date.now()
               });
@@ -200,11 +187,11 @@ async function clearSessionInFirestore(sessionId) {
 
   try {
     console.log(`[${sessionId}] Deleting session files in Firestore...`);
-    const filesColRef = collection(db, 'whatsapp_sessions', sessionId, 'files');
-    const querySnapshot = await getDocs(filesColRef);
+    const filesColRef = db.collection('whatsapp_sessions').doc(sessionId).collection('files');
+    const querySnapshot = await filesColRef.get();
     const deletePromises = [];
     querySnapshot.forEach((docSnap) => {
-      deletePromises.push(deleteDoc(doc(db, 'whatsapp_sessions', sessionId, 'files', docSnap.id)));
+      deletePromises.push(docSnap.ref.delete());
     });
     await Promise.all(deletePromises);
     console.log(`[${sessionId}] Session files in Firestore cleared.`);
@@ -686,21 +673,15 @@ async function initSession(sessionId) {
 
 // Initialize sessions on startup
 async function startSessionManager() {
-  // Wait for Firebase Auth to authenticate
-  await authenticateFirebaseServer();
-
-  // Wait a short delay to ensure db/auth states are fully resolved in the SDK
-  await new Promise(resolve => setTimeout(resolve, 1000));
-
   for (const sessionId of Object.keys(sessions)) {
     const credsFile = path.join(__dirname, 'auth_info_baileys', sessionId, 'creds.json');
     let hasCredentials = fs.existsSync(credsFile);
 
     if (!hasCredentials && db) {
       try {
-        const credsDocRef = doc(db, 'whatsapp_sessions', sessionId, 'files', 'creds.json');
-        const credsDoc = await getDoc(credsDocRef);
-        if (credsDoc.exists()) {
+        const credsDocRef = db.collection('whatsapp_sessions').doc(sessionId).collection('files').doc('creds.json');
+        const credsDoc = await credsDocRef.get();
+        if (credsDoc.exists) {
           hasCredentials = true;
         }
       } catch (err) {

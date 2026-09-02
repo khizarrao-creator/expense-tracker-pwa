@@ -35,22 +35,14 @@ import {
   List,
   ListOrdered,
   Link2,
-  Crown,
-  Shield,
-  Trash2,
-  Edit,
-  MapPin,
   CheckCircle2,
-  XCircle,
-  PlusCircle,
-  CreditCard,
   Clock,
-  Loader2,
   Download,
   Upload,
 } from 'lucide-react';
 import { syncManager } from '../db/SyncManager';
 import { userMigrationSyncManager, type VerificationReport } from '../services/UserMigrationSyncManager';
+import { PaymentsAdminLayout } from '../components/admin/payments/PaymentsAdminLayout';
 import { Bar, Pie, Line } from 'react-chartjs-2';
 import {
   Chart as ChartJS,
@@ -766,24 +758,72 @@ const Admin: React.FC = () => {
         const { data: logsData } = await supabase.from('admin_logs').select('*').order('timestamp', { ascending: false }).limit(50);
         setAdminLogs((logsData || []) as any[]);
 
-        // Fetch Payment Requests
-        const { data: payData } = await supabase.from('payment_requests').select('*').order('submitted_at', { ascending: false });
-        setPaymentRequests((payData || []).map((p: any) => ({
-          id: p.id,
-          userId: p.user_id,
-          selectedPlan: p.selected_plan,
-          paymentMethod: p.payment_method,
-          amount: p.amount,
-          currency: p.currency,
-          transactionId: p.transaction_id,
-          screenshotUrl: p.screenshot_url,
-          notes: p.notes,
-          status: p.status,
-          rejectionReason: p.rejection_reason,
-          userCoords: p.user_coords,
-          submittedAt: p.submitted_at,
-          verifiedAt: p.verified_at
-        })));
+        // Fetch Payment Requests from both Supabase and Firestore to ensure historical records are preserved
+        const combinedPayments: any[] = [];
+        const seenIds = new Set<string>();
+
+        if (isSupabaseConfigured) {
+          try {
+            const { data: payData } = await supabase.from('payment_requests').select('*').order('submitted_at', { ascending: false });
+            (payData || []).forEach((p: any) => {
+              seenIds.add(p.id);
+              combinedPayments.push({
+                id: p.id,
+                userId: p.user_id,
+                userName: p.user_name || p.userName || '',
+                userEmail: p.user_email || p.userEmail || '',
+                selectedPlan: p.selected_plan,
+                paymentMethod: p.payment_method,
+                amount: p.amount,
+                currency: p.currency,
+                transactionId: p.transaction_id,
+                screenshotUrl: p.screenshot_url,
+                notes: p.notes,
+                status: p.status,
+                rejectionReason: p.rejection_reason,
+                userCoords: p.user_coords,
+                submittedAt: p.submitted_at,
+                verifiedAt: p.verified_at
+              });
+            });
+          } catch (e) {
+            console.warn('[Admin] Supabase payment_requests fetch warning:', e);
+          }
+        }
+
+        if (db) {
+          try {
+            const paymentsSnap = await getDocs(query(collection(db, 'payment_requests'), orderBy('submittedAt', 'desc')));
+            paymentsSnap.docs.forEach(docSnap => {
+              if (!seenIds.has(docSnap.id)) {
+                seenIds.add(docSnap.id);
+                const d = docSnap.data();
+                combinedPayments.push({
+                  id: docSnap.id,
+                  userId: d.userId || d.user_id,
+                  userName: d.userName || d.user_name || d.displayName || d.display_name || '',
+                  userEmail: d.userEmail || d.user_email || d.email || '',
+                  selectedPlan: d.selectedPlan || d.selected_plan,
+                  paymentMethod: d.paymentMethod || d.payment_method,
+                  amount: d.amount,
+                  currency: d.currency,
+                  transactionId: d.transactionId || d.transaction_id,
+                  screenshotUrl: d.screenshotUrl || d.screenshot_url,
+                  notes: d.notes,
+                  status: d.status,
+                  rejectionReason: d.rejectionReason || d.rejection_reason,
+                  userCoords: d.userCoords || d.user_coords,
+                  submittedAt: d.submittedAt || d.submitted_at,
+                  verifiedAt: d.verifiedAt || d.verified_at
+                });
+              }
+            });
+          } catch (e) {
+            console.warn('[Admin] Firestore payment_requests fetch warning:', e);
+          }
+        }
+
+        setPaymentRequests(combinedPayments);
 
         // Fetch Payment Accounts
         const { data: accData } = await supabase.from('payment_accounts').select('*').order('display_order', { ascending: true });
@@ -835,12 +875,6 @@ const Admin: React.FC = () => {
         try {
           const logsSnap = await getDocs(query(collection(db, 'admin_logs'), orderBy('timestamp', 'desc'), limit(50)));
           setAdminLogs(logsSnap.docs.map(docSnap => ({ id: docSnap.id, ...docSnap.data() } as AdminLog)));
-        } catch (e) { }
-
-        // Fetch Payment Requests from Firestore
-        try {
-          const paymentsSnap = await getDocs(query(collection(db, 'payment_requests'), orderBy('submittedAt', 'desc')));
-          setPaymentRequests(paymentsSnap.docs.map(docSnap => ({ id: docSnap.id, ...docSnap.data() }) as any));
         } catch (e) { }
       }
     } catch (error) {
@@ -3467,443 +3501,82 @@ const Admin: React.FC = () => {
           </div>
         )}
 
-        {/* 6. Payments Verification Tab */}
-        {activeTab === 'payments' && (
-          <div className="space-y-6 animate-in fade-in duration-200">
-            {/* Pending Requests Queue Card */}
-            <div className="bg-card border border-border rounded-3xl p-5 shadow-sm space-y-4">
-              <div className="flex items-center justify-between gap-3 border-b border-border/40 pb-4">
-                <div className="flex items-center gap-2">
-                  <Clock className="text-primary" size={18} />
-                  <h3 className="font-extrabold text-sm text-foreground">Pending Verification Queue</h3>
-                </div>
-                <Badge variant="info" size="sm">
-                  {paymentRequests.filter(r => r.status === 'pending').length} Pending
-                </Badge>
-              </div>
-
-              {paymentRequests.length === 0 ? (
-                <div className="py-12 text-center text-xs text-muted-foreground italic">
-                  No payment verification requests recorded.
-                </div>
-              ) : (
-                <div className="overflow-x-auto">
-                  <table className="w-full text-left text-xs border-collapse">
-                    <thead>
-                      <tr className="border-b border-border/40 text-muted-foreground font-semibold">
-                        <th className="py-3 px-2">User</th>
-                        <th className="py-3 px-2">Plan</th>
-                        <th className="py-3 px-2">Method</th>
-                        <th className="py-3 px-2">Tx ID</th>
-                        <th className="py-3 px-2">Amount</th>
-                        <th className="py-3 px-2">Submitted</th>
-                        <th className="py-3 px-2">IP / Geotag</th>
-                        <th className="py-3 px-2">Status</th>
-                        <th className="py-3 px-2 text-right">Actions</th>
-                      </tr>
-                    </thead>
-                    <tbody className="divide-y divide-border/30">
-                      {paymentRequests.map((req) => (
-                        <tr key={req.id} className="hover:bg-muted/10">
-                          <td className="py-3 px-2">
-                            <p className="font-bold text-foreground truncate max-w-[120px]">{req.userName}</p>
-                            <p className="text-[10px] text-muted-foreground truncate max-w-[150px]">{req.userEmail}</p>
-                          </td>
-                          <td className="py-3 px-2">
-                            <PlanBadge plan={req.selectedPlan} size="sm" />
-                          </td>
-                          <td className="py-3 px-2 font-medium text-foreground">{req.paymentMethod}</td>
-                          <td className="py-3 px-2 font-mono font-medium">{req.transactionId}</td>
-                          <td className="py-3 px-2 font-bold text-foreground">PKR {req.amount}</td>
-                          <td className="py-3 px-2 text-muted-foreground text-[10px]">
-                            {req.submittedAt?.toDate ? req.submittedAt.toDate().toLocaleString() : new Date(req.submittedAt).toLocaleString()}
-                          </td>
-                          <td className="py-3 px-2 space-y-0.5">
-                            <p className="font-mono text-[9px] text-muted-foreground">{req.submittedFromIP || '---'}</p>
-                            {req.submittedFromCoords && (
-                              <a
-                                href={`https://www.google.com/maps?q=${req.submittedFromCoords.lat},${req.submittedFromCoords.lng}`}
-                                target="_blank"
-                                rel="noopener noreferrer"
-                                className="inline-flex items-center gap-0.5 text-[9px] text-brand hover:underline font-bold"
-                              >
-                                <MapPin size={10} /> View Map
-                              </a>
-                            )}
-                          </td>
-                          <td className="py-3 px-2">
-                            <Badge
-                              variant={
-                                req.status === 'approved' ? 'success' :
-                                  req.status === 'rejected' ? 'danger' : 'warning'
-                              }
-                              size="sm"
-                            >
-                              {req.status}
-                            </Badge>
-                          </td>
-                          <td className="py-3 px-2 text-right space-x-2 shrink-0">
-                            {req.screenshotUrl && (
-                              <button
-                                onClick={() => setSelectedRequest(req)}
-                                className="p-1 hover:bg-muted rounded-lg text-primary transition-colors inline-flex"
-                                title="View Receipt"
-                              >
-                                <Eye size={16} />
-                              </button>
-                            )}
-                            {req.status === 'pending' && (
-                              <>
-                                <button
-                                  onClick={() => {
-                                    setSelectedRequest(req);
-                                    setShowApprovalModal(true);
-                                  }}
-                                  className="p-1 hover:bg-success/10 rounded-lg text-success transition-colors inline-flex"
-                                  title="Approve"
-                                >
-                                  <CheckCircle2 size={16} />
-                                </button>
-                                <button
-                                  onClick={() => {
-                                    setSelectedRequest(req);
-                                    setShowRejectionModal(true);
-                                  }}
-                                  className="p-1 hover:bg-destructive/10 rounded-lg text-destructive transition-colors inline-flex"
-                                  title="Reject"
-                                >
-                                  <XCircle size={16} />
-                                </button>
-                              </>
-                            )}
-                          </td>
-                        </tr>
-                      ))}
-                    </tbody>
-                  </table>
-                </div>
-              )}
-            </div>
-
-            {/* Payment Accounts Setup Panel */}
-            <div className="bg-card border border-border rounded-3xl p-5 shadow-sm space-y-4">
-              <div className="flex items-center justify-between gap-3 border-b border-border/40 pb-4">
-                <div className="flex items-center gap-2">
-                  <CreditCard className="text-primary" size={18} />
-                  <h3 className="font-extrabold text-sm text-foreground">Manual Payment Accounts Config</h3>
-                </div>
-                <Button
-                  variant="outline"
-                  size="sm"
-                  onClick={() => {
-                    setAccountForm({
-                      id: '',
-                      method: 'SadaPay',
-                      holderName: '',
-                      accountNumber: '',
-                      iban: '',
-                      instructions: '',
-                      isActive: true,
-                      displayOrder: paymentAccounts.length + 1,
-                      qrCodeUrl: ''
-                    });
-                    setShowAccountModal(true);
-                  }}
-                  leftIcon={<PlusCircle size={14} />}
-                >
-                  Add Method
-                </Button>
-              </div>
-
-              {paymentAccounts.length === 0 ? (
-                <div className="py-8 text-center text-xs text-muted-foreground italic">
-                  No payment accounts configured yet.
-                </div>
-              ) : (
-                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                  {paymentAccounts.map((acc) => (
-                    <div
-                      key={acc.id}
-                      className="border border-border/60 bg-muted/10 rounded-2xl p-4 flex justify-between items-start gap-4"
-                    >
-                      <div className="space-y-2 text-xs">
-                        <div className="flex items-center gap-2">
-                          <h4 className="font-extrabold text-foreground">{acc.method}</h4>
-                          <Badge variant={acc.isActive ? 'success' : 'outline'} size="sm">
-                            {acc.isActive ? 'Active' : 'Disabled'}
-                          </Badge>
-                        </div>
-                        <div className="space-y-0.5 text-muted-foreground leading-normal">
-                          <p>Holder: <strong className="text-foreground">{acc.holderName}</strong></p>
-                          <p>Account: <strong className="text-foreground font-semibold">{acc.accountNumber}</strong></p>
-                          {acc.iban && <p>IBAN: <strong className="text-foreground font-mono">{acc.iban}</strong></p>}
-                          {acc.instructions && <p className="italic text-[10px]">"{acc.instructions}"</p>}
-                        </div>
-                      </div>
-
-                      <div className="flex items-center gap-1 shrink-0">
-                        <button
-                          onClick={() => {
-                            setAccountForm(acc);
-                            setShowAccountModal(true);
-                          }}
-                          className="p-1.5 hover:bg-muted rounded-lg text-slate-500 transition-colors inline-flex"
-                        >
-                          <Edit size={14} />
-                        </button>
-                        <button
-                          onClick={() => handleDeleteAccount(acc.id)}
-                          className="p-1.5 hover:bg-destructive/10 rounded-lg text-destructive transition-colors inline-flex"
-                        >
-                          <Trash2 size={14} />
-                        </button>
-                      </div>
-                    </div>
-                  ))}
-                </div>
-              )}
-            </div>
-          </div>
-        )}
-
-        {/* 7. Plans Configuration Tab */}
-        {activeTab === 'plans' && (
-          <div className="space-y-6 animate-in fade-in duration-200">
-            {/* Plans List Config Card */}
-            <div className="bg-card border border-border rounded-3xl p-5 shadow-sm space-y-4">
-              <div className="flex items-center gap-2 border-b border-border/40 pb-4">
-                <Sliders className="text-primary" size={18} />
-                <h3 className="font-extrabold text-sm text-foreground">SaaS Subscription Plans Configuration</h3>
-              </div>
-
-              {!plansConfigLocal ? (
-                <div className="py-12 flex flex-col items-center justify-center gap-2">
-                  <Loader2 className="animate-spin text-primary" size={24} />
-                  <span className="text-xs text-muted-foreground font-medium">Loading plans...</span>
-                </div>
-              ) : (
-                <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
-                  {Object.entries(plansConfigLocal)
-                    .sort((a: any, b: any) => (a[1].displayOrder || 0) - (b[1].displayOrder || 0))
-                    .map(([planId, details]: [string, any]) => {
-                      const isPro = planId === 'pro';
-                      const isMax = planId === 'max';
-
-                      return (
-                        <Card
-                          key={planId}
-                          variant="default"
-                          className="p-5 border border-border/60 hover:border-primary/30 flex flex-col justify-between"
-                        >
-                          <div className="space-y-4 text-xs">
-                            <div className="flex items-center justify-between border-b border-border/30 pb-2">
-                              <div className="flex items-center gap-1.5">
-                                {isMax ? <Crown size={16} className="text-warning" /> : isPro ? <Zap size={16} className="text-brand" /> : <Shield size={16} className="text-muted-foreground" />}
-                                <h4 className="font-extrabold text-sm text-foreground">{details.name}</h4>
-                              </div>
-                              <Badge variant="outline" size="sm">
-                                Order: {details.displayOrder}
-                              </Badge>
-                            </div>
-
-                            <div className="space-y-1">
-                              <p className="text-lg font-black text-foreground">
-                                PKR {details.price}
-                                <span className="text-[10px] text-muted-foreground font-medium">/{details.billingCycle}</span>
-                              </p>
-                              <p className="text-[10px] text-muted-foreground leading-normal">
-                                Daily AI rate limit: <strong className="text-foreground">{details.limits.aiCallsPerDay} calls</strong>
-                              </p>
-                              <p className="text-[10px] text-muted-foreground leading-normal">
-                                Daily AI Upload limit: <strong className="text-foreground">{details.limits.maxUploadsPerDay ?? 0} uploads</strong>
-                              </p>
-                              <p className="text-[10px] text-muted-foreground leading-normal">
-                                Max Local Txs: <strong className="text-foreground">{details.limits.maxTransactions === -1 ? 'Unlimited' : details.limits.maxTransactions}</strong>
-                              </p>
-                            </div>
-
-                            <div className="space-y-1.5 pt-2 border-t border-border/30">
-                              <p className="font-semibold text-muted-foreground text-[10px] uppercase tracking-wider">Features Included:</p>
-                              <div className="flex flex-wrap gap-1">
-                                {(details.features || []).map((feat: string) => (
-                                  <span key={feat} className="px-2 py-0.5 bg-muted text-foreground text-[9px] font-bold rounded-lg uppercase">
-                                    {feat}
-                                  </span>
-                                ))}
-                              </div>
-                            </div>
-                          </div>
-
-                          <div className="pt-4 mt-4 border-t border-border/30">
-                            <Button
-                              variant="outline"
-                              fullWidth
-                              size="sm"
-                              onClick={() => {
-                                setEditingPlanId(planId);
-                                setPlanForm({
-                                  name: details.name,
-                                  price: details.price,
-                                  currency: details.currency || 'PKR',
-                                  billingCycle: details.billingCycle,
-                                  features: details.features || [],
-                                  limits: details.limits || { aiCallsPerDay: 50, maxTransactions: 50000, maxUploadsPerDay: 10 },
-                                  badgeIcon: details.badgeIcon || 'zap',
-                                  badgeColor: details.badgeColor || '#3B82F6',
-                                  displayOrder: details.displayOrder
-                                });
-                              }}
-                            >
-                              Edit Plan Configuration
-                            </Button>
-                          </div>
-                        </Card>
-                      );
-                    })}
-                </div>
-              )}
-            </div>
-
-            {/* Plan Editor Form Card */}
-            {editingPlanId && (
-              <Card variant="default" className="p-6 border border-primary/30 shadow-md space-y-4 animate-in slide-in-from-bottom duration-250">
-                <div className="flex items-center justify-between border-b border-border/40 pb-3">
-                  <h4 className="font-extrabold text-sm text-foreground">
-                    Editing Plan: {planForm.name} ({editingPlanId.toUpperCase()})
-                  </h4>
-                  <button
-                    onClick={() => setEditingPlanId('')}
-                    className="p-1 hover:bg-muted rounded-full transition-colors"
-                  >
-                    <X size={16} />
-                  </button>
-                </div>
-
-                <form onSubmit={handleSavePlan} className="space-y-4 text-xs">
-                  <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
-                    <Input
-                      label="Plan Name"
-                      value={planForm.name}
-                      onChange={e => setPlanForm({ ...planForm, name: e.target.value })}
-                      required
-                    />
-                    <Input
-                      label="Price (PKR)"
-                      type="number"
-                      value={planForm.price}
-                      onChange={e => setPlanForm({ ...planForm, price: Number(e.target.value) })}
-                      required
-                    />
-                    <Input
-                      as="select"
-                      label="Billing Cycle"
-                      value={planForm.billingCycle}
-                      onChange={e => setPlanForm({ ...planForm, billingCycle: e.target.value })}
-                      options={[
-                        { value: 'forever', label: 'Forever (Free)' },
-                        { value: 'monthly', label: 'Monthly' },
-                        { value: 'yearly', label: 'Yearly' }
-                      ]}
-                    />
-                  </div>
-
-                  <div className="grid grid-cols-1 sm:grid-cols-4 gap-4">
-                    <Input
-                      label="Daily AI Call limit"
-                      type="number"
-                      value={planForm.limits.aiCallsPerDay}
-                      onChange={e => setPlanForm({
-                        ...planForm,
-                        limits: { ...planForm.limits, aiCallsPerDay: Number(e.target.value) }
-                      })}
-                      required
-                    />
-                    <Input
-                      label="Max Uploads limit"
-                      type="number"
-                      value={(planForm.limits as any).maxUploadsPerDay ?? 0}
-                      onChange={e => setPlanForm({
-                        ...planForm,
-                        limits: { ...planForm.limits, maxUploadsPerDay: Number(e.target.value) }
-                      })}
-                      required
-                    />
-                    <Input
-                      label="Max Transactions (-1 for unlimited)"
-                      type="number"
-                      value={planForm.limits.maxTransactions}
-                      onChange={e => setPlanForm({
-                        ...planForm,
-                        limits: { ...planForm.limits, maxTransactions: Number(e.target.value) }
-                      })}
-                      required
-                    />
-                    <Input
-                      label="Display Order"
-                      type="number"
-                      value={planForm.displayOrder}
-                      onChange={e => setPlanForm({ ...planForm, displayOrder: Number(e.target.value) })}
-                      required
-                    />
-                  </div>
-
-                  <div className="space-y-2">
-                    <span className="block text-xs font-semibold text-foreground/80">
-                      Features Access Toggles
-                    </span>
-                    <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 bg-muted/20 border border-border/50 p-4 rounded-2xl">
-                      {[
-                        { id: 'transactions', label: 'Transactions Ledger' },
-                        { id: 'accounts', label: 'Account Management' },
-                        { id: 'categories', label: 'Custom Categories' },
-                        { id: 'dashboard', label: 'Core Dashboard' },
-                        { id: 'goals', label: 'Savings Goals' },
-                        { id: 'reminders', label: 'System Reminders' },
-                        { id: 'calculator', label: 'Utility Calculator' },
-                        { id: 'converter', label: 'Currency Converter' },
-                        { id: 'tasks', label: 'Task List' },
-                        { id: 'loans', label: 'Loan Tracker' },
-                        { id: 'events', label: 'Event Budgets' },
-                        { id: 'fuel', label: 'Fuel Tracking' },
-                        { id: 'reports', label: 'Visual Reports' },
-                        { id: 'subscriptions', label: 'Subscription Manager' },
-                        { id: 'ai-chat', label: 'AI Financial Copilot' },
-                        { id: 'whatsapp', label: 'WhatsApp Copilot' },
-                        { id: 'investments', label: 'Exchange Integrations' }
-                      ].map((feat) => {
-                        const isEnabled = planForm.features.includes(feat.id);
-                        return (
-                          <label key={feat.id} className="flex items-center gap-2 select-none cursor-pointer">
-                            <input
-                              type="checkbox"
-                              checked={isEnabled}
-                              onChange={() => {
-                                const updated = isEnabled
-                                  ? planForm.features.filter(id => id !== feat.id)
-                                  : [...planForm.features, feat.id];
-                                setPlanForm({ ...planForm, features: updated });
-                              }}
-                              className="rounded border-border text-primary focus:ring-ring shrink-0 h-4 w-4"
-                            />
-                            <span className="font-medium text-foreground/90">{feat.label}</span>
-                          </label>
-                        );
-                      })}
-                    </div>
-                  </div>
-
-                  <div className="flex justify-end gap-3 pt-2">
-                    <Button variant="outline" size="sm" onClick={() => setEditingPlanId('')}>
-                      Cancel
-                    </Button>
-                    <Button type="submit" variant="primary" size="sm">
-                      Save Plan Settings
-                    </Button>
-                  </div>
-                </form>
-              </Card>
-            )}
-          </div>
+        {/* 6 & 7. Payments, Billing, Invoicing & Subscriptions Subsystem */}
+        {(activeTab === 'payments' || activeTab === 'plans') && (
+          <PaymentsAdminLayout
+            paymentRequests={paymentRequests}
+            paymentAccounts={paymentAccounts}
+            plansConfig={plansConfigLocal}
+            users={users}
+            onApproveRequest={async (req, expiryDate, notes) => {
+              setSelectedRequest(req);
+              setCustomExpiryDate(expiryDate);
+              setInternalNotes(notes || '');
+              await handleApproveRequest();
+            }}
+            onRejectRequest={async (req, reason) => {
+              setSelectedRequest(req);
+              setRejectionReason(reason);
+              await handleRejectRequest();
+            }}
+            onSaveAccount={async (acc) => {
+              setAccountForm({ ...acc, iban: acc.iban || '', instructions: acc.instructions || '', qrCodeUrl: acc.qrCodeUrl || '' });
+              // Call save handler
+              if (isSupabaseConfigured) {
+                await supabase.from('payment_accounts').upsert({
+                  id: acc.id,
+                  type: acc.method,
+                  title: acc.method,
+                  account_number: acc.accountNumber,
+                  account_title: acc.holderName,
+                  bank_name: acc.method,
+                  iban: acc.iban,
+                  instructions: acc.instructions,
+                  is_active: acc.isActive,
+                  display_order: Number(acc.displayOrder)
+                });
+              }
+              toast.success('Payment account saved');
+              fetchData();
+            }}
+            onDeleteAccount={handleDeleteAccount}
+            onSavePlanConfig={async (planId, planData) => {
+              if (isSupabaseConfigured) {
+                await supabase.from('plans').upsert({
+                  id: planId,
+                  name: planData.name,
+                  price: Number(planData.price),
+                  billing_cycle: planData.billingCycle,
+                  features: planData.features,
+                  limits: planData.limits,
+                  badge_icon: planData.badgeIcon,
+                  badge_color: planData.badgeColor,
+                  display_order: Number(planData.displayOrder)
+                });
+              }
+              toast.success(`Plan ${planData.name} updated successfully.`);
+              fetchData();
+            }}
+            onAssignUserPlan={async (userId, planId, expiryDate) => {
+              if (db) {
+                await setDoc(doc(db, 'registered_users', userId), {
+                  plan: planId,
+                  isPro: planId !== 'standard',
+                  planExpiresAt: expiryDate
+                }, { merge: true });
+              }
+              if (isSupabaseConfigured) {
+                await supabase.from('users').update({
+                  plan: planId,
+                  is_pro: planId !== 'standard',
+                  plan_expires_at: expiryDate
+                }).eq('id', userId);
+              }
+              toast.success('User plan updated');
+              fetchData();
+            }}
+            onRefreshData={fetchData}
+          />
         )}
 
         {/* 8. User Data Sync Tab */}

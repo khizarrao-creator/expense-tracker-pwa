@@ -3,6 +3,8 @@ import { useNavigate } from 'react-router-dom';
 import { useApp } from '../contexts/AppContext';
 import { useAuth } from '../contexts/AuthContext';
 import { supabase, isSupabaseConfigured } from '../supabase';
+import { db } from '../firebase';
+import { collection, getDocs, query, where } from 'firebase/firestore';
 import { Card } from '../components/ui/Card';
 import { Button } from '../components/ui/Button';
 import { Badge } from '../components/ui/Badge';
@@ -21,37 +23,74 @@ export const Subscription: React.FC = () => {
 
   // Load user's billing/payment requests
   useEffect(() => {
-    if (!user || !isSupabaseConfigured) {
+    if (!user) {
       setLoadingHistory(false);
       return;
     }
 
     const loadPaymentHistory = async () => {
-      const { data } = await supabase
-        .from('payment_requests')
-        .select('*')
-        .eq('user_id', user.uid)
-        .order('submitted_at', { ascending: false });
+      const combined: any[] = [];
+      const seenIds = new Set<string>();
 
-      const docs = (data || []).map((p: any) => ({
-        id: p.id,
-        userId: p.user_id,
-        selectedPlan: p.selected_plan,
-        paymentMethod: p.payment_method,
-        amount: p.amount,
-        currency: p.currency,
-        transactionId: p.transaction_id,
-        screenshotUrl: p.screenshot_url,
-        notes: p.notes,
-        status: p.status,
-        rejectionReason: p.rejection_reason,
-        submittedAt: p.submitted_at,
-        verifiedAt: p.verified_at
-      }));
+      if (isSupabaseConfigured) {
+        try {
+          const { data } = await supabase
+            .from('payment_requests')
+            .select('*')
+            .eq('user_id', user.uid)
+            .order('submitted_at', { ascending: false });
 
-      setPaymentHistory(docs);
-      if (docs.length > 0) {
-        setLatestRequest(docs[0]);
+          (data || []).forEach((p: any) => {
+            seenIds.add(p.id);
+            combined.push({
+              id: p.id,
+              userId: p.user_id,
+              selectedPlan: p.selected_plan,
+              paymentMethod: p.payment_method,
+              amount: p.amount,
+              currency: p.currency,
+              transactionId: p.transaction_id,
+              screenshotUrl: p.screenshot_url,
+              notes: p.notes,
+              status: p.status,
+              rejectionReason: p.rejection_reason,
+              submittedAt: p.submitted_at,
+              verifiedAt: p.verified_at
+            });
+          });
+        } catch (e) {}
+      }
+
+      if (db) {
+        try {
+          const snap = await getDocs(query(collection(db, 'payment_requests'), where('userId', '==', user.uid)));
+          snap.docs.forEach(docSnap => {
+            if (!seenIds.has(docSnap.id)) {
+              seenIds.add(docSnap.id);
+              const d = docSnap.data();
+              combined.push({
+                id: docSnap.id,
+                userId: d.userId || d.user_id,
+                selectedPlan: d.selectedPlan || d.selected_plan,
+                paymentMethod: d.paymentMethod || d.payment_method,
+                amount: d.amount,
+                currency: d.currency,
+                transactionId: d.transactionId || d.transaction_id,
+                screenshotUrl: d.screenshotUrl || d.screenshot_url,
+                notes: d.notes,
+                status: d.status,
+                rejectionReason: d.rejectionReason || d.rejection_reason,
+                submittedAt: d.submittedAt || d.submitted_at,
+                verifiedAt: d.verifiedAt || d.verified_at
+              });
+            }
+          });
+        } catch (e) {}
+      }
+
+      setPaymentHistory(combined);
+      if (combined.length > 0) {
+        setLatestRequest(combined[0]);
       } else {
         setLatestRequest(null);
       }

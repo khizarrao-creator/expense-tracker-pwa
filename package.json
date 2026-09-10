@@ -4,8 +4,8 @@
   "version": "1.0.0-beta.1",
   "type": "module",
   "scripts": {
-    "dev": "vite",
-    "dev:all": "concurrently \"vite\" \"node whatsapp-server/server.js\"",
+    "dev": "vite --host",
+    "dev:all": "concurrently \"vite --host\" \"node whatsapp-server/server.js\"",
     "start": "node whatsapp-server/server.js",
     "build": "tsc -b && vite build",
     "db:backup": "npx tsx scripts/backup-firestore.ts",

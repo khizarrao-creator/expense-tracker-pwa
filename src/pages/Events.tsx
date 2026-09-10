@@ -253,15 +253,15 @@ export default function Events() {
   );
 
   return (
-    <div className="space-y-6">
+    <div className="space-y-4 md:space-y-6">
       {selectedEvent ? (
-        <div className="space-y-6 animate-in fade-in slide-in-from-right-4 duration-300">
+        <div className="space-y-4 md:space-y-6 animate-in fade-in slide-in-from-right-4 duration-300">
           <div className="flex items-center justify-between">
             <button
               onClick={() => setSelectedEvent(null)}
-              className="flex items-center gap-2 text-muted-foreground hover:text-foreground transition-colors"
+              className="flex items-center gap-2 text-muted-foreground hover:text-foreground transition-colors text-xs md:text-sm font-medium"
             >
-              <ArrowLeft size={20} />
+              <ArrowLeft size={18} />
               <span>Back to Events</span>
             </button>
             <div className="flex gap-2">
@@ -276,34 +276,34 @@ export default function Events() {
                 }}
                 className="p-2 bg-muted rounded-xl hover:bg-muted/80 transition-colors"
               >
-                <Pencil size={20} />
+                <Pencil size={18} />
               </button>
               <button
                 onClick={() => handleDeleteEvent(selectedEvent.id)}
                 className="p-2 bg-destructive/10 text-destructive rounded-xl hover:bg-destructive/20 transition-colors"
               >
-                <Trash2 size={20} />
+                <Trash2 size={18} />
               </button>
             </div>
           </div>
 
-          <div className="bg-card p-6 rounded-3xl border border-border">
-            <div className="flex items-center gap-4 mb-4">
-              <div className="p-3 bg-primary/10 text-primary rounded-2xl">
-                <Calendar size={24} />
+          <div className="bg-card p-4 md:p-6 rounded-3xl border border-border">
+            <div className="flex items-center gap-3 md:gap-4 mb-4">
+              <div className="p-2.5 md:p-3 bg-primary/10 text-primary rounded-2xl shrink-0">
+                <Calendar size={20} className="md:w-6 md:h-6" />
               </div>
-              <div>
-                <h1 className="text-2xl font-bold">{selectedEvent.name}</h1>
-                <p className="text-muted-foreground">{new Date(selectedEvent.date).toLocaleDateString(undefined, { dateStyle: 'full' })}</p>
+              <div className="min-w-0 flex-1">
+                <h1 className="text-xl md:text-2xl font-bold truncate">{selectedEvent.name}</h1>
+                <p className="text-xs md:text-sm text-muted-foreground">{new Date(selectedEvent.date).toLocaleDateString(undefined, { dateStyle: 'full' })}</p>
               </div>
             </div>
             {selectedEvent.description && (
-              <p className="text-muted-foreground mt-4 p-4 bg-muted/50 rounded-2xl border border-border/50">
+              <p className="text-xs md:text-sm text-muted-foreground mt-3 md:mt-4 p-3 md:p-4 bg-muted/50 rounded-2xl border border-border/50">
                 {selectedEvent.description}
               </p>
             )}
 
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mt-6">
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-3 md:gap-4 mt-4 md:mt-6">
               <div className="bg-primary/5 p-4 rounded-2xl border border-primary/10">
                 <p className="text-xs font-semibold text-primary/70 uppercase tracking-wider mb-1">Total Impact</p>
                 <p className={`text-2xl font-bold ${(totalTransactions + totalLoans) >= 0 ? 'text-emerald-500' : 'text-rose-500'}`}>
@@ -345,14 +345,14 @@ export default function Events() {
             </div>
           </div>
 
-          <div className="space-y-6">
+          <div className="space-y-4 md:space-y-6">
             <div className="flex items-center justify-between">
-              <h2 className="text-xl font-bold tracking-tight">Event Ledger</h2>
+              <h2 className="text-lg md:text-xl font-bold tracking-tight">Event Ledger</h2>
               <button
                 onClick={openLinkModal}
-                className="flex items-center gap-2 text-sm font-semibold text-primary bg-primary/10 px-4 py-2 rounded-xl hover:bg-primary/20 transition-all"
+                className="flex items-center gap-1.5 text-xs md:text-sm font-semibold text-primary bg-primary/10 px-3 md:px-4 py-2 rounded-xl hover:bg-primary/20 transition-all"
               >
-                <LinkIcon size={16} />
+                <LinkIcon size={14} className="md:w-4 md:h-4" />
                 Manage Entries
               </button>
             </div>

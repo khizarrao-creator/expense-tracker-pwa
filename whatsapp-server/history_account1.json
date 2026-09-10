@@ -13,6 +13,20 @@
       "text": "hello",
       "timestamp": 1786174181186,
       "senderName": "Me"
+    },
+    {
+      "id": "3EB06E2FC7AE4E1DA5C6C3",
+      "fromMe": true,
+      "text": "?",
+      "timestamp": 1788271010959,
+      "senderName": "Me"
+    },
+    {
+      "id": "3EB0996F94AC2FE82D5D88",
+      "fromMe": true,
+      "text": ".....",
+      "timestamp": 1788271035186,
+      "senderName": "Me"
     }
   ]
 }

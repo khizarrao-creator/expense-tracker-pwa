@@ -850,39 +850,39 @@ const Reports: React.FC = () => {
   }
 
   return (
-    <div className="space-y-6 pb-20">
+    <div className="space-y-4 md:space-y-6 pb-20">
       <div className="flex items-center justify-between">
         <div>
-          <h1 className="text-2xl font-bold tracking-tight">Analytics & Reports</h1>
-          <p className="text-muted-foreground mt-1">Deep dive into your financial data.</p>
+          <h1 className="text-xl md:text-2xl font-bold tracking-tight">Analytics & Reports</h1>
+          <p className="text-xs md:text-sm text-muted-foreground mt-0.5 md:mt-1">Deep dive into your financial data.</p>
         </div>
       </div>
 
       {/* Custom Tabs */}
-      <div className="flex bg-muted p-1 rounded-2xl w-full max-w-lg overflow-hidden">
+      <div className="flex bg-muted p-1 rounded-2xl w-full max-w-lg overflow-x-auto no-scrollbar scrollbar-none">
         <button
           onClick={() => setActiveTab('overview')}
-          className={`flex-1 py-2 text-sm font-semibold rounded-xl flex items-center justify-center gap-2 transition-all duration-300 ${activeTab === 'overview' ? 'bg-primary text-primary-foreground shadow-sm' : 'text-muted-foreground hover:text-foreground'}`}
+          className={`flex-1 min-w-[70px] py-1.5 md:py-2 text-xs md:text-sm font-semibold rounded-xl flex items-center justify-center gap-1.5 md:gap-2 transition-all duration-300 shrink-0 ${activeTab === 'overview' ? 'bg-primary text-primary-foreground shadow-sm' : 'text-muted-foreground hover:text-foreground'}`}
         >
-          <BarChart3 size={16} /> Overview
+          <BarChart3 size={14} className="md:w-4 md:h-4" /> Overview
         </button>
         <button
           onClick={() => setActiveTab('forecasting')}
-          className={`flex-1 py-2 text-sm font-semibold rounded-xl flex items-center justify-center gap-2 transition-all duration-300 ${activeTab === 'forecasting' ? 'bg-primary text-primary-foreground shadow-sm' : 'text-muted-foreground hover:text-foreground'}`}
+          className={`flex-1 min-w-[80px] py-1.5 md:py-2 text-xs md:text-sm font-semibold rounded-xl flex items-center justify-center gap-1.5 md:gap-2 transition-all duration-300 shrink-0 ${activeTab === 'forecasting' ? 'bg-primary text-primary-foreground shadow-sm' : 'text-muted-foreground hover:text-foreground'}`}
         >
-          <TrendingUp size={16} /> Forecasting
+          <TrendingUp size={14} className="md:w-4 md:h-4" /> Forecasting
         </button>
         <button
           onClick={() => setActiveTab('loans')}
-          className={`flex-1 py-2 text-sm font-semibold rounded-xl flex items-center justify-center gap-2 transition-all duration-300 ${activeTab === 'loans' ? 'bg-primary text-primary-foreground shadow-sm' : 'text-muted-foreground hover:text-foreground'}`}
+          className={`flex-1 min-w-[60px] py-1.5 md:py-2 text-xs md:text-sm font-semibold rounded-xl flex items-center justify-center gap-1.5 md:gap-2 transition-all duration-300 shrink-0 ${activeTab === 'loans' ? 'bg-primary text-primary-foreground shadow-sm' : 'text-muted-foreground hover:text-foreground'}`}
         >
-          <Handshake size={16} /> Loans
+          <Handshake size={14} className="md:w-4 md:h-4" /> Loans
         </button>
         <button
           onClick={() => setActiveTab('fuel')}
-          className={`flex-1 py-2 text-sm font-semibold rounded-xl flex items-center justify-center gap-2 transition-all duration-300 ${activeTab === 'fuel' ? 'bg-primary text-primary-foreground shadow-sm' : 'text-muted-foreground hover:text-foreground'}`}
+          className={`flex-1 min-w-[55px] py-1.5 md:py-2 text-xs md:text-sm font-semibold rounded-xl flex items-center justify-center gap-1.5 md:gap-2 transition-all duration-300 shrink-0 ${activeTab === 'fuel' ? 'bg-primary text-primary-foreground shadow-sm' : 'text-muted-foreground hover:text-foreground'}`}
         >
-          <Fuel size={16} /> Fuel
+          <Fuel size={14} className="md:w-4 md:h-4" /> Fuel
         </button>
       </div>
 

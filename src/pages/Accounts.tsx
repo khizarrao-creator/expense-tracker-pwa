@@ -154,7 +154,7 @@ const Accounts: React.FC = () => {
   };
 
   return (
-    <div className="space-y-6">
+    <div className="space-y-4 md:space-y-6">
       <ConfirmModal
         isOpen={deleteAccountInfo !== null}
         title="Delete Account"
@@ -165,12 +165,12 @@ const Accounts: React.FC = () => {
         confirmText="Delete Account"
       />
       <div className="flex justify-between items-center">
-        <h1 className="text-2xl font-bold tracking-tight">Bank Accounts & Wallets</h1>
+        <h1 className="text-xl md:text-2xl font-bold tracking-tight">Bank Accounts & Wallets</h1>
         <button
           onClick={() => setShowAddForm(!showAddForm)}
           className="bg-primary text-primary-foreground p-2 rounded-full shadow-lg hover:rotate-90 transition-transform"
         >
-          <Plus size={24} />
+          <Plus size={20} className="md:w-6 md:h-6" />
         </button>
       </div>
 

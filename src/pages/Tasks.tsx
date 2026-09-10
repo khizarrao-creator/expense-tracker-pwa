@@ -412,21 +412,21 @@ const Tasks: React.FC = () => {
   });
 
   return (
-    <div className="space-y-6">
+    <div className="space-y-4 md:space-y-6">
       {/* Header */}
       <div className="flex items-center justify-between">
         <div>
-          <h1 className="text-2xl font-bold tracking-tight flex items-center gap-2">
+          <h1 className="text-xl md:text-2xl font-bold tracking-tight flex items-center gap-2">
             Task Manager
-            <Sparkles className="text-primary animate-pulse" size={20} />
+            <Sparkles className="text-primary animate-pulse" size={18} />
           </h1>
-          <p className="text-muted-foreground mt-1 font-medium text-sm">Organize your daily activities, milestones, and to-dos.</p>
+          <p className="text-xs md:text-sm text-muted-foreground mt-0.5 font-medium">Organize your daily activities, milestones, and to-dos.</p>
         </div>
         <button
           onClick={() => setShowAddModal(true)}
-          className="bg-primary text-primary-foreground py-3 px-4 rounded-2xl shadow-lg hover:shadow-primary/20 hover:scale-[1.02] transition-all flex items-center gap-2 font-semibold text-sm"
+          className="bg-primary text-primary-foreground py-2.5 px-3.5 rounded-2xl shadow-lg hover:shadow-primary/20 hover:scale-[1.02] transition-all flex items-center gap-1.5 font-semibold text-xs md:text-sm"
         >
-          <Plus size={18} />
+          <Plus size={16} />
           <span>New Task</span>
         </button>
       </div>

@@ -472,13 +472,13 @@ const Settings: React.FC = () => {
   };
 
   return (
-    <div className="max-w-xl mx-auto space-y-8">
+    <div className="max-w-xl mx-auto space-y-4 md:space-y-8">
       <AdminTransitionOverlay
         isActive={showAdminTransition}
         onComplete={handleAdminTransitionComplete}
       />
       <h1
-        className="text-2xl font-bold cursor-default select-none"
+        className="text-xl md:text-2xl font-bold cursor-default select-none"
         onClick={handleTitleClick}
       >
         Settings
@@ -526,7 +526,7 @@ const Settings: React.FC = () => {
 
       {/* Currency & Appearance sections remain same but with updated styles if needed */}
       {/* Profile Section */}
-      <div className="bg-card p-6 rounded-2xl shadow-sm border border-border relative overflow-hidden">
+      <div className="bg-card p-4 md:p-6 rounded-2xl shadow-sm border border-border relative overflow-hidden">
         <div className="absolute top-0 right-0 w-32 h-32 bg-primary/5 rounded-full -mr-16 -mt-16 blur-3xl" />
 
         <div className="flex flex-col md:flex-row items-center gap-6 mb-8">

@@ -170,17 +170,17 @@ const Goals: React.FC = () => {
   }
 
   return (
-    <div className="space-y-6">
+    <div className="space-y-4 md:space-y-6">
       <div className="flex items-center justify-between">
         <div>
-          <h1 className="text-2xl font-bold">Savings Goals</h1>
-          <p className="text-sm text-muted-foreground mt-1">Track your progress towards your dreams</p>
+          <h1 className="text-xl md:text-2xl font-bold">Savings Goals</h1>
+          <p className="text-xs md:text-sm text-muted-foreground mt-0.5">Track your progress towards your dreams</p>
         </div>
         <button
           onClick={() => setShowAddModal(true)}
-          className="bg-primary text-primary-foreground p-3 rounded-xl shadow-lg hover:shadow-primary/20 transition-all flex items-center gap-2"
+          className="bg-primary text-primary-foreground px-3.5 py-2 rounded-xl shadow-lg hover:shadow-primary/20 transition-all flex items-center gap-1.5 text-xs md:text-sm"
         >
-          <Plus size={20} />
+          <Plus size={16} />
           <span className="hidden sm:inline font-medium">New Goal</span>
         </button>
       </div>

@@ -933,13 +933,17 @@ export const GlobalAIAssistant: React.FC = () => {
 
       {/* Floating Action Button (FAB) */}
       {!isOpen && (
-        <div className="fixed bottom-20 md:bottom-6 right-6 z-[100] animate-in zoom-in duration-200">
+        <div className="fixed bottom-20 md:bottom-6 right-4 md:right-6 z-[100] animate-in zoom-in duration-200">
           <button
             onClick={() => setIsOpen(true)}
-            className="w-14 h-14 rounded-full bg-primary hover:bg-primary/95 text-primary-foreground flex items-center justify-center shadow-lg hover:shadow-xl hover:scale-105 active:scale-95 transition-all duration-200 border border-primary/10 relative group"
+            className="w-12 h-12 md:w-14 md:h-14 rounded-full bg-card/90 backdrop-blur-xl text-primary border border-primary/30 shadow-xl hover:bg-primary hover:text-primary-foreground hover:scale-105 active:scale-95 transition-all duration-200 flex items-center justify-center relative group"
             title="Open AI Assistant"
           >
-            <Bot className="h-6 w-6 transition-transform duration-200 group-hover:scale-110" />
+            <Bot className="h-5 w-5 md:h-6 md:w-6 transition-transform duration-200 group-hover:scale-110" />
+            <span className="absolute -top-1 -right-1 flex h-3 w-3">
+              <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-primary opacity-75"></span>
+              <span className="relative inline-flex rounded-full h-3 w-3 bg-primary"></span>
+            </span>
           </button>
         </div>
       )}
@@ -1124,7 +1128,7 @@ export const GlobalAIAssistant: React.FC = () => {
           )}
 
           {/* Input Area */}
-          <div className="p-3 border-t border-border bg-card shrink-0">
+          <div className="p-3 pb-safe border-t border-border bg-card shrink-0">
             <form
               onSubmit={e => { e.preventDefault(); handleSend(inputValue); }}
               className="flex gap-1.5"

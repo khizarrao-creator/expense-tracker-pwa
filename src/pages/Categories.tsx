@@ -264,7 +264,7 @@ const Categories: React.FC = () => {
   });
 
   return (
-    <div className="max-w-xl mx-auto space-y-6">
+    <div className="max-w-xl mx-auto space-y-4 md:space-y-6">
       <ConfirmModal
         isOpen={deleteCategoryInfo !== null}
         title="Delete Category"
@@ -274,12 +274,12 @@ const Categories: React.FC = () => {
         variant="danger"
         confirmText="Delete Category"
       />
-      <div className="flex items-center gap-3 mb-6">
-        <LayoutList className="text-primary" size={28} />
-        <h1 className="text-2xl font-bold">Manage Categories</h1>
+      <div className="flex items-center gap-2.5 md:gap-3 mb-4 md:mb-6">
+        <LayoutList className="text-primary" size={24} />
+        <h1 className="text-xl md:text-2xl font-bold">Manage Categories</h1>
       </div>
 
-      <div className="bg-card p-6 rounded-2xl shadow-sm border border-border">
+      <div className="bg-card p-4 md:p-6 rounded-2xl shadow-sm border border-border">
         <div className="flex bg-muted p-1 rounded-xl mb-6">
           <button
             onClick={() => setActiveType('expense')}

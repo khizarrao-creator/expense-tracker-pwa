@@ -439,11 +439,11 @@ const AddTransaction: React.FC = () => {
 
 
   return (
-    <div className="max-w-md mx-auto space-y-6">
-      <h1 className="text-2xl font-bold">{id ? 'Edit' : 'Add'} Transaction</h1>
+    <div className="max-w-md mx-auto space-y-4 md:space-y-6">
+      <h1 className="text-xl md:text-2xl font-bold">{id ? 'Edit' : 'Add'} Transaction</h1>
 
-      <div className="bg-card p-6 rounded-2xl shadow-sm border border-border">
-        <div className="flex bg-muted p-1 rounded-xl mb-6">
+      <div className="bg-card p-4 md:p-6 rounded-2xl shadow-sm border border-border">
+        <div className="flex bg-muted p-1 rounded-xl mb-4 md:mb-6">
           <button
             type="button"
             onClick={() => setType('expense')}

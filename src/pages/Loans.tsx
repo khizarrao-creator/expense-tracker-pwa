@@ -447,25 +447,25 @@ const Loans: React.FC = () => {
   );
 
   return (
-    <div className="space-y-6">
-      <div className="flex items-center justify-between">
+    <div className="space-y-4 md:space-y-6">
+      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
         <div>
-          <h1 className="text-2xl font-bold">Loan Management</h1>
-          <p className="text-muted-foreground text-sm">Track money you've lent or borrowed</p>
+          <h1 className="text-xl md:text-2xl font-bold">Loan Management</h1>
+          <p className="text-xs md:text-sm text-muted-foreground mt-0.5">Track money you've lent or borrowed</p>
         </div>
         <div className="flex gap-2">
           <button
             onClick={() => setIsPartyModalOpen(true)}
-            className="bg-secondary text-secondary-foreground px-4 py-2 rounded-xl flex items-center gap-2 hover:opacity-90 transition-opacity font-medium text-sm"
+            className="flex-1 sm:flex-initial bg-secondary text-secondary-foreground px-3.5 py-2 rounded-xl flex items-center justify-center gap-1.5 hover:opacity-90 transition-opacity font-medium text-xs md:text-sm"
           >
-            <Users size={18} />
+            <Users size={16} />
             Add Party
           </button>
           <button
             onClick={() => setIsLoanModalOpen(true)}
-            className="bg-primary text-primary-foreground px-4 py-2 rounded-xl flex items-center gap-2 hover:opacity-90 transition-opacity font-medium text-sm"
+            className="flex-1 sm:flex-initial bg-primary text-primary-foreground px-3.5 py-2 rounded-xl flex items-center justify-center gap-1.5 hover:opacity-90 transition-opacity font-medium text-xs md:text-sm"
           >
-            <Plus size={18} />
+            <Plus size={16} />
             New Loan
           </button>
         </div>

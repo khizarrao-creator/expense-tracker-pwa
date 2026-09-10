@@ -9,11 +9,11 @@ export default defineConfig({
       registerType: 'autoUpdate',
       includeAssets: ['favicon.ico', 'apple-touch-icon.png', 'mask-icon.svg'],
       manifest: {
-        name: 'The Ledger',
-        short_name: 'The Ledger',
-        description: 'The Ledger - Premium high-fidelity personal finance tracking and smart AI insights',
-        theme_color: '#0F172A',
-        background_color: '#0F172A',
+        name: 'The Base',
+        short_name: 'The Base',
+        description: 'The Base - Next-gen personal finance tracking, CRM, and AI Copilot',
+        theme_color: '#09090B',
+        background_color: '#09090B',
         start_url: '/',
         display: 'standalone',
         orientation: 'portrait',
@@ -32,17 +32,31 @@ export default defineConfig({
         ],
         shortcuts: [
           {
-            name: 'Add Transaction',
+            name: 'Add Expense',
             short_name: 'Add Tx',
             description: 'Record a new expense, income, or transfer',
             url: '/add',
             icons: [{ src: 'pwa-192x192.png', sizes: '192x192' }]
           },
           {
-            name: 'Add Loan',
-            short_name: 'Add Loan',
-            description: 'Record a new loan borrowing or lending',
-            url: '/loans?add=true',
+            name: 'AI Copilot',
+            short_name: 'AI Chat',
+            description: 'Ask AI Copilot for insights and analysis',
+            url: '/ai',
+            icons: [{ src: 'pwa-192x192.png', sizes: '192x192' }]
+          },
+          {
+            name: 'Transactions',
+            short_name: 'History',
+            description: 'View all transaction logs',
+            url: '/ledger/transactions',
+            icons: [{ src: 'pwa-192x192.png', sizes: '192x192' }]
+          },
+          {
+            name: 'Work Projects',
+            short_name: 'Projects',
+            description: 'Access active CRM work projects',
+            url: '/work/projects',
             icons: [{ src: 'pwa-192x192.png', sizes: '192x192' }]
           }
         ]
@@ -68,7 +82,31 @@ export default defineConfig({
       }
     })
   ],
+  build: {
+    target: 'esnext',
+    rollupOptions: {
+      output: {
+        manualChunks(id) {
+          if (id.includes('node_modules')) {
+            if (id.includes('react') || id.includes('react-dom') || id.includes('react-router-dom')) {
+              return 'vendor-react';
+            }
+            if (id.includes('lucide-react')) {
+              return 'vendor-icons';
+            }
+            if (id.includes('firebase')) {
+              return 'vendor-firebase';
+            }
+            if (id.includes('jspdf') || id.includes('html2canvas') || id.includes('xlsx')) {
+              return 'vendor-tools';
+            }
+          }
+        }
+      }
+    }
+  },
   server: {
+    host: true,
     proxy: {
       '/mexc-api': {
         target: 'https://api.mexc.com',

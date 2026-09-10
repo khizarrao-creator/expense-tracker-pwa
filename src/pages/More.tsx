@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useMemo } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { executeQuery } from '../db/sqlite';
 import {
@@ -10,14 +10,18 @@ import {
   DollarSign,
   CheckSquare,
   Handshake,
-  Info,
   Layers,
   Fuel,
   PieChart,
   Sparkles,
   CreditCard,
   MessageSquare,
-  FolderKanban
+  FolderKanban,
+  Search,
+  Settings,
+  ShieldCheck,
+  LayoutGrid,
+  Landmark
 } from 'lucide-react';
 import { useApp } from '../contexts/AppContext';
 import {
@@ -27,10 +31,8 @@ import {
   PointerSensor,
   useSensor,
   useSensors,
-  type DragEndEvent,
 } from '@dnd-kit/core';
 import {
-  arrayMove,
   SortableContext,
   sortableKeyboardCoordinates,
   rectSortingStrategy,
@@ -44,6 +46,7 @@ interface MoreOption {
   description: string;
   path: string;
   icon: any;
+  category: 'finance' | 'work' | 'ai' | 'tools' | 'system';
   color: string;
   bgColor: string;
   badge?: string | number;
@@ -51,11 +54,52 @@ interface MoreOption {
 
 const DEFAULT_OPTIONS: MoreOption[] = [
   {
+    id: 'overview',
+    name: 'Ledger Overview',
+    description: 'Financial dashboard & net worth overview',
+    path: '/ledger/overview',
+    icon: Landmark,
+    category: 'finance',
+    color: 'text-primary',
+    bgColor: 'bg-primary/10'
+  },
+  {
+    id: 'transactions',
+    name: 'Transaction Logs',
+    description: 'Track all expenses, income, and transfers',
+    path: '/ledger/transactions',
+    icon: Landmark,
+    category: 'finance',
+    color: 'text-emerald-500',
+    bgColor: 'bg-emerald-500/10'
+  },
+  {
+    id: 'accounts',
+    name: 'Accounts & Wallets',
+    description: 'Manage bank accounts and cash balances',
+    path: '/ledger/accounts',
+    icon: LayoutGrid,
+    category: 'finance',
+    color: 'text-blue-500',
+    bgColor: 'bg-blue-500/10'
+  },
+  {
+    id: 'categories',
+    name: 'Expense Categories',
+    description: 'Customize spending groups & budgets',
+    path: '/ledger/categories',
+    icon: LayoutGrid,
+    category: 'finance',
+    color: 'text-purple-500',
+    bgColor: 'bg-purple-500/10'
+  },
+  {
     id: 'goals',
     name: 'Savings Goals',
     description: 'Set and track financial objectives',
     path: '/ledger/goals',
     icon: Target,
+    category: 'finance',
     color: 'text-indigo-500',
     bgColor: 'bg-indigo-500/10'
   },
@@ -65,80 +109,89 @@ const DEFAULT_OPTIONS: MoreOption[] = [
     description: 'Never miss an upcoming payment',
     path: '/ledger/reminders',
     icon: Bell,
+    category: 'finance',
     color: 'text-amber-500',
     bgColor: 'bg-amber-500/10'
   },
   {
     id: 'investments',
     name: 'Investments',
-    description: 'Track your portfolio growth',
+    description: 'Track portfolio growth & assets',
     path: '/ledger/investments',
     icon: TrendingUp,
+    category: 'finance',
     color: 'text-emerald-500',
     bgColor: 'bg-emerald-500/10'
-  },
-  {
-    id: 'calculator',
-    name: 'Calculator',
-    description: 'Quick math and percentages',
-    path: '/ledger/calculator',
-    icon: CalcIcon,
-    color: 'text-rose-500',
-    bgColor: 'bg-rose-500/10'
-  },
-  {
-    id: 'converter',
-    name: 'Currency Converter',
-    description: 'Real-time exchange rates',
-    path: '/ledger/converter',
-    icon: DollarSign,
-    color: 'text-cyan-500',
-    bgColor: 'bg-cyan-500/10'
-  },
-  {
-    id: 'tasks',
-    name: 'Task Manager',
-    description: 'Organize your daily activities and to-dos',
-    path: '/work/tasks',
-    icon: CheckSquare,
-    color: 'text-blue-500',
-    bgColor: 'bg-blue-500/10'
   },
   {
     id: 'loans',
     name: 'Loan Management',
-    description: 'Track borrowing and lending',
+    description: 'Track borrowing and lending debts',
     path: '/ledger/loans',
     icon: Handshake,
+    category: 'finance',
     color: 'text-emerald-500',
     bgColor: 'bg-emerald-500/10'
   },
   {
+    id: 'subscriptions',
+    name: 'Subscription Manager',
+    description: 'Track and analyze recurring plans',
+    path: '/ledger/subscriptions',
+    icon: CreditCard,
+    category: 'finance',
+    color: 'text-cyan-400',
+    bgColor: 'bg-cyan-500/10'
+  },
+  {
     id: 'events',
     name: 'Event Tracking',
-    description: 'Group related expenses and loans',
+    description: 'Group related trip & event costs',
     path: '/ledger/events',
     icon: Layers,
+    category: 'finance',
     color: 'text-orange-500',
     bgColor: 'bg-orange-500/10'
   },
   {
     id: 'fuel',
-    name: 'Vehicle & Fuel Tracking',
-    description: 'Track fuel consumption and vehicle expenses',
+    name: 'Vehicle & Fuel',
+    description: 'Track fuel consumption & mileage',
     path: '/ledger/vehicles',
     icon: Fuel,
-    color: 'text-blue-500',
-    bgColor: 'bg-blue-500/10'
+    category: 'finance',
+    color: 'text-rose-500',
+    bgColor: 'bg-rose-500/10'
   },
   {
     id: 'reports',
     name: 'Analytics & Reports',
-    description: 'Comprehensive financial insights',
+    description: 'Comprehensive financial breakdowns',
     path: '/ledger/reports',
     icon: PieChart,
+    category: 'finance',
     color: 'text-fuchsia-500',
     bgColor: 'bg-fuchsia-500/10'
+  },
+  {
+    id: 'projects',
+    name: 'Work Projects',
+    description: 'Team projects, leads, HR & tasks',
+    path: '/work/projects',
+    icon: FolderKanban,
+    category: 'work',
+    color: 'text-indigo-500',
+    bgColor: 'bg-indigo-500/10'
+  },
+  {
+    id: 'tasks',
+    name: 'Personal Tasks',
+    description: 'Organize daily work to-dos',
+    path: '/work/tasks',
+    icon: CheckSquare,
+    category: 'work',
+    color: 'text-blue-500',
+    bgColor: 'bg-blue-500/10'
   },
   {
     id: 'ai-chat',
@@ -146,35 +199,59 @@ const DEFAULT_OPTIONS: MoreOption[] = [
     description: 'Chat with your personal financial AI',
     path: '/ai',
     icon: Sparkles,
-    color: 'text-indigo-400',
-    bgColor: 'bg-indigo-500/10'
-  },
-  {
-    id: 'subscriptions',
-    name: 'Subscription Manager',
-    description: 'Track and analyze recurring subscriptions',
-    path: '/ledger/subscriptions',
-    icon: CreditCard,
-    color: 'text-cyan-400',
-    bgColor: 'bg-cyan-500/10'
+    category: 'ai',
+    color: 'text-purple-400',
+    bgColor: 'bg-purple-500/10'
   },
   {
     id: 'whatsapp',
     name: 'WhatsApp Copilot',
-    description: 'Read, send messages, switch accounts, and sync statuses',
+    description: 'Read, send messages & sync WhatsApp',
     path: '/comms/whatsapp',
     icon: MessageSquare,
+    category: 'ai',
     color: 'text-emerald-500',
     bgColor: 'bg-emerald-500/10'
   },
   {
-    id: 'projects',
-    name: 'Projects',
-    description: 'Team projects, whiteboard, and collaborative tasks',
-    path: '/work/projects',
-    icon: FolderKanban,
-    color: 'text-indigo-500',
-    bgColor: 'bg-indigo-500/10'
+    id: 'calculator',
+    name: 'Financial Calculator',
+    description: 'Quick math and percentages',
+    path: '/ledger/calculator',
+    icon: CalcIcon,
+    category: 'tools',
+    color: 'text-teal-500',
+    bgColor: 'bg-teal-500/10'
+  },
+  {
+    id: 'converter',
+    name: 'Currency Converter',
+    description: 'Real-time exchange rates',
+    path: '/ledger/converter',
+    icon: DollarSign,
+    category: 'tools',
+    color: 'text-cyan-500',
+    bgColor: 'bg-cyan-500/10'
+  },
+  {
+    id: 'settings',
+    name: 'App Settings',
+    description: 'Currencies, themes, backup & profile',
+    path: '/settings',
+    icon: Settings,
+    category: 'system',
+    color: 'text-primary',
+    bgColor: 'bg-primary/10'
+  },
+  {
+    id: 'admin',
+    name: 'Admin Console',
+    description: 'System administration & configuration',
+    path: '/admin',
+    icon: ShieldCheck,
+    category: 'system',
+    color: 'text-amber-500',
+    bgColor: 'bg-amber-500/10'
   }
 ];
 
@@ -198,7 +275,6 @@ const SortableItem = ({ option }: { option: MoreOption }) => {
   const Icon = option.icon;
 
   const handleClick = (e: React.MouseEvent) => {
-    // If a drag was initiated, prevent navigation
     if (isDragging) {
       e.preventDefault();
       return;
@@ -216,48 +292,45 @@ const SortableItem = ({ option }: { option: MoreOption }) => {
       className={`relative group h-full ${isDragging ? 'opacity-50 scale-105 z-50' : 'opacity-100'} cursor-pointer select-none`}
     >
       <div
-        className={`bg-card p-6 rounded-3xl border border-border flex flex-col justify-between h-full hover:shadow-md hover:border-primary/50 transition-all duration-200 ${isDragging ? 'shadow-xl border-primary bg-background' : ''
-          }`}
+        className={`bg-card p-4 rounded-2xl border border-border flex flex-col justify-between h-full hover:shadow-md hover:border-primary/50 transition-all duration-200 ${
+          isDragging ? 'shadow-xl border-primary bg-background' : ''
+        }`}
       >
         <div>
-          {/* Top row: Icon & Badge */}
-          <div className="flex items-start justify-between mb-4">
-            <div className={`p-3 rounded-2xl ${option.bgColor} ${option.color} group-hover:scale-[1.03] transition-transform flex-shrink-0`}>
-              <Icon size={22} />
+          <div className="flex items-start justify-between mb-2.5">
+            <div className={`p-2.5 rounded-xl ${option.bgColor} ${option.color} group-hover:scale-105 transition-transform shrink-0`}>
+              <Icon size={18} />
             </div>
             {option.badge && (
-              <span className={`text-[9px] font-bold px-2 py-0.5 rounded-lg flex-shrink-0 border uppercase tracking-wider ${option.id === 'tasks' ? 'bg-blue-500/10 text-blue-500 border-blue-500/20' :
-                option.id === 'reminders' ? 'bg-amber-500/10 text-amber-500 border-amber-500/20 animate-pulse' :
-                  'bg-indigo-500/10 text-indigo-500 border-indigo-500/20'
-                }`}>
+              <span className="text-[9px] font-bold px-2 py-0.5 rounded-lg border uppercase tracking-wider bg-primary/10 text-primary border-primary/20">
                 {option.badge}
               </span>
             )}
           </div>
 
-          {/* Text Content */}
           <div className="space-y-1">
-            <h3 className="font-bold text-sm text-foreground group-hover:text-primary transition-colors leading-snug">
+            <h3 className="font-bold text-xs text-foreground group-hover:text-primary transition-colors leading-snug">
               {option.name}
             </h3>
-            <p className="text-xs text-muted-foreground leading-relaxed">
+            <p className="text-[10px] text-muted-foreground leading-relaxed">
               {option.description}
             </p>
           </div>
         </div>
 
-        {/* Footer actions */}
-        <div className="mt-5 pt-3.5 border-t border-border/40 flex items-center justify-between text-[10px] font-bold text-muted-foreground group-hover:text-primary transition-colors uppercase tracking-wider">
-          <span>View</span>
-          <ChevronRight size={12} className="group-hover:translate-x-0.5 transition-transform" />
+        <div className="mt-3 pt-2.5 border-t border-border/40 flex items-center justify-between text-[9px] font-extrabold text-muted-foreground group-hover:text-primary transition-colors uppercase tracking-wider">
+          <span>Open</span>
+          <ChevronRight size={11} className="group-hover:translate-x-0.5 transition-transform" />
         </div>
       </div>
     </div>
   );
 };
 
-const More: React.FC = () => {
+export const More: React.FC = () => {
   const { config, disabledFeatures } = useApp();
+  const [searchQuery, setSearchQuery] = useState('');
+  const [selectedCategory, setSelectedCategory] = useState<string>('all');
 
   const [taskCount, setTaskCount] = useState<number | null>(null);
   const [reminderCount, setReminderCount] = useState<number | null>(null);
@@ -284,61 +357,26 @@ const More: React.FC = () => {
     return () => window.removeEventListener('app-sync-complete', loadStats);
   }, []);
 
-  const [options, setOptions] = useState<MoreOption[]>(() => {
-    // Filter available options based on global config
-    const availableDefaults = DEFAULT_OPTIONS.filter(o => {
+  const availableOptions = useMemo(() => {
+    return DEFAULT_OPTIONS.filter(o => {
       if (o.id === 'fuel' && !config.fuelTrackingEnabled) return false;
       if (o.id === 'loans' && !config.loansEnabled) return false;
       if (config.disabledFeatures?.includes(o.id)) return false;
       if (disabledFeatures?.includes(o.id)) return false;
       return true;
-    });
-
-    const saved = localStorage.getItem('more_options_order');
-    if (saved) {
-      try {
-        const order = JSON.parse(saved);
-        const sorted = order
-          .map((id: string) => availableDefaults.find(o => o.id === id))
-          .filter(Boolean) as MoreOption[];
-
-        // Add any missing options (e.g. if new features were added)
-        const missing = availableDefaults.filter(d => !sorted.find(s => s.id === d.id));
-        return [...sorted, ...missing];
-      } catch (e) {
-        return availableDefaults;
-      }
-    }
-    return availableDefaults;
-  });
-
-  // Re-filter if global config or user disabledFeatures changes
-  useEffect(() => {
-    const availableDefaults = DEFAULT_OPTIONS.filter(o => {
-      if (o.id === 'fuel' && !config.fuelTrackingEnabled) return false;
-      if (o.id === 'loans' && !config.loansEnabled) return false;
-      if (config.disabledFeatures?.includes(o.id)) return false;
-      if (disabledFeatures?.includes(o.id)) return false;
-      return true;
-    });
-
-    setOptions(prev => {
-      const filtered = prev.filter(o => {
-        if (o.id === 'fuel' && !config.fuelTrackingEnabled) return false;
-        if (o.id === 'loans' && !config.loansEnabled) return false;
-        if (config.disabledFeatures?.includes(o.id)) return false;
-        if (disabledFeatures?.includes(o.id)) return false;
-        return true;
-      });
-
-      const missing = availableDefaults.filter(d => !filtered.find(s => s.id === d.id));
-      return [...filtered, ...missing];
     });
   }, [config.fuelTrackingEnabled, config.loansEnabled, config.disabledFeatures, disabledFeatures]);
 
-  useEffect(() => {
-    localStorage.setItem('more_options_order', JSON.stringify(options.map(o => o.id)));
-  }, [options]);
+  const filteredOptions = useMemo(() => {
+    return availableOptions.filter(opt => {
+      const matchesSearch =
+        opt.name.toLowerCase().includes(searchQuery.toLowerCase()) ||
+        opt.description.toLowerCase().includes(searchQuery.toLowerCase());
+
+      const matchesCat = selectedCategory === 'all' || opt.category === selectedCategory;
+      return matchesSearch && matchesCat;
+    });
+  }, [availableOptions, searchQuery, selectedCategory]);
 
   const sensors = useSensors(
     useSensor(PointerSensor, {
@@ -352,21 +390,7 @@ const More: React.FC = () => {
     })
   );
 
-  const handleDragEnd = (event: DragEndEvent) => {
-    const { active, over } = event;
-
-    if (over && active.id !== over.id) {
-      setOptions((items) => {
-        const oldIndex = items.findIndex((i) => i.id === active.id);
-        const newIndex = items.findIndex((i) => i.id === over.id);
-        return arrayMove(items, oldIndex, newIndex);
-      });
-    }
-  };
-
-  const [showTooltip, setShowTooltip] = useState(false);
-
-  const optionsWithBadges = options.map(opt => {
+  const optionsWithBadges = filteredOptions.map(opt => {
     if (opt.id === 'tasks' && taskCount !== null && taskCount > 0) {
       return { ...opt, badge: `${taskCount} pending` };
     }
@@ -379,57 +403,79 @@ const More: React.FC = () => {
     return opt;
   });
 
+  const categories = [
+    { id: 'all', label: 'All Apps' },
+    { id: 'finance', label: 'Finances 💰' },
+    { id: 'work', label: 'Work & CRM 💼' },
+    { id: 'ai', label: 'Intelligence 🤖' },
+    { id: 'tools', label: 'Utilities 🛠️' },
+    { id: 'system', label: 'System ⚙️' }
+  ];
+
   return (
-    <div className="space-y-6">
-      <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
+    <div className="space-y-5 max-w-6xl mx-auto pb-safe">
+      {/* Header Banner */}
+      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 bg-card border border-border/80 p-5 rounded-3xl shadow-xs">
         <div>
-          <div className="flex items-center gap-2">
-            <h1 className="text-2xl font-black tracking-tight flex items-center gap-2">
-              <span className="bg-primary/10 text-primary p-1.5 rounded-xl border border-primary/20">
-                <Layers size={22} />
-              </span>
-              The Base Workspace Suite
-            </h1>
-            <div className="relative">
-              <button
-                onMouseEnter={() => setShowTooltip(true)}
-                onMouseLeave={() => setShowTooltip(false)}
-                onClick={() => setShowTooltip(!showTooltip)}
-                className="p-1 text-muted-foreground hover:text-primary transition-colors focus:outline-none"
-                aria-label="How to reorder"
-              >
-                <Info size={18} />
-              </button>
-              {showTooltip && (
-                <div className="absolute left-0 top-full mt-3 w-64 p-3 bg-card text-foreground text-xs rounded-xl border border-border shadow-xl z-50 animate-in fade-in slide-in-from-top-2 duration-200">
-                  <p className="font-medium leading-relaxed">
-                    Rearrange tools by long-pressing on any card for 1.5 seconds.
-                  </p>
-                  <div className="absolute top-0 left-3 transform -translate-y-1/2 rotate-45 w-2 h-2 bg-card border-l border-t border-border" />
-                </div>
-              )}
-            </div>
-          </div>
-          <p className="text-muted-foreground mt-1 text-sm">Access modular apps across financial management, projects, operations, and AI intelligence.</p>
+          <h1 className="text-xl font-extrabold tracking-tight text-foreground flex items-center gap-2">
+            <span className="p-2 rounded-xl bg-primary/10 text-primary">
+              <Layers size={20} />
+            </span>
+            <span>All Apps & Features</span>
+          </h1>
+          <p className="text-xs text-muted-foreground mt-1">
+            Browse all 20+ modular tools across finance, CRM, communications & intelligence.
+          </p>
         </div>
       </div>
 
-      <DndContext
-        sensors={sensors}
-        collisionDetection={closestCenter}
-        onDragEnd={handleDragEnd}
-      >
-        <SortableContext
-          items={optionsWithBadges.map(o => o.id)}
-          strategy={rectSortingStrategy}
-        >
-          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-            {optionsWithBadges.map((option) => (
-              <SortableItem key={option.id} option={option} />
-            ))}
-          </div>
-        </SortableContext>
-      </DndContext>
+      {/* Search Input & Category Filter Chips */}
+      <div className="space-y-3">
+        <div className="relative">
+          <Search size={16} className="absolute left-3.5 top-1/2 -translate-y-1/2 text-muted-foreground" />
+          <input
+            type="text"
+            value={searchQuery}
+            onChange={(e) => setSearchQuery(e.target.value)}
+            placeholder="Search features (e.g. 'loans', 'fuel', 'tasks', 'converter')..."
+            className="w-full bg-card border border-border/80 rounded-2xl pl-10 pr-4 py-2.5 text-xs text-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-primary/40 shadow-xs"
+          />
+        </div>
+
+        {/* Category Pills */}
+        <div className="flex items-center gap-1.5 overflow-x-auto pb-1 no-scrollbar">
+          {categories.map(cat => (
+            <button
+              key={cat.id}
+              onClick={() => setSelectedCategory(cat.id)}
+              className={`px-3 py-1.5 rounded-xl text-xs font-bold whitespace-nowrap transition-all ${
+                selectedCategory === cat.id
+                  ? 'bg-primary text-primary-foreground shadow-xs'
+                  : 'bg-card border border-border/60 text-muted-foreground hover:text-foreground hover:bg-muted'
+              }`}
+            >
+              {cat.label}
+            </button>
+          ))}
+        </div>
+      </div>
+
+      {/* Feature Grid */}
+      {optionsWithBadges.length === 0 ? (
+        <div className="py-12 text-center text-xs text-muted-foreground bg-card border border-border rounded-3xl">
+          No features found matching "{searchQuery}". Try a different search term.
+        </div>
+      ) : (
+        <DndContext sensors={sensors} collisionDetection={closestCenter}>
+          <SortableContext items={optionsWithBadges.map(o => o.id)} strategy={rectSortingStrategy}>
+            <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 gap-3">
+              {optionsWithBadges.map(option => (
+                <SortableItem key={option.id} option={option} />
+              ))}
+            </div>
+          </SortableContext>
+        </DndContext>
+      )}
     </div>
   );
 };

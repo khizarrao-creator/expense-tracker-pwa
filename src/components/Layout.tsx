@@ -28,7 +28,8 @@ import {
   Home,
   ChevronRight as ChevronRightIcon,
   Eye,
-  EyeOff
+  EyeOff,
+  Menu
 } from 'lucide-react';
 import { useAuth } from '../contexts/AuthContext';
 import { useSync } from '../contexts/SyncContext';
@@ -42,6 +43,12 @@ import {
   CollapsibleSection,
   type NavSection
 } from './ModuleSwitcher';
+import { PullToRefresh } from './PullToRefresh';
+import { usePullToRefresh } from '../hooks/usePullToRefresh';
+import { PWAInstallBanner } from './PWAInstallBanner';
+import { AppLockModal } from './AppLockModal';
+import { MobileDrawer } from './MobileDrawer';
+import { haptic } from '../utils/haptics';
 
 // ─── Sidebar Navigation Sections ────────────────────────────────────────────
 
@@ -104,7 +111,17 @@ const Layout: React.FC = () => {
   const location = useLocation();
   const navigate = useNavigate();
   const [showLogoutConfirm, setShowLogoutConfirm] = useState(false);
+  const [mobileDrawerOpen, setMobileDrawerOpen] = useState(false);
   const { isSidebarHidden, isPrivacyMode, togglePrivacyMode } = useApp();
+
+  const { pullDistance, isRefreshing, isTriggered } = usePullToRefresh({
+    onRefresh: async () => {
+      haptic.success();
+      if (typeof window !== 'undefined') {
+        window.location.reload();
+      }
+    }
+  });
 
   const activeModule = getActiveModuleFromPath(location.pathname);
   const breadcrumbs = getBreadcrumbs(location.pathname);
@@ -170,13 +187,12 @@ const Layout: React.FC = () => {
     setExpandedSections(prev => ({ ...prev, [moduleId]: !prev[moduleId] }));
   };
 
-  // Mobile bottom nav items (simplified)
+  // Mobile bottom nav items (4-Tab Fintech layout)
   const mobileNavItems = [
     { name: 'Home', path: '/', icon: Home },
     { name: 'Ledger', path: '/ledger/overview', icon: Landmark },
     { name: 'Add', path: '/add', icon: PlusCircle },
-    { name: 'Work', path: '/work/projects', icon: Briefcase },
-    { name: 'More', path: '/more', icon: LayoutGrid },
+    { name: 'All Apps', path: '/more', icon: LayoutGrid },
   ];
 
   const handleSignOut = async () => {
@@ -189,6 +205,15 @@ const Layout: React.FC = () => {
 
   return (
     <div className="flex h-screen bg-muted/30">
+      <PullToRefresh pullDistance={pullDistance} isRefreshing={isRefreshing} isTriggered={isTriggered} />
+      <PWAInstallBanner />
+      <AppLockModal />
+      <MobileDrawer
+        isOpen={mobileDrawerOpen}
+        onClose={() => setMobileDrawerOpen(false)}
+        onSignOut={() => setShowLogoutConfirm(true)}
+      />
+
       {/* ── Desktop Sidebar ── */}
       <aside className={`${isSidebarHidden ? 'hidden' : 'hidden md:flex'} flex-col w-64 bg-card border-r border-border/80 transition-all duration-300`}>
         {/* Brand Header — clicking returns to The Base Dashboard */}
@@ -335,60 +360,111 @@ const Layout: React.FC = () => {
         </header>
 
         {/* Mobile Header */}
-        <header className={`${isSidebarHidden ? 'hidden' : 'md:hidden'} bg-card/90 backdrop-blur-md border-b border-border/80 p-3 flex items-center justify-between z-10 sticky top-0 shadow-xs`}>
-          <div className="flex items-center gap-2">
-            <Link to="/" className="flex items-center gap-2">
+        <header className={`${isSidebarHidden ? 'hidden' : 'md:hidden'} bg-card/90 backdrop-blur-md border-b border-border/80 px-3 py-2.5 flex items-center justify-between z-10 sticky top-0 shadow-xs pt-safe`}>
+          <div className="flex items-center gap-2 min-w-0">
+            <button
+              onClick={() => {
+                haptic.tap();
+                setMobileDrawerOpen(true);
+              }}
+              className="p-1.5 text-foreground hover:bg-muted rounded-xl transition-colors shrink-0"
+              title="Open Navigation Menu"
+            >
+              <Menu size={20} />
+            </button>
+            <Link to="/" className="flex items-center gap-2 shrink-0">
               <span className="bg-primary text-primary-foreground p-1 rounded-lg">
                 <Layers size={16} />
               </span>
-              <h1 className="text-base font-extrabold tracking-tight text-foreground">The Base</h1>
             </Link>
+            <div className="min-w-0">
+              <h1 className="text-sm font-extrabold tracking-tight text-foreground truncate">
+                {breadcrumbs.page && breadcrumbs.page !== 'Home' ? breadcrumbs.page : 'The Base'}
+              </h1>
+              {breadcrumbs.module !== 'Home' && breadcrumbs.page !== breadcrumbs.module && (
+                <span className="text-[9px] text-muted-foreground font-semibold uppercase tracking-wider">{breadcrumbs.module}</span>
+              )}
+            </div>
             {!isOnline && (
-              <span className="text-[9px] text-destructive font-bold uppercase tracking-wider bg-destructive/10 px-1.5 py-0.5 rounded-full">Offline</span>
+              <span className="text-[9px] text-destructive font-bold uppercase tracking-wider bg-destructive/10 px-1.5 py-0.5 rounded-full shrink-0">Offline</span>
             )}
           </div>
-          <div className="flex items-center gap-2">
+
+          <div className="flex items-center gap-1.5 shrink-0">
             <button
-              onClick={togglePrivacyMode}
+              onClick={() => {
+                haptic.tap();
+                navigate('/ai');
+              }}
+              title="AI Copilot"
+              className="p-1.5 rounded-xl text-primary bg-primary/10 hover:bg-primary/20 transition-all flex items-center gap-1 text-[11px] font-bold px-2"
+            >
+              <Sparkles size={14} />
+              <span>AI</span>
+            </button>
+
+            <button
+              onClick={() => {
+                haptic.selection();
+                togglePrivacyMode();
+              }}
               title={isPrivacyMode ? "Show Financial Values" : "Blur Financial Values"}
-              className={`p-1.5 rounded-lg border transition-all ${
+              className={`p-1.5 rounded-xl border transition-all ${
                 isPrivacyMode
                   ? 'bg-amber-500/10 text-amber-500 border-amber-500/30'
                   : 'bg-muted/40 text-muted-foreground border-border/40'
               }`}
             >
-              {isPrivacyMode ? <EyeOff size={16} /> : <Eye size={16} />}
+              {isPrivacyMode ? <EyeOff size={15} /> : <Eye size={15} />}
             </button>
-            <CloudSync size={18} className={isSyncing ? 'animate-spin text-primary' : 'text-muted-foreground'} />
-            <button onClick={() => setShowLogoutConfirm(true)} className="text-muted-foreground p-1">
-              <LogOut size={18} />
-            </button>
+
+            <div className="p-1">
+              <CloudSync size={15} className={isSyncing ? 'animate-spin text-primary' : 'text-emerald-500'} />
+            </div>
           </div>
         </header>
 
-        <div className={`flex-1 overflow-y-auto ${isSidebarHidden ? 'p-2 md:p-3 pb-safe' : 'p-4 md:p-8 pb-24 md:pb-8'}`}>
+        <div className={`flex-1 overflow-y-auto ${isSidebarHidden ? 'p-2 md:p-3 pb-safe' : 'p-3 md:p-8 pb-24 md:pb-8'}`}>
           <Outlet />
         </div>
       </main>
 
       {/* Mobile Bottom Navigation */}
-      <nav className={`${isSidebarHidden ? 'hidden' : 'md:hidden'} fixed bottom-0 w-full bg-card/85 backdrop-blur-md border-t border-border/70 flex justify-around p-2 pb-safe z-20 shadow-md`}>
+      <nav className={`${isSidebarHidden ? 'hidden' : 'md:hidden'} fixed bottom-0 w-full bg-card/95 backdrop-blur-xl border-t border-border/60 flex items-center justify-around px-2 py-1 pb-safe z-20 shadow-lg`}>
         {mobileNavItems.map((item) => {
           const Icon = item.icon;
           const isActive = item.path === '/'
             ? location.pathname === '/'
             : location.pathname.startsWith(item.path);
+          const isAdd = item.name === 'Add';
+
+          if (isAdd) {
+            return (
+              <Link
+                key={item.name}
+                to={item.path}
+                onClick={() => haptic.tap()}
+                className="flex flex-col items-center justify-center flex-1 py-1"
+              >
+                <div className="bottom-nav-fab">
+                  <Icon size={20} />
+                </div>
+                <span className="text-[9px] font-bold text-primary mt-0.5">Add</span>
+              </Link>
+            );
+          }
 
           return (
             <Link
               key={item.name}
               to={item.path}
-              className={`flex flex-col items-center p-1.5 rounded-xl transition-all duration-150 ${
-                isActive ? 'text-primary scale-105 font-bold' : 'text-muted-foreground hover:text-foreground'
+              onClick={() => haptic.tap()}
+              className={`bottom-nav-item ${
+                isActive ? 'bottom-nav-item-active text-primary font-bold' : 'text-muted-foreground'
               }`}
             >
-              <Icon size={20} className={isActive ? 'mb-0.5' : 'mb-0.5 opacity-70'} />
-              <span className="text-[10px] font-semibold">{item.name}</span>
+              <Icon size={19} className={isActive ? '' : 'opacity-70'} />
+              <span className="text-[9px] font-semibold mt-0.5">{item.name}</span>
             </Link>
           );
         })}

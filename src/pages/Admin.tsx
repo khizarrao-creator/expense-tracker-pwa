@@ -80,7 +80,6 @@ import { Modal } from '../components/ui/Modal';
 import { Card } from '../components/ui/Card';
 import { Button } from '../components/ui/Button';
 import { Input } from '../components/ui/Input';
-import { Badge } from '../components/ui/Badge';
 import { PlanBadge } from '../components/ui/PlanBadge';
 import { refreshProviderConfig } from '../services/ai/provider';
 
@@ -610,18 +609,6 @@ const Admin: React.FC = () => {
       displayOrder: 3
     }
   });
-  const [editingPlanId, setEditingPlanId] = useState<string>('');
-  const [planForm, setPlanForm] = useState({
-    name: '',
-    price: 0,
-    currency: 'PKR',
-    billingCycle: 'monthly',
-    features: [] as string[],
-    limits: { aiCallsPerDay: 50, maxTransactions: 50000, maxUploadsPerDay: 10 },
-    badgeIcon: 'zap',
-    badgeColor: '#3B82F6',
-    displayOrder: 1
-  });
   const [systemStats, setSystemStats] = useState<SystemStats>({
     totalUsers: 0,
     proUsers: 0,
@@ -1049,32 +1036,6 @@ const Admin: React.FC = () => {
     } catch (e: any) {
       console.error(e);
       toast.error('Failed to delete account: ' + e.message);
-    }
-  };
-
-  // CRUD Plans Config
-  const handleSavePlan = async (e: React.FormEvent) => {
-    e.preventDefault();
-    if (!editingPlanId || !isSupabaseConfigured) return;
-
-    try {
-      await supabase.from('plans').upsert({
-        id: editingPlanId,
-        name: planForm.name,
-        price: Number(planForm.price),
-        billing_cycle: planForm.billingCycle,
-        features: planForm.features,
-        limits: planForm.limits,
-        badge_icon: planForm.badgeIcon,
-        badge_color: planForm.badgeColor,
-        display_order: Number(planForm.displayOrder)
-      });
-      toast.success(`Plan ${planForm.name} updated successfully.`);
-      setEditingPlanId('');
-      fetchData();
-    } catch (e: any) {
-      console.error(e);
-      toast.error('Failed to save plan: ' + e.message);
     }
   };
 

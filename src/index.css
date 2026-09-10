@@ -150,6 +150,230 @@
   scrollbar-color: hsl(var(--border)) hsl(var(--background));
 }
 
+/* Disable custom scrollbar on touch devices — use native momentum scroll */
+@media (hover: none) {
+  ::-webkit-scrollbar {
+    display: none;
+  }
+  * {
+    scrollbar-width: none;
+  }
+}
+
+/* ============================================================
+   MOBILE UTILITIES — Native App Feel
+   ============================================================ */
+
+/* ── Safe Area Insets ── */
+.pb-safe {
+  padding-bottom: env(safe-area-inset-bottom, 0px);
+}
+.pt-safe {
+  padding-top: env(safe-area-inset-top, 0px);
+}
+
+/* ── Bottom Sheet ── */
+@keyframes sheetSlideUp {
+  from {
+    transform: translateY(100%);
+    opacity: 0.8;
+  }
+  to {
+    transform: translateY(0);
+    opacity: 1;
+  }
+}
+
+@keyframes sheetSlideDown {
+  from {
+    transform: translateY(0);
+    opacity: 1;
+  }
+  to {
+    transform: translateY(100%);
+    opacity: 0.8;
+  }
+}
+
+.mobile-sheet {
+  position: fixed;
+  bottom: 0;
+  left: 0;
+  right: 0;
+  max-height: 92vh;
+  border-radius: 1.25rem 1.25rem 0 0;
+  overflow-y: auto;
+  -webkit-overflow-scrolling: touch;
+  animation: sheetSlideUp 0.3s cubic-bezier(0.32, 0.72, 0, 1) forwards;
+  z-index: 51;
+}
+
+.mobile-sheet-exit {
+  animation: sheetSlideDown 0.25s cubic-bezier(0.32, 0.72, 0, 1) forwards;
+}
+
+/* Sheet drag handle */
+.sheet-handle {
+  width: 36px;
+  height: 4px;
+  border-radius: 9999px;
+  background: hsl(var(--muted-foreground) / 0.3);
+  margin: 8px auto 4px;
+}
+
+/* ── Filter Drawer ── */
+@keyframes filterExpand {
+  from {
+    max-height: 0;
+    opacity: 0;
+  }
+  to {
+    max-height: 500px;
+    opacity: 1;
+  }
+}
+
+@keyframes filterCollapse {
+  from {
+    max-height: 500px;
+    opacity: 1;
+  }
+  to {
+    max-height: 0;
+    opacity: 0;
+  }
+}
+
+.filter-drawer-enter {
+  animation: filterExpand 0.25s ease-out forwards;
+  overflow: hidden;
+}
+
+.filter-drawer-exit {
+  animation: filterCollapse 0.2s ease-in forwards;
+  overflow: hidden;
+}
+
+/* ── Swipe Row ── */
+.swipe-row {
+  position: relative;
+  overflow: hidden;
+  touch-action: pan-y;
+}
+
+.swipe-row-content {
+  position: relative;
+  z-index: 2;
+  transition: transform 0.15s ease-out;
+  background: hsl(var(--card));
+}
+
+.swipe-row-action {
+  position: absolute;
+  top: 0;
+  right: 0;
+  bottom: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 80px;
+  z-index: 1;
+}
+
+.swipe-row-action-delete {
+  background: hsl(var(--destructive));
+  color: hsl(var(--destructive-foreground));
+}
+
+.swipe-row-action-edit {
+  background: hsl(var(--primary));
+  color: hsl(var(--primary-foreground));
+  right: 80px;
+}
+
+/* ── Touch-Specific Tweaks ── */
+@media (hover: none) {
+  /* Increase minimum tap targets on touch devices */
+  button, a, [role="button"], select, input[type="checkbox"] {
+    min-height: 44px;
+    min-width: 44px;
+  }
+
+  /* Prevent text selection on interactive elements during swipe */
+  .swipe-row {
+    user-select: none;
+    -webkit-user-select: none;
+  }
+
+  /* Disable hover transitions that cause sticky states on touch */
+  .group:hover .group-hover\:opacity-100 {
+    opacity: 1;
+  }
+}
+
+/* ── Mobile Bottom Nav Enhancement ── */
+.bottom-nav-item {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  flex: 1;
+  padding: 6px 4px;
+  border-radius: 0.75rem;
+  transition: all 0.15s ease;
+}
+
+.bottom-nav-item-active::before {
+  content: '';
+  position: absolute;
+  top: 0;
+  left: 50%;
+  transform: translateX(-50%);
+  width: 20px;
+  height: 3px;
+  border-radius: 0 0 4px 4px;
+  background: hsl(var(--primary));
+  box-shadow: 0 1px 6px hsl(var(--primary) / 0.4);
+}
+
+.bottom-nav-item:active {
+  transform: scale(0.92);
+}
+
+/* Integrated center Quick Add button */
+.bottom-nav-fab {
+  width: 38px;
+  height: 38px;
+  border-radius: 0.85rem;
+  background: hsl(var(--primary));
+  color: hsl(var(--primary-foreground));
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  box-shadow: 0 2px 10px hsl(var(--primary) / 0.25);
+  transition: all 0.2s ease;
+}
+
+.bottom-nav-fab:active {
+  transform: scale(0.92);
+  box-shadow: 0 1px 4px hsl(var(--primary) / 0.2);
+}
+
+/* ── Mobile Typography Scaling ── */
+@media (max-width: 374px) {
+  /* Ultra-small screens (iPhone SE, Galaxy S series) */
+  html {
+    font-size: 14px;
+  }
+}
+
+/* ── Overscroll Behavior ── */
+body {
+  overscroll-behavior-y: contain;
+}
+
+
 /* ============================================================
    ADMIN TRANSITION OVERLAY — Premium Cinematic System
    ============================================================ */

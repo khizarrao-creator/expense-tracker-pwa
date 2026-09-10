@@ -1,4 +1,4 @@
-import React, { useEffect, useRef } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 import { X, CheckCircle, Info, ShieldAlert } from 'lucide-react';
 import { createPortal } from 'react-dom';
 
@@ -28,6 +28,17 @@ export const Modal: React.FC<ModalProps> = ({
   showCloseButton = true,
 }) => {
   const modalRef = useRef<HTMLDivElement>(null);
+
+  const [isMobile, setIsMobile] = useState(() =>
+    typeof window !== 'undefined' ? window.matchMedia('(max-width: 768px)').matches : false
+  );
+
+  useEffect(() => {
+    const mql = window.matchMedia('(max-width: 768px)');
+    const handler = (e: MediaQueryListEvent) => setIsMobile(e.matches);
+    mql.addEventListener('change', handler);
+    return () => mql.removeEventListener('change', handler);
+  }, []);
 
   // Focus modal container only when opened
   useEffect(() => {
@@ -81,7 +92,7 @@ export const Modal: React.FC<ModalProps> = ({
   };
 
   const modalMarkup = (
-    <div className="fixed inset-0 z-50 flex items-center justify-center p-4 overflow-y-auto">
+    <div className={`fixed inset-0 z-50 flex ${isMobile ? 'items-end' : 'items-center'} justify-center ${isMobile ? '' : 'p-4'} overflow-y-auto`}>
       {/* Backdrop */}
       <div
         className="fixed inset-0 bg-black/40 dark:bg-black/60 backdrop-blur-sm transition-opacity animate-in fade-in duration-200"
@@ -92,15 +103,22 @@ export const Modal: React.FC<ModalProps> = ({
       <div
         ref={modalRef}
         tabIndex={-1}
-        className={`relative bg-card text-card-foreground w-full ${sizes[size]} rounded-3xl shadow-2xl border border-border overflow-hidden flex flex-col focus:outline-none animate-in zoom-in-95 duration-200 z-10`}
+        className={`relative bg-card text-card-foreground w-full ${
+          isMobile
+            ? 'mobile-sheet max-h-[92vh] rounded-t-2xl border-t border-x border-border'
+            : `${sizes[size]} rounded-3xl border border-border animate-in zoom-in-95 duration-200`
+        } shadow-2xl overflow-hidden flex flex-col focus:outline-none z-10`}
       >
+        {/* Sheet drag handle on mobile */}
+        {isMobile && <div className="sheet-handle" />}
+
         {/* Header */}
         {(title || description || showCloseButton) && (
-          <div className={`p-6 flex items-start gap-4 ${headerBgs[variant]}`}>
+          <div className={`p-4 md:p-6 flex items-start gap-3 md:gap-4 ${headerBgs[variant]}`}>
             {icons[variant]}
             <div className="flex-1 min-w-0 space-y-1 text-left">
               {title && (
-                <h2 className="text-lg font-bold leading-tight truncate text-foreground">
+                <h2 className="text-base md:text-lg font-bold leading-tight truncate text-foreground">
                   {title}
                 </h2>
               )}
@@ -113,7 +131,7 @@ export const Modal: React.FC<ModalProps> = ({
             {showCloseButton && (
               <button
                 onClick={onClose}
-                className="p-1 rounded-full text-muted-foreground hover:bg-muted hover:text-foreground transition-all shrink-0 active:scale-95"
+                className="p-1.5 rounded-full text-muted-foreground hover:bg-muted hover:text-foreground transition-all shrink-0 active:scale-95"
                 aria-label="Close modal"
               >
                 <X size={18} />
@@ -124,14 +142,14 @@ export const Modal: React.FC<ModalProps> = ({
 
         {/* Content */}
         {children && (
-          <div className="px-6 py-5 flex-1 overflow-y-auto max-h-[70vh] text-sm text-left leading-relaxed">
+          <div className={`px-4 md:px-6 py-4 md:py-5 flex-1 overflow-y-auto ${isMobile ? 'max-h-[60vh]' : 'max-h-[70vh]'} text-sm text-left leading-relaxed`}>
             {children}
           </div>
         )}
 
         {/* Footer */}
         {footer && (
-          <div className="px-6 py-4 border-t border-border/40 bg-muted/10 flex items-center justify-end gap-3 rounded-b-3xl">
+          <div className={`px-4 md:px-6 py-3 md:py-4 border-t border-border/40 bg-muted/10 flex items-center justify-end gap-2 md:gap-3 ${isMobile ? 'pb-safe rounded-none' : 'rounded-b-3xl'}`}>
             {footer}
           </div>
         )}

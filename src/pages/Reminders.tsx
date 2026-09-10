@@ -283,14 +283,14 @@ const Reminders: React.FC = () => {
   };
 
   return (
-    <div className="space-y-6">
+    <div className="space-y-4 md:space-y-6">
       <div className="flex items-center justify-between">
-        <h1 className="text-2xl font-bold">Bill Reminders</h1>
+        <h1 className="text-xl md:text-2xl font-bold">Bill Reminders</h1>
         <button
           onClick={() => setIsModalOpen(true)}
           className="bg-primary text-primary-foreground p-2 rounded-full hover:opacity-90 transition-opacity"
         >
-          <Plus size={24} />
+          <Plus size={20} className="md:w-6 md:h-6" />
         </button>
       </div>
 

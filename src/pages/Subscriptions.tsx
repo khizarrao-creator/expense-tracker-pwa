@@ -247,26 +247,26 @@ const Subscriptions: React.FC = () => {
   }
 
   return (
-    <div className="space-y-6 pb-20">
+    <div className="space-y-4 md:space-y-6 pb-20">
       {/* Header */}
-      <div className="flex items-center justify-between">
-        <div className="flex items-center gap-3">
+      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+        <div className="flex items-center gap-2 md:gap-3">
           <button
             onClick={() => navigate('/more')}
-            className="p-2 hover:bg-accent rounded-full transition-colors"
+            className="p-1.5 md:p-2 hover:bg-accent rounded-full transition-colors text-foreground shrink-0"
           >
-            <ArrowLeft size={24} />
+            <ArrowLeft size={20} className="md:w-6 md:h-6" />
           </button>
           <div>
-            <h1 className="text-2xl font-bold tracking-tight">Subscription Manager</h1>
-            <p className="text-muted-foreground">Monitor and optimize your recurring subscriptions.</p>
+            <h1 className="text-xl md:text-2xl font-bold tracking-tight">Subscription Manager</h1>
+            <p className="text-xs md:text-sm text-muted-foreground mt-0.5">Monitor and optimize your recurring subscriptions.</p>
           </div>
         </div>
         <button
           onClick={() => setShowAddModal(true)}
-          className="flex items-center gap-2 bg-primary text-primary-foreground px-4 py-2.5 rounded-xl font-semibold hover:opacity-90 transition-all shadow-lg shadow-primary/20"
+          className="flex items-center justify-center gap-2 bg-primary text-primary-foreground px-4 py-2 rounded-xl font-semibold hover:opacity-90 transition-all shadow-lg shadow-primary/20 text-xs md:text-sm shrink-0"
         >
-          <Plus size={20} />
+          <Plus size={16} />
           <span>Add Subscription</span>
         </button>
       </div>

@@ -599,24 +599,24 @@ const Investments: React.FC = () => {
   const assetTypes = ['Gold', 'Stock', 'Crypto', 'Cash', 'Real Estate'];
 
   return (
-    <div className="space-y-6">
-      <div className="flex items-center justify-between">
-        <h1 className="text-2xl font-bold">Investments</h1>
+    <div className="space-y-4 md:space-y-6">
+      <div className="flex items-center justify-between gap-2">
+        <h1 className="text-xl md:text-2xl font-bold">Investments</h1>
         <div className="flex gap-2">
           <button
             onClick={() => setIsHelpModalOpen(true)}
-            className="bg-muted text-muted-foreground p-2 rounded-full hover:bg-muted/80 transition-colors"
+            className="bg-muted text-muted-foreground p-2 rounded-full hover:bg-muted/80 transition-colors shrink-0"
             title="Help & Steps"
           >
-            <HelpCircle size={24} />
+            <HelpCircle size={20} />
           </button>
           {activeSubTab === 'portfolio' && (
             <button
               onClick={handleRefreshPrices}
               disabled={refreshing}
-              className={`bg-muted text-muted-foreground p-2 rounded-full hover:bg-muted/80 transition-colors ${refreshing ? 'animate-spin' : ''}`}
+              className={`bg-muted text-muted-foreground p-2 rounded-full hover:bg-muted/80 transition-colors shrink-0 ${refreshing ? 'animate-spin' : ''}`}
             >
-              <RefreshCw size={24} />
+              <RefreshCw size={20} />
             </button>
           )}
           <button
@@ -624,26 +624,26 @@ const Investments: React.FC = () => {
               resetForm();
               setIsModalOpen(true);
             }}
-            className="bg-primary text-primary-foreground p-2 rounded-full hover:opacity-90 transition-opacity"
+            className="bg-primary text-primary-foreground p-2 rounded-full hover:opacity-90 transition-opacity shrink-0"
           >
-            <Plus size={24} />
+            <Plus size={20} />
           </button>
         </div>
       </div>
 
       {/* Portfolio Summary */}
-      <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-        <div className="bg-card p-6 rounded-2xl border border-border shadow-sm">
-          <p className="text-sm text-muted-foreground mb-1 font-medium">Total Portfolio Value</p>
-          <h2 className="text-3xl font-black tracking-tight">{formatAmount(totalValue)}</h2>
+      <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 md:gap-4">
+        <div className="bg-card p-4 md:p-6 rounded-2xl border border-border shadow-sm">
+          <p className="text-xs md:text-sm text-muted-foreground mb-1 font-medium">Total Portfolio Value</p>
+          <h2 className="text-2xl md:text-3xl font-black tracking-tight">{formatAmount(totalValue)}</h2>
         </div>
-        <div className="bg-card p-6 rounded-2xl border border-border shadow-sm">
-          <p className="text-sm text-muted-foreground mb-1 font-medium">Total Profit/Loss</p>
-          <div className="flex items-center gap-2">
-            <h2 className={`text-3xl font-black tracking-tight ${profitLoss.profit_loss >= 0 ? 'text-emerald-500' : 'text-destructive'}`}>
+        <div className="bg-card p-4 md:p-6 rounded-2xl border border-border shadow-sm">
+          <p className="text-xs md:text-sm text-muted-foreground mb-1 font-medium">Total Profit/Loss</p>
+          <div className="flex items-center gap-2 flex-wrap">
+            <h2 className={`text-2xl md:text-3xl font-black tracking-tight ${profitLoss.profit_loss >= 0 ? 'text-emerald-500' : 'text-destructive'}`}>
               {profitLoss.profit_loss >= 0 ? '+' : ''}{formatAmount(profitLoss.profit_loss)}
             </h2>
-            <span className={`text-sm font-bold px-3 py-1 rounded-full ${profitLoss.profit_loss >= 0 ? 'bg-emerald-500/10 text-emerald-500' : 'bg-destructive/10 text-destructive'}`}>
+            <span className={`text-xs md:text-sm font-bold px-2 md:px-3 py-0.5 md:py-1 rounded-full ${profitLoss.profit_loss >= 0 ? 'bg-emerald-500/10 text-emerald-500' : 'bg-destructive/10 text-destructive'}`}>
               {profitLoss.profit_loss >= 0 ? '+' : ''}{profitLoss.profit_loss_pct.toFixed(2)}%
             </span>
           </div>
@@ -651,32 +651,32 @@ const Investments: React.FC = () => {
       </div>
 
       {/* Sub Tabs Navigation */}
-      <div className="flex bg-muted/30 p-1.5 rounded-[1.5rem] border border-border/80">
+      <div className="flex bg-muted/30 p-1 md:p-1.5 rounded-2xl md:rounded-[1.5rem] border border-border/80 overflow-x-auto">
         <button
           onClick={() => setActiveSubTab('portfolio')}
-          className={`flex-1 py-3.5 px-4 rounded-[1.2rem] text-xs font-black uppercase tracking-widest transition-all ${activeSubTab === 'portfolio' ? 'bg-card text-foreground shadow-sm' : 'text-muted-foreground hover:text-foreground'}`}
+          className={`flex-1 py-2.5 md:py-3.5 px-3 md:px-4 rounded-xl md:rounded-[1.2rem] text-[10px] md:text-xs font-black uppercase tracking-widest transition-all whitespace-nowrap ${activeSubTab === 'portfolio' ? 'bg-card text-foreground shadow-sm' : 'text-muted-foreground hover:text-foreground'}`}
         >
-          <div className="flex items-center justify-center gap-2">
-            <Coins size={16} />
-            Holdings Portfolio
+          <div className="flex items-center justify-center gap-1.5 md:gap-2">
+            <Coins size={14} />
+            <span className="hidden xs:inline">Holdings</span> Portfolio
           </div>
         </button>
         <button
           onClick={() => setActiveSubTab('transactions')}
-          className={`flex-1 py-3.5 px-4 rounded-[1.2rem] text-xs font-black uppercase tracking-widest transition-all ${activeSubTab === 'transactions' ? 'bg-card text-foreground shadow-sm' : 'text-muted-foreground hover:text-foreground'}`}
+          className={`flex-1 py-2.5 md:py-3.5 px-3 md:px-4 rounded-xl md:rounded-[1.2rem] text-[10px] md:text-xs font-black uppercase tracking-widest transition-all whitespace-nowrap ${activeSubTab === 'transactions' ? 'bg-card text-foreground shadow-sm' : 'text-muted-foreground hover:text-foreground'}`}
         >
-          <div className="flex items-center justify-center gap-2">
-            <History size={16} />
-            Ledger Records ({assetTransactions.length})
+          <div className="flex items-center justify-center gap-1.5 md:gap-2">
+            <History size={14} />
+            Records ({assetTransactions.length})
           </div>
         </button>
         <button
           onClick={() => setActiveSubTab('ledger')}
-          className={`flex-1 py-3.5 px-4 rounded-[1.2rem] text-xs font-black uppercase tracking-widest transition-all ${activeSubTab === 'ledger' ? 'bg-card text-foreground shadow-sm' : 'text-muted-foreground hover:text-foreground'}`}
+          className={`flex-1 py-2.5 md:py-3.5 px-3 md:px-4 rounded-xl md:rounded-[1.2rem] text-[10px] md:text-xs font-black uppercase tracking-widest transition-all whitespace-nowrap ${activeSubTab === 'ledger' ? 'bg-card text-foreground shadow-sm' : 'text-muted-foreground hover:text-foreground'}`}
         >
-          <div className="flex items-center justify-center gap-2">
-            <BookOpen size={16} />
-            Double-Entry Ledger Book
+          <div className="flex items-center justify-center gap-1.5 md:gap-2">
+            <BookOpen size={14} />
+            <span className="hidden xs:inline">Double-Entry</span> Ledger
           </div>
         </button>
       </div>
@@ -753,9 +753,9 @@ const Investments: React.FC = () => {
                                 e.stopPropagation();
                                 handleEdit(inv);
                               }}
-                              className="text-muted-foreground opacity-0 group-hover:opacity-100 hover:text-primary transition-all p-1"
+                              className="text-muted-foreground opacity-100 md:opacity-0 group-hover:opacity-100 hover:text-primary transition-all p-1.5"
                             >
-                              <Edit3 size={18} />
+                              <Edit3 size={16} />
                             </button>
                           )}
                           <button
@@ -763,9 +763,9 @@ const Investments: React.FC = () => {
                               e.stopPropagation();
                               handleDelete(inv.id);
                             }}
-                            className="text-muted-foreground opacity-0 group-hover:opacity-100 hover:text-destructive transition-all p-1"
+                            className="text-muted-foreground opacity-100 md:opacity-0 group-hover:opacity-100 hover:text-destructive transition-all p-1.5"
                           >
-                            <Trash2 size={18} />
+                            <Trash2 size={16} />
                           </button>
                         </div>
                       </div>

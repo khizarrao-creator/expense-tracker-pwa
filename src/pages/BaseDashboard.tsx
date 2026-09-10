@@ -19,7 +19,13 @@ import {
   ChevronRight,
   LayoutDashboard,
   Eye,
-  EyeOff
+  EyeOff,
+  List,
+  TrendingUp,
+  Handshake,
+  Fuel,
+  Bell,
+  LayoutGrid
 } from 'lucide-react';
 import { Card } from '../components/ui/Card';
 import { Button } from '../components/ui/Button';
@@ -131,24 +137,24 @@ export const BaseDashboard: React.FC = () => {
   return (
     <div className="space-y-6 max-w-7xl mx-auto">
       {/* Hero Welcome */}
-      <div className="p-6 md:p-8 rounded-2xl bg-card border border-border/80 shadow-sm">
+      <div className="p-4 sm:p-6 md:p-8 rounded-2xl bg-card border border-border/80 shadow-sm">
         <div className="flex flex-col md:flex-row items-start md:items-center justify-between gap-4">
           <div>
-            <p className="text-xs font-bold text-muted-foreground uppercase tracking-wider mb-1">
+            <p className="text-[10px] sm:text-xs font-bold text-muted-foreground uppercase tracking-wider mb-1">
               The Base Command Center
             </p>
-            <h1 className="text-2xl md:text-3xl font-black tracking-tight text-foreground">
+            <h1 className="text-xl sm:text-2xl md:text-3xl font-black tracking-tight text-foreground">
               Welcome back, {user?.displayName || 'User'}
             </h1>
-            <p className="text-sm text-muted-foreground mt-1">
+            <p className="text-xs sm:text-sm text-muted-foreground mt-1">
               Your unified executive summary across finance, work, and communications.
             </p>
           </div>
-          <div className="flex items-center gap-2">
+          <div className="flex items-center gap-2 w-full md:w-auto">
             <Button
               variant="outline"
               onClick={() => navigate('/ledger/overview')}
-              className="gap-2 font-bold bg-card text-xs"
+              className="flex-1 md:flex-none gap-2 font-bold bg-card text-xs"
             >
               <LayoutDashboard size={14} />
               Ledger Overview
@@ -156,7 +162,7 @@ export const BaseDashboard: React.FC = () => {
             <Button
               variant="primary"
               onClick={() => navigate('/add')}
-              className="gap-2 font-bold shadow-md text-xs"
+              className="flex-1 md:flex-none gap-2 font-bold shadow-md text-xs"
             >
               <Plus size={14} />
               Add Record
@@ -239,6 +245,50 @@ export const BaseDashboard: React.FC = () => {
             <ChevronRight size={14} className="group-hover:translate-x-1 transition-transform text-emerald-500" />
           </div>
         </Card>
+      </div>
+
+      {/* 🚀 Quick App Launcher Grid (iOS / Wise Style) */}
+      <div className="space-y-3">
+        <div className="flex items-center justify-between px-1">
+          <h3 className="text-xs font-extrabold uppercase tracking-wider text-muted-foreground">
+            Quick Launcher
+          </h3>
+          <button
+            onClick={() => navigate('/more')}
+            className="text-xs font-bold text-primary hover:underline flex items-center gap-1"
+          >
+            See All Apps (20+) <ChevronRight size={13} />
+          </button>
+        </div>
+
+        <div className="grid grid-cols-4 sm:grid-cols-8 gap-2.5">
+          {[
+            { name: 'History', path: '/ledger/transactions', icon: List, color: 'text-emerald-500 bg-emerald-500/10 border-emerald-500/20' },
+            { name: 'Invest', path: '/ledger/investments', icon: TrendingUp, color: 'text-indigo-500 bg-indigo-500/10 border-indigo-500/20' },
+            { name: 'Loans', path: '/ledger/loans', icon: Handshake, color: 'text-amber-500 bg-amber-500/10 border-amber-500/20' },
+            { name: 'Fuel', path: '/ledger/vehicles', icon: Fuel, color: 'text-rose-500 bg-rose-500/10 border-rose-500/20' },
+            { name: 'Reminders', path: '/ledger/reminders', icon: Bell, color: 'text-sky-500 bg-sky-500/10 border-sky-500/20' },
+            { name: 'Tasks', path: '/work/tasks', icon: CheckSquare, color: 'text-blue-500 bg-blue-500/10 border-blue-500/20' },
+            { name: 'AI Copilot', path: '/ai', icon: Sparkles, color: 'text-purple-500 bg-purple-500/10 border-purple-500/20' },
+            { name: 'More Apps', path: '/more', icon: LayoutGrid, color: 'text-foreground bg-muted border-border/80' },
+          ].map((app) => {
+            const Icon = app.icon;
+            return (
+              <button
+                key={app.name}
+                onClick={() => navigate(app.path)}
+                className="flex flex-col items-center justify-center p-2.5 bg-card border border-border/60 rounded-2xl hover:border-primary/40 active:scale-95 transition-all shadow-xs group"
+              >
+                <div className={`p-2.5 rounded-xl border ${app.color} group-hover:scale-105 transition-transform mb-1.5`}>
+                  <Icon size={18} />
+                </div>
+                <span className="text-[10px] font-bold text-foreground tracking-tight text-center truncate w-full">
+                  {app.name}
+                </span>
+              </button>
+            );
+          })}
+        </div>
       </div>
 
       {/* AI Copilot — Cross-cutting intelligence layer */}

@@ -89,11 +89,11 @@ const Converter: React.FC = () => {
   const googleSearchUrl = `https://www.google.com/search?q=${amountFrom}+${currencyFrom}+to+${currencyTo}`;
 
   return (
-    <div className="max-w-md mx-auto h-full flex flex-col space-y-6">
+    <div className="max-w-md mx-auto h-full flex flex-col space-y-4 md:space-y-6 pb-20">
       <div className="flex items-center justify-between">
-        <h1 className="text-2xl font-bold flex items-center gap-2">
+        <h1 className="text-xl md:text-2xl font-bold flex items-center gap-2">
           <div className="bg-primary/10 text-primary p-1.5 rounded-lg">
-            <DollarSign size={20} />
+            <DollarSign size={18} />
           </div>
           Converter
         </h1>
@@ -107,7 +107,7 @@ const Converter: React.FC = () => {
         </button>
       </div>
 
-      <div className="bg-card border border-border rounded-3xl p-6 shadow-sm">
+      <div className="bg-card border border-border rounded-3xl p-4 md:p-6 shadow-sm">
 
         {/* From Section */}
         <div className="space-y-2">

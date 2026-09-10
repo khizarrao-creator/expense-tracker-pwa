@@ -88,7 +88,7 @@ const Calculator: React.FC = () => {
   };
 
   const Button = ({ children, onClick, variant = 'default', className = '' }: any) => {
-    const baseStyle = "h-16 rounded-2xl text-xl font-medium transition-all active:scale-95 flex items-center justify-center";
+    const baseStyle = "h-14 md:h-16 rounded-2xl text-lg md:text-xl font-medium transition-all active:scale-95 flex items-center justify-center";
     const variants = {
       default: "bg-muted text-foreground hover:bg-muted/80",
       primary: "bg-primary text-primary-foreground hover:bg-primary/90",
@@ -107,17 +107,17 @@ const Calculator: React.FC = () => {
   };
 
   return (
-    <div className="max-w-md mx-auto h-full flex flex-col">
-      <div className="mb-6">
-        <h1 className="text-2xl font-bold flex items-center gap-2">
+    <div className="max-w-md mx-auto h-full flex flex-col space-y-4 md:space-y-6 pb-20">
+      <div>
+        <h1 className="text-xl md:text-2xl font-bold flex items-center gap-2">
           <div className="bg-primary/10 text-primary p-1.5 rounded-lg">
-            <CalcIcon size={20} />
+            <CalcIcon size={18} />
           </div>
           Calculator
         </h1>
       </div>
 
-      <div className="bg-card border border-border rounded-3xl p-6 flex-1 flex flex-col justify-end shadow-sm">
+      <div className="bg-card border border-border rounded-3xl p-4 md:p-6 flex-1 flex flex-col justify-end shadow-sm">
         <div className="flex flex-col items-end justify-end mb-6 min-h-[120px] break-all">
           <div className="text-muted-foreground text-sm font-medium h-6 mb-2">
             {equation}

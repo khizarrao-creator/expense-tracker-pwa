@@ -1,12 +1,13 @@
 import React, { useEffect, useState } from 'react';
 import { getTransactions, deleteTransaction, getSummaryByAccount, getCategories } from '../db/queries';
 import type { Transaction } from '../db/queries';
-import { Search, Filter, Trash2, Edit2, TrendingUp, TrendingDown, Landmark, Plus, Tag, Calendar, X, CreditCard, Clock, Cloud } from 'lucide-react';
+import { Search, Filter, Trash2, Edit2, TrendingUp, TrendingDown, Landmark, Plus, Tag, Calendar, X, CreditCard, Clock, Cloud, SlidersHorizontal, ChevronDown } from 'lucide-react';
 import { format } from 'date-fns';
 import { useNavigate, useSearchParams } from 'react-router-dom';
 import { useCurrency } from '../contexts/CurrencyContext';
 import ConfirmModal from '../components/ConfirmModal';
 import { toast } from 'sonner';
+import { useIsMobile } from '../hooks/useIsMobile';
 
 const Transactions: React.FC = () => {
   const navigate = useNavigate();
@@ -26,6 +27,8 @@ const Transactions: React.FC = () => {
   const [fromDate, setFromDate] = useState<string>('');
   const [toDate, setToDate] = useState<string>('');
   const [deleteId, setDeleteId] = useState<string | null>(null);
+  const [showFilters, setShowFilters] = useState(false);
+  const isMobile = useIsMobile();
 
   useEffect(() => {
     loadTransactions();
@@ -119,9 +122,11 @@ const Transactions: React.FC = () => {
     return matchesSearch && matchesType && matchesAccount && matchesCategory && matchesFromDate && matchesToDate;
   });
 
+  const activeFilterCount = [filterType !== 'all', filterAccount !== 'all', filterCategory !== 'all', !!fromDate || !!toDate].filter(Boolean).length;
+
   return (
-    <div className="space-y-6">
-      <h1 className="text-2xl font-bold">Transactions</h1>
+    <div className="space-y-4 md:space-y-6">
+      <h1 className="text-xl md:text-2xl font-bold">Transactions</h1>
 
       <ConfirmModal
         isOpen={deleteId !== null}
@@ -133,98 +138,142 @@ const Transactions: React.FC = () => {
         confirmText="Delete"
       />
 
-      <div className="flex flex-col sm:flex-row gap-4 mb-6">
-        <div className="relative flex-1">
-          <Search className="absolute left-3 top-1/2 -translate-y-1/2 text-muted-foreground" size={20} />
-          <input
-            type="text"
-            placeholder="Search descriptions, categories, or banks..."
-            className="w-full pl-10 pr-4 py-2 bg-card border border-border rounded-xl focus:outline-none focus:ring-2 focus:ring-primary"
-            value={searchTerm}
-            onChange={(e) => setSearchTerm(e.target.value)}
-          />
+      {/* Search & Filters */}
+      <div className="space-y-3">
+        <div className="flex gap-2">
+          <div className="relative flex-1">
+            <Search className="absolute left-3 top-1/2 -translate-y-1/2 text-muted-foreground" size={18} />
+            <input
+              type="text"
+              placeholder="Search transactions..."
+              className="w-full pl-10 pr-4 py-2.5 bg-card border border-border rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-primary"
+              value={searchTerm}
+              onChange={(e) => setSearchTerm(e.target.value)}
+            />
+          </div>
+
+          {/* Mobile: Filter toggle button */}
+          <button
+            onClick={() => setShowFilters(!showFilters)}
+            className={`md:hidden flex items-center gap-1.5 px-3 py-2.5 rounded-xl border text-sm font-medium transition-all shrink-0 ${
+              activeFilterCount > 0
+                ? 'bg-primary/10 border-primary/30 text-primary'
+                : 'bg-card border-border text-muted-foreground'
+            }`}
+          >
+            <SlidersHorizontal size={16} />
+            {activeFilterCount > 0 && (
+              <span className="bg-primary text-primary-foreground text-[10px] font-bold w-4.5 h-4.5 rounded-full flex items-center justify-center">
+                {activeFilterCount}
+              </span>
+            )}
+            <ChevronDown size={14} className={`transition-transform duration-200 ${showFilters ? 'rotate-180' : ''}`} />
+          </button>
         </div>
 
-        <div className="flex items-center gap-2 overflow-x-auto pb-2 sm:pb-0">
-          <div className="relative shrink-0">
-            <Landmark className="absolute left-3 top-1/2 -translate-y-1/2 text-muted-foreground" size={18} />
-            <select
-              className="bg-card border border-border rounded-xl pl-9 pr-8 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-primary appearance-none cursor-pointer"
-              value={filterAccount}
-              onChange={(e) => handleAccountFilterChange(e.target.value)}
-            >
-              <option value="all">All Accounts</option>
-              {accounts.map(acc => (
-                <option key={acc.id} value={acc.id}>{acc.name}</option>
-              ))}
-            </select>
-          </div>
-
-          <div className="relative shrink-0">
-            <Filter className="absolute left-3 top-1/2 -translate-y-1/2 text-muted-foreground" size={18} />
-            <select
-              className="bg-card border border-border rounded-xl pl-9 pr-8 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-primary appearance-none cursor-pointer"
-              value={filterType}
-              onChange={(e) => setFilterType(e.target.value as any)}
-            >
-              <option value="all">All Types</option>
-              <option value="income">Income Only</option>
-              <option value="expense">Expense Only</option>
-              <option value="transfer">Transfers Only</option>
-            </select>
-          </div>
-
-          <div className="relative shrink-0">
-            <Tag className="absolute left-3 top-1/2 -translate-y-1/2 text-muted-foreground" size={18} />
-            <select
-              className="bg-card border border-border rounded-xl pl-9 pr-8 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-primary appearance-none cursor-pointer"
-              value={filterCategory}
-              onChange={(e) => setFilterCategory(e.target.value)}
-            >
-              <option value="all">All Categories</option>
-              {categories.filter(c => !c.parent_id).map(parent => (
-                <React.Fragment key={parent.id}>
-                  <option value={parent.name}>{parent.name}</option>
-                  {categories
-                    .filter(sub => sub.parent_id === parent.id)
-                    .map(sub => (
-                      <option key={sub.id} value={`${parent.name} > ${sub.name}`}>
-                        &nbsp;&nbsp;{sub.name}
-                      </option>
-                    ))
-                  }
-                </React.Fragment>
-              ))}
-            </select>
-          </div>
-
-          <div className="relative shrink-0 flex items-center gap-2 bg-card border border-border rounded-xl px-3 py-1.5">
-            <Calendar className="text-muted-foreground" size={18} />
-            <div className="flex items-center gap-1">
-              <input
-                type="date"
-                className="bg-transparent text-xs focus:outline-none cursor-pointer"
-                value={fromDate}
-                onChange={(e) => setFromDate(e.target.value)}
-                placeholder="From"
-              />
-              <span className="text-muted-foreground text-xs">to</span>
-              <input
-                type="date"
-                className="bg-transparent text-xs focus:outline-none cursor-pointer"
-                value={toDate}
-                onChange={(e) => setToDate(e.target.value)}
-                placeholder="To"
-              />
-              {(fromDate || toDate) && (
-                <button
-                  onClick={() => { setFromDate(''); setToDate(''); }}
-                  className="ml-1 text-muted-foreground hover:text-destructive"
-                >
-                  <Plus size={14} className="rotate-45" />
-                </button>
-              )}
+        {/* Filter controls — always visible on desktop, drawer on mobile */}
+        <div className={`${
+          isMobile
+            ? showFilters ? 'filter-drawer-enter' : 'hidden'
+            : 'flex items-center gap-2 flex-wrap'
+        }`}>
+          <div className={`${isMobile ? 'grid grid-cols-2 gap-2 p-3 bg-card border border-border rounded-xl' : 'flex items-center gap-2 flex-wrap'}`}>
+            <div className="relative">
+              <Landmark className="absolute left-3 top-1/2 -translate-y-1/2 text-muted-foreground" size={16} />
+              <select
+                className="w-full bg-card border border-border rounded-xl pl-9 pr-6 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-primary appearance-none cursor-pointer"
+                value={filterAccount}
+                onChange={(e) => handleAccountFilterChange(e.target.value)}
+              >
+                <option value="all">All Accounts</option>
+                {accounts.map(acc => (
+                  <option key={acc.id} value={acc.id}>{acc.name}</option>
+                ))}
+              </select>
             </div>
+
+            <div className="relative">
+              <Filter className="absolute left-3 top-1/2 -translate-y-1/2 text-muted-foreground" size={16} />
+              <select
+                className="w-full bg-card border border-border rounded-xl pl-9 pr-6 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-primary appearance-none cursor-pointer"
+                value={filterType}
+                onChange={(e) => setFilterType(e.target.value as any)}
+              >
+                <option value="all">All Types</option>
+                <option value="income">Income</option>
+                <option value="expense">Expense</option>
+                <option value="transfer">Transfer</option>
+              </select>
+            </div>
+
+            <div className="relative">
+              <Tag className="absolute left-3 top-1/2 -translate-y-1/2 text-muted-foreground" size={16} />
+              <select
+                className="w-full bg-card border border-border rounded-xl pl-9 pr-6 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-primary appearance-none cursor-pointer"
+                value={filterCategory}
+                onChange={(e) => setFilterCategory(e.target.value)}
+              >
+                <option value="all">All Categories</option>
+                {categories.filter(c => !c.parent_id).map(parent => (
+                  <React.Fragment key={parent.id}>
+                    <option value={parent.name}>{parent.name}</option>
+                    {categories
+                      .filter(sub => sub.parent_id === parent.id)
+                      .map(sub => (
+                        <option key={sub.id} value={`${parent.name} > ${sub.name}`}>
+                          &nbsp;&nbsp;{sub.name}
+                        </option>
+                      ))
+                    }
+                  </React.Fragment>
+                ))}
+              </select>
+            </div>
+
+            <div className={`relative flex items-center gap-2 bg-card border border-border rounded-xl px-3 py-1.5 ${isMobile ? 'col-span-2' : ''}`}>
+              <Calendar className="text-muted-foreground shrink-0" size={16} />
+              <div className="flex items-center gap-1 flex-1 min-w-0">
+                <input
+                  type="date"
+                  className="bg-transparent text-xs focus:outline-none cursor-pointer min-w-0 flex-1"
+                  value={fromDate}
+                  onChange={(e) => setFromDate(e.target.value)}
+                  placeholder="From"
+                />
+                <span className="text-muted-foreground text-xs">to</span>
+                <input
+                  type="date"
+                  className="bg-transparent text-xs focus:outline-none cursor-pointer min-w-0 flex-1"
+                  value={toDate}
+                  onChange={(e) => setToDate(e.target.value)}
+                  placeholder="To"
+                />
+                {(fromDate || toDate) && (
+                  <button
+                    onClick={() => { setFromDate(''); setToDate(''); }}
+                    className="ml-1 text-muted-foreground hover:text-destructive shrink-0"
+                  >
+                    <Plus size={14} className="rotate-45" />
+                  </button>
+                )}
+              </div>
+            </div>
+
+            {/* Clear all filters button on mobile */}
+            {isMobile && activeFilterCount > 0 && (
+              <button
+                onClick={() => {
+                  setFilterType('all');
+                  handleAccountFilterChange('all');
+                  setFilterCategory('all');
+                  setFromDate('');
+                  setToDate('');
+                }}
+                className="col-span-2 text-xs text-destructive font-semibold py-2 hover:underline"
+              >
+                Clear all filters ({activeFilterCount})
+              </button>
+            )}
           </div>
         </div>
       </div>
@@ -307,20 +356,20 @@ const Transactions: React.FC = () => {
                     </span>
                   )}
                 </div>
-                <div className="flex sm:opacity-0 group-hover:opacity-100 transition-opacity gap-1">
+                <div className="flex opacity-100 md:opacity-0 group-hover:opacity-100 transition-opacity gap-1">
                   <button
                     onClick={(e) => { e.stopPropagation(); navigate(`/edit/${trx.id}`); }}
-                    className="p-2 text-muted-foreground hover:text-primary hover:bg-primary/10 rounded-lg transition-colors bg-muted sm:bg-transparent"
+                    className="p-2.5 text-muted-foreground hover:text-primary hover:bg-primary/10 rounded-lg transition-colors bg-muted md:bg-transparent"
                     title="Edit"
                   >
-                    <Edit2 size={18} />
+                    <Edit2 size={16} />
                   </button>
                   <button
                     onClick={(e) => { e.stopPropagation(); handleDelete(trx.id); }}
-                    className="p-2 text-muted-foreground hover:text-destructive hover:bg-destructive/10 rounded-lg transition-colors bg-muted sm:bg-transparent"
+                    className="p-2.5 text-muted-foreground hover:text-destructive hover:bg-destructive/10 rounded-lg transition-colors bg-muted md:bg-transparent"
                     title="Delete"
                   >
-                    <Trash2 size={18} />
+                    <Trash2 size={16} />
                   </button>
                 </div>
               </div>
@@ -331,13 +380,18 @@ const Transactions: React.FC = () => {
 
       {selectedTrx && (
         <div 
-          className="fixed inset-0 bg-background/80 backdrop-blur-sm z-50 flex items-center justify-center p-4 animate-in fade-in duration-200"
+          className="fixed inset-0 bg-background/80 backdrop-blur-sm z-50 flex items-end md:items-center justify-center md:p-4 animate-in fade-in duration-200"
           onClick={() => setSelectedTrx(null)}
         >
           <div 
-            className="bg-card w-full max-w-lg rounded-3xl border border-border shadow-2xl overflow-hidden animate-in zoom-in-95 duration-200 flex flex-col max-h-[90vh]"
+            className={`bg-card w-full border border-border shadow-2xl overflow-hidden flex flex-col ${
+              isMobile
+                ? 'mobile-sheet max-h-[92vh] rounded-t-3xl border-b-0'
+                : 'max-w-lg rounded-3xl max-h-[90vh] animate-in zoom-in-95 duration-200'
+            }`}
             onClick={(e) => e.stopPropagation()}
           >
+            {isMobile && <div className="sheet-handle" />}
             {/* Header Gradient Accent */}
             <div className={`h-2.5 w-full ${
               selectedTrx.type === 'income' ? 'bg-gradient-to-r from-emerald-400 to-emerald-600' :
@@ -516,11 +570,11 @@ const Transactions: React.FC = () => {
             </div>
 
             {/* Footer actions */}
-            <div className="p-6 bg-muted/20 border-t border-border flex flex-wrap gap-3">
+            <div className="p-4 md:p-6 bg-muted/20 border-t border-border flex gap-2 md:gap-3 pb-safe">
               <button
                 type="button"
                 onClick={() => setSelectedTrx(null)}
-                className="px-4 py-2.5 rounded-xl font-semibold border border-border bg-card hover:bg-muted transition-all text-sm flex-1 min-w-[80px]"
+                className="px-3 md:px-4 py-3 rounded-xl font-semibold border border-border bg-card hover:bg-muted transition-all text-sm flex-1"
               >
                 Close
               </button>
@@ -531,9 +585,9 @@ const Transactions: React.FC = () => {
                   setSelectedTrx(null);
                   navigate(`/edit/${selectedTrx.id}`);
                 }}
-                className="px-4 py-2.5 rounded-xl font-semibold bg-primary text-primary-foreground hover:opacity-90 transition-all text-sm flex-1 min-w-[80px] flex items-center justify-center gap-1.5 shadow-md shadow-primary/10"
+                className="px-3 md:px-4 py-3 rounded-xl font-semibold bg-primary text-primary-foreground hover:opacity-90 transition-all text-sm flex-1 flex items-center justify-center gap-1.5 shadow-md shadow-primary/10"
               >
-                <Edit2 size={16} />
+                <Edit2 size={15} />
                 <span>Edit</span>
               </button>
               
@@ -543,9 +597,9 @@ const Transactions: React.FC = () => {
                   setSelectedTrx(null);
                   handleDelete(selectedTrx.id);
                 }}
-                className="px-4 py-2.5 rounded-xl font-semibold bg-destructive text-destructive-foreground hover:bg-destructive/90 transition-all text-sm flex-1 min-w-[80px] flex items-center justify-center gap-1.5 shadow-md shadow-destructive/10"
+                className="px-3 md:px-4 py-3 rounded-xl font-semibold bg-destructive text-destructive-foreground hover:bg-destructive/90 transition-all text-sm flex-1 flex items-center justify-center gap-1.5 shadow-md shadow-destructive/10"
               >
-                <Trash2 size={16} />
+                <Trash2 size={15} />
                 <span>Delete</span>
               </button>
             </div>

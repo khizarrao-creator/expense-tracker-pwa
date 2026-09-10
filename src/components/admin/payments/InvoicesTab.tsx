@@ -46,8 +46,8 @@ export const InvoicesTab: React.FC<InvoicesTabProps> = ({
   const [customerName, setCustomerName] = useState('');
   const [currency, setCurrency] = useState('USD');
   const [exchangeRate, setExchangeRate] = useState<number>(280);
-  const [taxPercent, setTaxPercent] = useState(0);
-  const [discountAmount, setDiscountAmount] = useState(0);
+  const [taxPercent, _setTaxPercent] = useState(0);
+  const [discountAmount, _setDiscountAmount] = useState(0);
   const [dueDate, setDueDate] = useState(() => {
     const d = new Date();
     d.setDate(d.getDate() + 7);

@@ -733,7 +733,7 @@ async function initSession(sessionId) {
                   : jid);
             console.log(`[Agent] incoming DM on ${sessionId} from ${jid} (phone: ${senderPhoneJid}): "${String(text).slice(0, 60)}"`);
             agent
-              .handleIncoming({ accountId: sessionId, senderJid: senderPhoneJid, replyJid: jid, senderName: newMsg.senderName, text })
+              .handleIncoming({ accountId: sessionId, senderJid: senderPhoneJid, replyJid: jid, senderName: newMsg.senderName, text, messageId: newMsg.id })
               .then((r) => console.log(`[Agent] result for ${senderPhoneJid}:`, JSON.stringify(r)))
               .catch((err) => console.error('[Agent] handleIncoming error:', err.message));
           }

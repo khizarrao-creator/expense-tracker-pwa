@@ -11,6 +11,8 @@ import {
   getAgentHealth,
   runAgentTask,
   stopAgentTask,
+  pauseAgentTask,
+  resumeAgentTask,
   type AgentConfig,
   type AgentTask,
   type AgentHealth,
@@ -29,7 +31,9 @@ const STATUS_META: Record<string, { label: string; cls: string; icon: React.Reac
   planning: { label: 'Planning', cls: 'text-primary', icon: <Loader2 size={12} className="animate-spin" /> },
   awaiting_confirmation: { label: 'Awaiting confirmation', cls: 'text-amber-500', icon: <AlertTriangle size={12} /> },
   awaiting_input: { label: 'Awaiting input', cls: 'text-amber-500', icon: <Clock size={12} /> },
+  paused: { label: 'Paused', cls: 'text-amber-500', icon: <Clock size={12} /> },
   stopped: { label: 'Stopped', cls: 'text-muted-foreground', icon: <XCircle size={12} /> },
+  timeout: { label: 'Timed out', cls: 'text-destructive', icon: <XCircle size={12} /> },
   queued: { label: 'Queued', cls: 'text-muted-foreground', icon: <Clock size={12} /> },
 };
 
@@ -150,6 +154,26 @@ export const AgentPanel: React.FC<AgentPanelProps> = ({ accountId, accountName }
       await load();
     } catch (e: any) {
       toast.error('Stop failed: ' + (e.message || e));
+    }
+  };
+
+  const handlePause = async (taskId: string) => {
+    try {
+      await pauseAgentTask(accountId, 'web-ui');
+      toast.success('Pause requested.');
+      await load();
+    } catch (e: any) {
+      toast.error('Pause failed: ' + (e.message || e));
+    }
+  };
+
+  const handleResume = async (taskId: string) => {
+    try {
+      await resumeAgentTask(accountId, 'web-ui');
+      toast.success('Resume requested.');
+      await load();
+    } catch (e: any) {
+      toast.error('Resume failed: ' + (e.message || e));
     }
   };
 
@@ -387,6 +411,7 @@ export const AgentPanel: React.FC<AgentPanelProps> = ({ accountId, accountName }
                     <div className="px-4 pb-3 space-y-1.5 bg-muted/5">
                       <p className="text-[10px] text-muted-foreground">
                         {new Date(t.createdAt).toLocaleString()} · from {t.requesterName || t.requesterNumber}
+                        {typeof t.durationSec === 'number' ? ` · ${t.durationSec}s` : ''}
                       </p>
                       {t.summary && <p className="text-[11px] font-medium">{t.summary}</p>}
                       {t.error && <p className="text-[11px] text-destructive">{t.error}</p>}
@@ -401,8 +426,24 @@ export const AgentPanel: React.FC<AgentPanelProps> = ({ accountId, accountName }
                           </div>
                         ))}
                       </div>
-                      {['running', 'planning', 'queued', 'awaiting_confirmation', 'awaiting_input'].includes(t.status) && (
-                        <div className="pt-2">
+                      {['running', 'planning', 'queued', 'awaiting_confirmation', 'awaiting_input', 'paused'].includes(t.status) && (
+                        <div className="pt-2 flex flex-wrap gap-2">
+                          {t.status === 'running' && (
+                            <button
+                              onClick={() => handlePause(t.id)}
+                              className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-amber-500/10 text-amber-600 dark:text-amber-400 border border-amber-500/20 text-[11px] font-bold hover:bg-amber-500/20"
+                            >
+                              <Clock size={12} /> Pause
+                            </button>
+                          )}
+                          {t.status === 'paused' && (
+                            <button
+                              onClick={() => handleResume(t.id)}
+                              className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 border border-emerald-500/20 text-[11px] font-bold hover:bg-emerald-500/20"
+                            >
+                              <Play size={12} /> Resume
+                            </button>
+                          )}
                           <button
                             onClick={() => handleStop(t.id)}
                             className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-destructive/10 text-destructive border border-destructive/20 text-[11px] font-bold hover:bg-destructive/20"

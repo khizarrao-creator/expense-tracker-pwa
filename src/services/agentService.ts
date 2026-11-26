@@ -51,6 +51,7 @@ export interface AgentTask {
   steps: AgentTaskStep[];
   summary?: string | null;
   error?: string | null;
+  durationSec?: number | null;
   createdAt: string;
   updatedAt: string;
 }
@@ -112,12 +113,39 @@ export const confirmAgentTask = async (accountId: string, approved: boolean, sen
     })
   );
 
-export const stopAgentTask = async (accountId: string, sender = 'web-ui', taskId?: string) =>
+export type AgentControlAction = 'stop' | 'pause' | 'resume' | 'status';
+
+export const controlAgentTask = async (
+  accountId: string,
+  action: AgentControlAction,
+  opts: { sender?: string; taskId?: string } = {}
+) =>
   parse(
     await fetch(getApiUrl('/api/agent/control'), {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ accountId, action: 'stop', sender, taskId }),
+      body: JSON.stringify({ accountId, action, sender: opts.sender || 'web-ui', taskId: opts.taskId }),
+    })
+  );
+
+export const stopAgentTask = async (accountId: string, sender = 'web-ui', taskId?: string) =>
+  controlAgentTask(accountId, 'stop', { sender, taskId });
+
+export const pauseAgentTask = async (accountId: string, sender = 'web-ui') =>
+  controlAgentTask(accountId, 'pause', { sender });
+
+export const resumeAgentTask = async (accountId: string, sender = 'web-ui') =>
+  controlAgentTask(accountId, 'resume', { sender });
+
+export const getAgentTaskStatus = async (accountId: string, sender = 'web-ui') =>
+  controlAgentTask(accountId, 'status', { sender });
+
+export const clearAgentContext = async (accountId: string, sender: string) =>
+  parse(
+    await fetch(getApiUrl('/api/agent/context/clear'), {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ accountId, sender }),
     })
   );
 

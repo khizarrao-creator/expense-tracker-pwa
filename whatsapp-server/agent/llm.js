@@ -18,6 +18,8 @@
 
 const gemini = require('./gemini');
 const providers = require('./providers');
+const { withRetry } = require('./retry');
+const logger = require('./logger').make('llm');
 
 let cached = null;
 
@@ -153,7 +155,10 @@ async function generateGemini({ system, contents, tools, temperature = 0.2, maxT
       const body = { contents, generationConfig: { temperature, maxOutputTokens: maxTokens } };
       if (system) body.systemInstruction = { parts: [{ text: system }] };
       if (tools && tools.length) body.tools = [{ functionDeclarations: tools }];
-      const data = await gemini.generateContent({ model, apiKey: cfg.apiKey, body });
+      const data = await withRetry(
+        () => gemini.generateContent({ model, apiKey: cfg.apiKey, body }),
+        { retries: 1, label: `gemini ${model}` }
+      );
       return { text: gemini.extractText(data), functionCall: gemini.extractFunctionCall(data), model };
     } catch (e) {
       lastErr = e;
@@ -182,27 +187,33 @@ async function generateOpenAI({ system, contents, tools, temperature = 0.2, maxT
     body.tool_choice = 'auto';
   }
 
-  const controller = new AbortController();
-  const timer = setTimeout(() => controller.abort(), 90000);
-  let res;
-  try {
-    res = await fetch(endpoint, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${cfg.apiKey}` },
-      body: JSON.stringify(body),
-      signal: controller.signal,
-    });
-  } catch (e) {
-    if (e.name === 'AbortError') throw new Error('Provider request timed out after 90s');
-    throw e;
-  } finally {
-    clearTimeout(timer);
-  }
+  const timeoutMs = Number(process.env.AGENT_LLM_TIMEOUT_MS) || 90000;
 
-  if (!res.ok) {
-    const err = await res.json().catch(() => ({}));
-    throw new Error(err.error?.message || err.detail || `Provider API error (${res.status})`);
-  }
+  const res = await withRetry(
+    async () => {
+      const controller = new AbortController();
+      const timer = setTimeout(() => controller.abort(), timeoutMs);
+      try {
+        const r = await fetch(endpoint, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${cfg.apiKey}` },
+          body: JSON.stringify(body),
+          signal: controller.signal,
+        });
+        if (!r.ok) {
+          const err = await r.json().catch(() => ({}));
+          throw new Error(err.error?.message || err.detail || `Provider API error (${r.status})`);
+        }
+        return r;
+      } catch (e) {
+        if (e.name === 'AbortError') throw new Error(`Provider request timed out after ${Math.round(timeoutMs / 1000)}s`);
+        throw e;
+      } finally {
+        clearTimeout(timer);
+      }
+    },
+    { retries: 2, label: `provider ${cfg.model}` }
+  );
 
   const data = await res.json();
   const msg = data?.choices?.[0]?.message || {};

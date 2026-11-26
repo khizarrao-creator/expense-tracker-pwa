@@ -39,6 +39,7 @@ import {
   type WhatsAppStatus 
 } from '../services/whatsappService';
 import { addLoanParty, getLoanParties, type LoanParty } from '../db/queries';
+import { AgentPanel } from '../components/agent/AgentPanel';
 
 const WhatsApp: React.FC = () => {
   const [searchParams] = useSearchParams();
@@ -305,27 +306,43 @@ const WhatsApp: React.FC = () => {
     }
   };
 
-  // Import all filtered contacts to Ledger
+  // Import all filtered contacts to Ledger (bounded concurrency to avoid hundreds of serial round-trips)
   const handleImportAllContacts = async () => {
-    if (importableContacts.length === 0) {
+    const toImport = importableContacts;
+    if (toImport.length === 0) {
       toast.info('No new contacts to import.');
       return;
     }
 
-    if (!confirm(`Are you sure you want to import all ${importableContacts.length} new contact(s) to your ledger?`)) return;
+    if (!confirm(`Are you sure you want to import all ${toImport.length} new contact(s) to your ledger?`)) return;
 
-    toast.loading(`Importing ${importableContacts.length} contacts...`, { id: 'import-all' });
+    const total = toImport.length;
+    let cursor = 0;
+    let completed = 0;
     let successCount = 0;
     let failCount = 0;
-    for (const contact of importableContacts) {
-      try {
-        await addLoanParty(contact.name, contact.phone, null, 'Imported from WhatsApp');
-        successCount++;
-      } catch (err) {
-        console.error(`Failed to import ${contact.name}:`, err);
-        failCount++;
+
+    toast.loading(`Importing 0/${total} contacts...`, { id: 'import-all' });
+
+    // Process a bounded number of contacts at a time instead of awaiting each one serially.
+    const CONCURRENCY = 8;
+    const worker = async () => {
+      while (cursor < total) {
+        const contact = toImport[cursor++];
+        try {
+          await addLoanParty(contact.name, contact.phone, null, 'Imported from WhatsApp');
+          successCount++;
+        } catch (err) {
+          console.error(`Failed to import ${contact.name}:`, err);
+          failCount++;
+        } finally {
+          completed++;
+          toast.loading(`Importing ${completed}/${total} contacts...`, { id: 'import-all' });
+        }
       }
-    }
+    };
+
+    await Promise.all(Array.from({ length: Math.min(CONCURRENCY, total) }, () => worker()));
 
     fetchLedgerParties();
     if (failCount > 0) {
@@ -1119,6 +1136,9 @@ const WhatsApp: React.FC = () => {
                 </button>
               </div>
             </div>
+
+            {/* AI Computer Use Agent */}
+            <AgentPanel accountId={activeAccountId} accountName={activeAccount?.name} />
 
           </div>
         )}

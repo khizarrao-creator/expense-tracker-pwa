@@ -8,6 +8,7 @@
     "start": "node server.js"
   },
   "dependencies": {
+    "@nut-tree-fork/nut-js": "^4.2.6",
     "@whiskeysockets/baileys": "^6.7.1",
     "cloudinary": "^2.10.0",
     "cors": "^2.8.5",
@@ -17,6 +18,8 @@
     "firebase-admin": "^14.2.0",
     "nodemailer": "^6.9.13",
     "pino": "^9.6.0",
-    "qrcode": "^1.5.4"
+    "playwright": "^1.65.1",
+    "qrcode": "^1.5.4",
+    "screenshot-desktop": "^1.15.8"
   }
 }

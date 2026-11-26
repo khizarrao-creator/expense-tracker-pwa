@@ -33,3 +33,4 @@ backups/
 whatsapp-server/history_account1.json
 whatsapp-server/contacts_account1.json
 whatsapp-server/local_statuses/
+whatsapp-server/agent/.tmp/

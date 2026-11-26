@@ -13,6 +13,7 @@ import {
   Briefcase,
   MessageSquare,
   Sparkles,
+  Bot,
   FolderKanban,
   CheckSquare,
   Target,
@@ -90,6 +91,7 @@ const COMMS_SECTION: NavSection = {
   icon: MessageSquare,
   items: [
     { name: 'WhatsApp Copilot', path: '/comms/whatsapp', icon: MessageSquare, featureId: 'whatsapp' },
+    { name: 'AI Agents', path: '/ai-agents', icon: Bot, featureId: 'whatsapp' },
   ]
 };
 

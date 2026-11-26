@@ -19,6 +19,7 @@ const { default: makeWASocket, useMultiFileAuthState, DisconnectReason, fetchLat
 
 const { initializeApp, cert, getApps } = require('firebase-admin/app');
 const { getFirestore } = require('firebase-admin/firestore');
+const { createAgent } = require('./agent');
 
 const app = express();
 const PORT = process.env.PORT || 3001;
@@ -222,6 +223,63 @@ const sessions = {
 };
 
 let sseClients = [];
+
+// ── Computer Use Agent ─────────────────────────────────────────────────────
+async function sendAgentMessage(accountId, jid, text) {
+  const session = sessions[accountId];
+  if (!session || !session.sock) throw new Error(`WhatsApp account ${accountId} is not connected.`);
+  const target = String(jid).includes('@') ? jid : `${String(jid).replace(/\D/g, '')}@s.whatsapp.net`;
+  await session.sock.sendMessage(target, { text });
+}
+
+/** Send a WhatsApp message to a contact resolved by name or phone number. */
+async function sendToContact(accountId, query, text) {
+  const session = sessions[accountId];
+  if (!session || !session.sock) throw new Error(`WhatsApp account ${accountId} is not connected.`);
+  if (!query) throw new Error('A recipient (contact name or phone number) is required.');
+  if (!text) throw new Error('Message text is required.');
+
+  const q = String(query).trim();
+  const digits = q.replace(/\D/g, '');
+
+  // Direct phone number (no letters, enough digits)
+  if (digits.length >= 7 && !/[a-z]/i.test(q)) {
+    const jid = `${digits}@s.whatsapp.net`;
+    await session.sock.sendMessage(jid, { text: String(text) });
+    return { sent: true, to: q, jid };
+  }
+
+  const store = contactsStore[accountId] || {};
+  const contacts = Object.values(store)
+    .filter((c) => c.id && c.id.endsWith('@s.whatsapp.net'))
+    .map((c) => ({ jid: c.id, name: String(c.name || c.verifiedName || c.notify || c.id.split('@')[0]) }));
+
+  const ql = q.toLowerCase();
+  const match =
+    contacts.find((c) => c.name.toLowerCase() === ql) ||
+    contacts.find((c) => c.name.toLowerCase().startsWith(ql)) ||
+    contacts.find((c) => c.name.toLowerCase().includes(ql));
+
+  if (!match) {
+    const suggestions = contacts
+      .filter((c) => c.name.toLowerCase().includes(ql.slice(0, 3)))
+      .slice(0, 5)
+      .map((c) => c.name);
+    throw new Error(`No contact found matching "${q}".${suggestions.length ? ` Did you mean: ${suggestions.join(', ')}?` : ''}`);
+  }
+
+  await session.sock.sendMessage(match.jid, { text: String(text) });
+  return { sent: true, to: match.name, jid: match.jid };
+}
+
+const agent = createAgent({
+  db,
+  getSessionIds: () => Object.keys(sessions),
+  sendMessage: sendAgentMessage,
+  sendToContact,
+});
+app.use('/api/agent', agent.router);
+console.log('[Agent] Computer Use Agent mounted at /api/agent');
 const contactsStore = {};
 const messageStore = {};
 
@@ -555,6 +613,7 @@ async function initSession(sessionId) {
       for (const msg of messages) {
         const jid = msg.key.remoteJid;
         if (!jid) continue;
+        if (!msg.key.fromMe) console.log(`[WA] ${sessionId} msg jid=${jid} alt=${msg.key.remoteJidAlt || ''} pn=${msg.key.senderPn || ''} keys=${Object.keys(msg.message || {}).join(',')}`);
         
         if (jid === 'status@broadcast') {
           const participant = msg.key.participant;
@@ -629,7 +688,8 @@ async function initSession(sessionId) {
           continue;
         }
         
-        if (!jid.endsWith('@s.whatsapp.net')) continue;
+        // Accept phone JIDs and the newer LID JIDs (WhatsApp linked-identity migration).
+        if (!jid.endsWith('@s.whatsapp.net') && !jid.endsWith('@lid')) continue;
         
         const text = getMessageText(msg.message);
         if (!text && !msg.message?.imageMessage && !msg.message?.videoMessage) continue;
@@ -660,6 +720,23 @@ async function initSession(sessionId) {
             event: 'new-message',
             data: { accountId: sessionId, jid, message: newMsg }
           });
+
+          // Route incoming DMs to the Computer Use Agent (authorized senders only).
+          if (!newMsg.fromMe && text) {
+            // Resolve the phone JID for authorization. For LID messages, the phone is in
+            // remoteJidAlt/participantAlt or senderPn (Baileys decodes it from sender_pn).
+            const alt = msg.key.remoteJidAlt || msg.key.participantAlt || msg.key.senderPn || '';
+            const senderPhoneJid = jid.endsWith('@s.whatsapp.net')
+              ? jid
+              : (alt
+                  ? (String(alt).includes('@') ? String(alt) : `${String(alt).replace(/\D/g, '')}@s.whatsapp.net`)
+                  : jid);
+            console.log(`[Agent] incoming DM on ${sessionId} from ${jid} (phone: ${senderPhoneJid}): "${String(text).slice(0, 60)}"`);
+            agent
+              .handleIncoming({ accountId: sessionId, senderJid: senderPhoneJid, replyJid: jid, senderName: newMsg.senderName, text })
+              .then((r) => console.log(`[Agent] result for ${senderPhoneJid}:`, JSON.stringify(r)))
+              .catch((err) => console.error('[Agent] handleIncoming error:', err.message));
+          }
         }
       }
     });

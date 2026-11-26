@@ -31,13 +31,14 @@ import {
   BarElement,
   PointElement,
   LineElement,
-  Title
+  Title,
+  Filler
 } from 'chart.js';
 import { Bar, Doughnut, Line } from 'react-chartjs-2';
 
 ChartJS.register(
   ArcElement, Tooltip, Legend, CategoryScale, LinearScale,
-  BarElement, PointElement, LineElement, Title
+  BarElement, PointElement, LineElement, Title, Filler
 );
 
 type TabType = 'overview' | 'forecasting' | 'loans' | 'fuel';

@@ -445,6 +445,7 @@ const FinancialHealthScore: React.FC<FinancialHealthScoreProps> = ({
 
 const Dashboard: React.FC = () => {
   const { formatAmount } = useCurrency();
+  const { isPrivacyMode, togglePrivacyMode } = useApp();
   const now = new Date();
   const currentYear = now.getFullYear().toString();
   const currentMonth = (now.getMonth() + 1).toString();
@@ -646,8 +647,6 @@ const Dashboard: React.FC = () => {
   const periodLabel: Record<ChartPeriod, string> = { day: 'today', week: 'this week', month: 'this month' };
 
   // ── Render ─────────────────────────────────────────────────────────────────
-
-  const { isPrivacyMode, togglePrivacyMode } = useApp();
 
   return (
     <div className="space-y-4 md:space-y-6">

@@ -55,6 +55,7 @@ import {
   Tooltip,
   Legend,
   ArcElement,
+  Filler,
 } from 'chart.js';
 
 ChartJS.register(
@@ -66,7 +67,8 @@ ChartJS.register(
   Title,
   Tooltip,
   Legend,
-  ArcElement
+  ArcElement,
+  Filler
 );
 import { db } from '../firebase';
 import { collection, getDocs, doc, getDoc, setDoc, query, orderBy, limit } from 'firebase/firestore';
@@ -82,6 +84,23 @@ import { Button } from '../components/ui/Button';
 import { Input } from '../components/ui/Input';
 import { PlanBadge } from '../components/ui/PlanBadge';
 import { refreshProviderConfig } from '../services/ai/provider';
+
+// True when the value looks like a Supabase UUID primary key (Firestore doc IDs do not).
+const isUuid = (v: unknown): boolean =>
+  typeof v === 'string' && /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(v);
+
+// Map a payment_accounts DB row (snake_case) to the camelCase shape the UI expects.
+const mapPaymentAccountRow = (r: any) => ({
+  id: r.id,
+  method: r.method,
+  holderName: r.holder_name,
+  accountNumber: r.account_number,
+  iban: r.iban ?? undefined,
+  instructions: r.instructions ?? undefined,
+  isActive: r.is_active,
+  displayOrder: r.display_order,
+  qrCodeUrl: r.qr_code_url ?? undefined,
+});
 
 const FEATURES = [
   { id: 'goals', name: 'Savings Goals', desc: 'Set and track financial objectives' },
@@ -814,7 +833,7 @@ const Admin: React.FC = () => {
 
         // Fetch Payment Accounts
         const { data: accData } = await supabase.from('payment_accounts').select('*').order('display_order', { ascending: true });
-        setPaymentAccounts(accData || []);
+        setPaymentAccounts((accData || []).map(mapPaymentAccountRow));
 
         // Fetch Plans Config
         const { data: plansData } = await supabase.from('plans').select('*').order('display_order', { ascending: true });
@@ -874,48 +893,55 @@ const Admin: React.FC = () => {
 
   // ── PAYMENTS & PLANS CONFIGURATION HANDLERS ──────────────────────────────
 
-  const handleApproveRequest = async () => {
-    if (!selectedRequest) return;
+  const handleApproveRequest = async (reqOverride?: any, expiryOverride?: string) => {
+    const req = reqOverride && reqOverride.id ? reqOverride : selectedRequest;
+    if (!req) return;
     setIsLoading(true);
     try {
-      const expiry = new Date(customExpiryDate).toISOString();
+      const expiry = new Date(expiryOverride || customExpiryDate).toISOString();
 
       if (db) {
-        await setDoc(doc(db, 'payment_requests', selectedRequest.id), {
+        await setDoc(doc(db, 'payment_requests', req.id), {
           status: 'approved',
           verifiedAt: new Date().toISOString()
         }, { merge: true });
 
-        await setDoc(doc(db, 'registered_users', selectedRequest.userId), {
-          plan: selectedRequest.selectedPlan,
-          isPro: selectedRequest.selectedPlan !== 'standard',
+        await setDoc(doc(db, 'registered_users', req.userId), {
+          plan: req.selectedPlan,
+          isPro: req.selectedPlan !== 'standard',
           planExpiresAt: expiry,
           planAssignedBy: adminUsername || 'admin'
         }, { merge: true });
       }
 
       if (isSupabaseConfigured) {
-        await supabase.from('payment_requests').update({
-          status: 'approved',
-          verified_at: new Date().toISOString()
-        }).eq('id', selectedRequest.id);
+        // Only Supabase-backed requests have UUID ids; Firestore-backed ones are updated above.
+        if (isUuid(req.id)) {
+          const { error: prError } = await supabase.from('payment_requests').update({
+            status: 'approved',
+            verified_at: new Date().toISOString()
+          }).eq('id', req.id);
+          if (prError) throw new Error(prError.message);
+        }
 
-        await supabase.from('users').update({
-          plan: selectedRequest.selectedPlan,
-          is_pro: selectedRequest.selectedPlan !== 'standard',
+        const { error: userError } = await supabase.from('users').update({
+          plan: req.selectedPlan,
+          is_pro: req.selectedPlan !== 'standard',
           plan_expires_at: expiry,
           plan_assigned_by: adminUsername || 'admin'
-        }).eq('id', selectedRequest.userId);
+        }).eq('id', req.userId);
+        if (userError) throw new Error(userError.message);
 
-        await supabase.from('notifications').insert({
-          user_id: selectedRequest.userId,
-          message: `Your payment has been verified! The ${selectedRequest.selectedPlan.toUpperCase()} plan is now active.`
+        const { error: notifError } = await supabase.from('notifications').insert({
+          user_id: req.userId,
+          message: `Your payment has been verified! The ${req.selectedPlan.toUpperCase()} plan is now active.`
         });
+        if (notifError) console.warn('[Admin] Notification insert failed:', notifError.message);
 
         await supabase.from('admin_logs').insert({
           action: 'Approve Payment',
           admin: adminUsername || 'admin',
-          details: { requestId: selectedRequest.id, userId: selectedRequest.userId, plan: selectedRequest.selectedPlan }
+          details: { requestId: req.id, userId: req.userId, plan: req.selectedPlan }
         });
       }
 
@@ -932,37 +958,44 @@ const Admin: React.FC = () => {
     }
   };
 
-  const handleRejectRequest = async () => {
-    if (!selectedRequest || !rejectionReason.trim()) {
+  const handleRejectRequest = async (reqOverride?: any, reasonOverride?: string) => {
+    const req = reqOverride && reqOverride.id ? reqOverride : selectedRequest;
+    const reason = reasonOverride ?? rejectionReason;
+    if (!req || !reason.trim()) {
       toast.error('Rejection reason is required.');
       return;
     }
     setIsLoading(true);
     try {
       if (db) {
-        await setDoc(doc(db, 'payment_requests', selectedRequest.id), {
+        await setDoc(doc(db, 'payment_requests', req.id), {
           status: 'rejected',
-          rejectionReason: rejectionReason,
+          rejectionReason: reason,
           verifiedAt: new Date().toISOString()
         }, { merge: true });
       }
 
       if (isSupabaseConfigured) {
-        await supabase.from('payment_requests').update({
-          status: 'rejected',
-          rejection_reason: rejectionReason,
-          verified_at: new Date().toISOString()
-        }).eq('id', selectedRequest.id);
+        // Only Supabase-backed requests have UUID ids; Firestore-backed ones are updated above.
+        if (isUuid(req.id)) {
+          const { error: prError } = await supabase.from('payment_requests').update({
+            status: 'rejected',
+            rejection_reason: reason,
+            verified_at: new Date().toISOString()
+          }).eq('id', req.id);
+          if (prError) throw new Error(prError.message);
+        }
 
-        await supabase.from('notifications').insert({
-          user_id: selectedRequest.userId,
-          message: `Your payment request was rejected. Reason: ${rejectionReason}`
+        const { error: notifError } = await supabase.from('notifications').insert({
+          user_id: req.userId,
+          message: `Your payment request was rejected. Reason: ${reason}`
         });
+        if (notifError) console.warn('[Admin] Notification insert failed:', notifError.message);
 
         await supabase.from('admin_logs').insert({
           action: 'Reject Payment',
           admin: adminUsername || 'admin',
-          details: { requestId: selectedRequest.id, reason: rejectionReason }
+          details: { requestId: req.id, reason }
         });
       }
 
@@ -1005,18 +1038,18 @@ const Admin: React.FC = () => {
       }
 
       if (isSupabaseConfigured) {
-        await supabase.from('payment_accounts').upsert({
+        const { error } = await supabase.from('payment_accounts').upsert({
           id: newAccount.id,
-          type: newAccount.method,
-          title: newAccount.method,
+          method: newAccount.method,
+          holder_name: newAccount.holderName,
           account_number: newAccount.accountNumber,
-          account_title: newAccount.holderName,
-          bank_name: newAccount.method,
           iban: newAccount.iban,
+          qr_code_url: newAccount.qrCodeUrl,
           instructions: newAccount.instructions,
           is_active: newAccount.isActive,
           display_order: newAccount.displayOrder
         });
+        if (error) throw new Error(error.message);
       }
       toast.success(isEdit ? 'Payment account updated.' : 'Payment account added.');
       setShowAccountModal(false);
@@ -3469,33 +3502,28 @@ const Admin: React.FC = () => {
             paymentAccounts={paymentAccounts}
             plansConfig={plansConfigLocal}
             users={users}
-            onApproveRequest={async (req, expiryDate, notes) => {
-              setSelectedRequest(req);
-              setCustomExpiryDate(expiryDate);
-              setInternalNotes(notes || '');
-              await handleApproveRequest();
+            onApproveRequest={async (req, expiryDate) => {
+              await handleApproveRequest(req, expiryDate);
             }}
             onRejectRequest={async (req, reason) => {
-              setSelectedRequest(req);
-              setRejectionReason(reason);
-              await handleRejectRequest();
+              await handleRejectRequest(req, reason);
             }}
             onSaveAccount={async (acc) => {
               setAccountForm({ ...acc, iban: acc.iban || '', instructions: acc.instructions || '', qrCodeUrl: acc.qrCodeUrl || '' });
               // Call save handler
               if (isSupabaseConfigured) {
-                await supabase.from('payment_accounts').upsert({
+                const { error } = await supabase.from('payment_accounts').upsert({
                   id: acc.id,
-                  type: acc.method,
-                  title: acc.method,
+                  method: acc.method,
+                  holder_name: acc.holderName,
                   account_number: acc.accountNumber,
-                  account_title: acc.holderName,
-                  bank_name: acc.method,
                   iban: acc.iban,
+                  qr_code_url: acc.qrCodeUrl,
                   instructions: acc.instructions,
                   is_active: acc.isActive,
                   display_order: Number(acc.displayOrder)
                 });
+                if (error) throw new Error(error.message);
               }
               toast.success('Payment account saved');
               fetchData();
@@ -3761,7 +3789,7 @@ const Admin: React.FC = () => {
               </Button>
               <Button
                 variant="primary"
-                onClick={handleApproveRequest}
+                onClick={() => handleApproveRequest()}
                 loading={isLoading}
               >
                 Confirm Approval
@@ -3821,7 +3849,7 @@ const Admin: React.FC = () => {
               </Button>
               <Button
                 variant="destructive"
-                onClick={handleRejectRequest}
+                onClick={() => handleRejectRequest()}
                 loading={isLoading}
                 disabled={!rejectionReason.trim()}
               >

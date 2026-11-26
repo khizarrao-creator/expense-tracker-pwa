@@ -21,6 +21,7 @@ import {
   CheckSquare,
   MessageSquare,
   Sparkles,
+  Bot,
   Settings,
   ShieldCheck,
   LogOut,
@@ -94,6 +95,7 @@ export const MobileDrawer: React.FC<MobileDrawerProps> = ({
       title: 'Communications',
       items: [
         { name: 'WhatsApp Copilot', path: '/comms/whatsapp', icon: MessageSquare },
+        { name: 'AI Agents', path: '/ai-agents', icon: Bot },
       ]
     }
   ];

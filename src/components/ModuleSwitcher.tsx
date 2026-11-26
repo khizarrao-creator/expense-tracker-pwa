@@ -51,6 +51,7 @@ export const MODULES: ModuleInfo[] = [
 
 export const getActiveModuleFromPath = (pathname: string): AppModule | 'home' | 'ai' | 'settings' => {
   if (pathname === '/') return 'home';
+  if (pathname.startsWith('/ai-agents')) return 'comms';
   if (pathname.startsWith('/ai')) return 'ai';
   if (pathname.startsWith('/settings')) return 'settings';
   if (pathname.startsWith('/work') || pathname.startsWith('/projects')) return 'work';
@@ -81,6 +82,7 @@ const BREADCRUMB_MAP: Record<string, string> = {
   '/work/projects': 'Projects',
   '/work/tasks': 'Tasks',
   '/comms/whatsapp': 'WhatsApp Copilot',
+  '/ai-agents': 'AI Agents',
   '/ai': 'AI Copilot',
   '/settings': 'Settings',
   '/add': 'Add Transaction',

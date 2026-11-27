@@ -18,9 +18,9 @@ Because the server is configured to sync authentication credentials to **Firesto
 2. Go to the **Settings** tab.
 3. Scroll down to the **Shared** section, find **Root Directory**, and set it to:
    ```text
-   whatsapp-server
+   agent-server
    ```
-   *(⚠️ **CRITICAL**: This tells Railway to only build the `whatsapp-server` folder using our `Dockerfile`)*
+   *(⚠️ **CRITICAL**: This tells Railway to only build the `agent-server` folder using our `Dockerfile`)*
 4. Railway will automatically detect the `Dockerfile` inside that directory and trigger a build.
 
 ---

@@ -27,10 +27,10 @@ dist-ssr
 *.sw?
 
 .env
-whatsapp-server/auth_info_baileys
+agent-server/auth_info_baileys
 serviceAccountKey.json
 backups/
-whatsapp-server/history_account1.json
-whatsapp-server/contacts_account1.json
-whatsapp-server/local_statuses/
-whatsapp-server/agent/.tmp/
+agent-server/history_account1.json
+agent-server/contacts_account1.json
+agent-server/local_statuses/
+agent-server/agent/.tmp/

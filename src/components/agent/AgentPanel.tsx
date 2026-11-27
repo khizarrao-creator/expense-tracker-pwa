@@ -43,6 +43,17 @@ const POLICY_LABELS: Record<ConfirmationPolicy, string> = {
   confirm_everything: 'Confirm every computer action',
 };
 
+/** Quick-start instructions for common desktop apps (Phase 7). */
+const TEMPLATES: { label: string; instruction: string }[] = [
+  { label: 'Files: Downloads', instruction: 'List the files in my Downloads folder and tell me how many there are.' },
+  { label: 'VS Code', instruction: 'Open VS Code at D:\\expenseTracker.' },
+  { label: 'Excel', instruction: 'Open my Documents folder in File Explorer, then open the newest Excel (.xlsx) file in Excel.' },
+  { label: 'PowerShell', instruction: 'Open PowerShell and show the current date and the 5 largest files in my Downloads folder.' },
+  { label: 'Windows', instruction: 'List the windows that are currently open on my PC.' },
+  { label: 'Screenshot', instruction: 'Take a screenshot and describe what is on my screen right now.' },
+  { label: 'WhatsApp', instruction: 'Send a WhatsApp message to my most recent contact saying hello from the AI agent.' },
+];
+
 export const AgentPanel: React.FC<AgentPanelProps> = ({ accountId, accountName }) => {
   const [config, setConfig] = useState<AgentConfig | null>(null);
   const [health, setHealth] = useState<AgentHealth | null>(null);
@@ -54,6 +65,7 @@ export const AgentPanel: React.FC<AgentPanelProps> = ({ accountId, accountName }
   const [expanded, setExpanded] = useState<string | null>(null);
   const [newPhone, setNewPhone] = useState('');
   const [newLabel, setNewLabel] = useState('');
+  const [lastUpdated, setLastUpdated] = useState<Date | null>(null);
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -66,6 +78,7 @@ export const AgentPanel: React.FC<AgentPanelProps> = ({ accountId, accountName }
       setConfig(cfgs.find((c) => c.accountId === accountId) || null);
       setHealth(h);
       setTasks(t);
+      setLastUpdated(new Date());
     } catch (e: any) {
       toast.error('Could not load agent settings: ' + (e.message || e));
     } finally {
@@ -73,9 +86,42 @@ export const AgentPanel: React.FC<AgentPanelProps> = ({ accountId, accountName }
     }
   }, [accountId]);
 
+  /** Silent background refresh — never toggles the loading spinner or toasts. */
+  const refresh = useCallback(async () => {
+    try {
+      const [h, t] = await Promise.all([
+        getAgentHealth().catch(() => null),
+        getAgentActivity(accountId).catch(() => null),
+      ]);
+      if (h) setHealth(h);
+      if (t) setTasks(t);
+      setLastUpdated(new Date());
+    } catch {
+      /* background polling must stay quiet */
+    }
+  }, [accountId]);
+
   useEffect(() => {
     load();
   }, [load]);
+
+  // Live auto-update: keep the activity/health in sync without a manual reload.
+  useEffect(() => {
+    const POLL_MS = 4000;
+    const tick = () => {
+      if (typeof document !== 'undefined' && document.visibilityState === 'hidden') return;
+      refresh();
+    };
+    const id = window.setInterval(tick, POLL_MS);
+    const onVisible = () => {
+      if (document.visibilityState === 'visible') refresh();
+    };
+    document.addEventListener('visibilitychange', onVisible);
+    return () => {
+      window.clearInterval(id);
+      document.removeEventListener('visibilitychange', onVisible);
+    };
+  }, [refresh]);
 
   const persist = async (patch: Partial<AgentConfig>) => {
     if (!config) return;
@@ -157,7 +203,7 @@ export const AgentPanel: React.FC<AgentPanelProps> = ({ accountId, accountName }
     }
   };
 
-  const handlePause = async (taskId: string) => {
+  const handlePause = async (_taskId: string) => {
     try {
       await pauseAgentTask(accountId, 'web-ui');
       toast.success('Pause requested.');
@@ -167,7 +213,7 @@ export const AgentPanel: React.FC<AgentPanelProps> = ({ accountId, accountName }
     }
   };
 
-  const handleResume = async (taskId: string) => {
+  const handleResume = async (_taskId: string) => {
     try {
       await resumeAgentTask(accountId, 'web-ui');
       toast.success('Resume requested.');
@@ -356,6 +402,18 @@ export const AgentPanel: React.FC<AgentPanelProps> = ({ accountId, accountName }
         <h3 className="font-bold text-sm flex items-center gap-2">
           <Play size={15} className="text-primary" /> Run a task now
         </h3>
+        <div className="flex flex-wrap gap-1.5">
+          {TEMPLATES.map((tpl) => (
+            <button
+              key={tpl.label}
+              onClick={() => setInstruction(tpl.instruction)}
+              className="text-[10px] font-semibold px-2.5 py-1 rounded-full border border-border/70 bg-muted/20 text-muted-foreground hover:text-foreground hover:border-primary/40 transition-colors"
+              title={tpl.instruction}
+            >
+              {tpl.label}
+            </button>
+          ))}
+        </div>
         <div className="flex gap-2">
           <input
             value={instruction}
@@ -385,9 +443,18 @@ export const AgentPanel: React.FC<AgentPanelProps> = ({ accountId, accountName }
       <div className="bg-card border border-border rounded-3xl p-5 space-y-3">
         <div className="flex items-center justify-between">
           <h3 className="font-bold text-sm">Activity History</h3>
-          <button onClick={load} className="text-[10px] text-muted-foreground hover:text-foreground flex items-center gap-1">
-            <RefreshCw size={12} /> Refresh
-          </button>
+          <div className="flex items-center gap-3">
+            <span className="flex items-center gap-1.5 text-[10px] text-muted-foreground" title="Auto-updating">
+              <span className="relative flex h-1.5 w-1.5">
+                <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-emerald-400 opacity-75" />
+                <span className="relative inline-flex rounded-full h-1.5 w-1.5 bg-emerald-500" />
+              </span>
+              Live{lastUpdated ? ` · ${lastUpdated.toLocaleTimeString()}` : ''}
+            </span>
+            <button onClick={load} className="text-[10px] text-muted-foreground hover:text-foreground flex items-center gap-1">
+              <RefreshCw size={12} /> Refresh
+            </button>
+          </div>
         </div>
 
         {tasks.length === 0 ? (

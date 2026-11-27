@@ -1,4 +1,5 @@
 import { getApiUrl } from './whatsappService';
+import { auth } from '../firebase';
 
 /** Types mirroring the bridge's /api/agent contract. */
 
@@ -59,7 +60,25 @@ export interface AgentTask {
 export interface AgentHealth {
   ok: boolean;
   model: string;
+  provider?: { provider: string; model: string; hasKey: boolean };
   capabilities: { fileSystem: boolean; screen: boolean; input: boolean; browser?: boolean };
+}
+
+/**
+ * Fetch wrapper that attaches the current Firebase ID token so the bridge's
+ * `/api/agent` routes (protected by verifyFirebaseToken) accept the request.
+ */
+async function agentFetch(path: string, init: RequestInit = {}): Promise<Response> {
+  const headers: Record<string, string> = {
+    ...((init.headers as Record<string, string> | undefined) || {}),
+  };
+  try {
+    const idToken = auth?.currentUser ? await auth.currentUser.getIdToken() : '';
+    if (idToken) headers['Authorization'] = `Bearer ${idToken}`;
+  } catch {
+    /* no token available — the request will surface a 401 */
+  }
+  return fetch(getApiUrl(path), { ...init, headers });
 }
 
 async function parse(res: Response) {
@@ -69,10 +88,10 @@ async function parse(res: Response) {
 }
 
 export const getAgentHealth = async (): Promise<AgentHealth> =>
-  parse(await fetch(getApiUrl('/api/agent/health')));
+  parse(await agentFetch('/api/agent/health'));
 
 export const getAgentConfigs = async (): Promise<AgentConfig[]> =>
-  (await parse(await fetch(getApiUrl('/api/agent/config')))).configs || [];
+  (await parse(await agentFetch('/api/agent/config'))).configs || [];
 
 export const saveAgentConfig = async (
   accountId: string,
@@ -80,7 +99,7 @@ export const saveAgentConfig = async (
 ): Promise<AgentConfig> =>
   (
     await parse(
-      await fetch(getApiUrl('/api/agent/config'), {
+      await agentFetch('/api/agent/config', {
         method: 'PUT',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ accountId, ...patch }),
@@ -91,22 +110,22 @@ export const saveAgentConfig = async (
 export const getAgentActivity = async (accountId?: string): Promise<AgentTask[]> =>
   (
     await parse(
-      await fetch(getApiUrl(`/api/agent/activity${accountId ? `?accountId=${encodeURIComponent(accountId)}` : ''}`))
+      await agentFetch(`/api/agent/activity${accountId ? `?accountId=${encodeURIComponent(accountId)}` : ''}`)
     )
   ).tasks || [];
 
-export const runAgentTask = async (accountId: string, instruction: string) =>
+export const runAgentTask = async (accountId: string, instruction: string, idempotencyKey?: string) =>
   parse(
-    await fetch(getApiUrl('/api/agent/execute'), {
+    await agentFetch('/api/agent/execute', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ accountId, instruction }),
+      body: JSON.stringify({ accountId, instruction, idempotencyKey }),
     })
   );
 
 export const confirmAgentTask = async (accountId: string, approved: boolean, sender = 'web-ui') =>
   parse(
-    await fetch(getApiUrl('/api/agent/confirm'), {
+    await agentFetch('/api/agent/confirm', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ accountId, approved, sender }),
@@ -121,7 +140,7 @@ export const controlAgentTask = async (
   opts: { sender?: string; taskId?: string } = {}
 ) =>
   parse(
-    await fetch(getApiUrl('/api/agent/control'), {
+    await agentFetch('/api/agent/control', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ accountId, action, sender: opts.sender || 'web-ui', taskId: opts.taskId }),
@@ -142,7 +161,7 @@ export const getAgentTaskStatus = async (accountId: string, sender = 'web-ui') =
 
 export const clearAgentContext = async (accountId: string, sender: string) =>
   parse(
-    await fetch(getApiUrl('/api/agent/context/clear'), {
+    await agentFetch('/api/agent/context/clear', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ accountId, sender }),
@@ -172,13 +191,13 @@ export interface ProvidersState {
 }
 
 export const getProviders = async (): Promise<ProvidersState> =>
-  parse(await fetch(getApiUrl('/api/agent/providers')));
+  parse(await agentFetch('/api/agent/providers'));
 
 export const saveProvider = async (
   provider: { name: string; baseUrl: string; apiKey: string; models: string[] }
 ): Promise<ProvidersState> =>
   parse(
-    await fetch(getApiUrl('/api/agent/providers'), {
+    await agentFetch('/api/agent/providers', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(provider),
@@ -186,11 +205,11 @@ export const saveProvider = async (
   );
 
 export const deleteProvider = async (id: string): Promise<ProvidersState> =>
-  parse(await fetch(getApiUrl(`/api/agent/providers/${encodeURIComponent(id)}`), { method: 'DELETE' }));
+  parse(await agentFetch(`/api/agent/providers/${encodeURIComponent(id)}`, { method: 'DELETE' }));
 
 export const setActiveProvider = async (providerId: string, modelId?: string): Promise<ProvidersState> =>
   parse(
-    await fetch(getApiUrl('/api/agent/providers/active'), {
+    await agentFetch('/api/agent/providers/active', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ providerId, modelId }),
@@ -199,7 +218,7 @@ export const setActiveProvider = async (providerId: string, modelId?: string): P
 
 export const importOpencodeProviders = async (path?: string): Promise<ProvidersState & { imported: number; path: string }> =>
   parse(
-    await fetch(getApiUrl('/api/agent/providers/import-opencode'), {
+    await agentFetch('/api/agent/providers/import-opencode', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(path ? { path } : {}),

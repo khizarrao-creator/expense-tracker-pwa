@@ -37,6 +37,12 @@ const TOOL_RISK = {
   input_key: B,
   input_scroll: B,
   app_launch: B,
+  // Desktop apps (Phase 7)
+  shell_run: C,
+  window_list: A,
+  window_focus: B,
+  open_in_app: B,
+  vscode_open: B,
   // Browser
   browser_open: A,
   browser_goto: A,

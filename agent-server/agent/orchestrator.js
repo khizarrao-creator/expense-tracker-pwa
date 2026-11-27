@@ -62,7 +62,7 @@ function allDeclarations(permissions) {
     if (permissions.browser === false) decls = decls.filter((d) => !d.name.startsWith('browser_'));
     if (permissions.fileSystem === false) decls = decls.filter((d) => !d.name.startsWith('fs_'));
     if (permissions.screen === false) decls = decls.filter((d) => !d.name.startsWith('screen_'));
-    if (permissions.input === false) decls = decls.filter((d) => !d.name.startsWith('input_') && d.name !== 'app_launch');
+    if (permissions.input === false) decls = decls.filter((d) => !d.name.startsWith('input_') && !['app_launch', 'shell_run', 'open_in_app', 'vscode_open', 'window_focus'].includes(d.name));
   }
   return [...decls, ...META_TOOLS];
 }

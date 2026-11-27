@@ -10,6 +10,7 @@ const files = require('./files');
 const screen = require('./screen');
 const input = require('./input');
 const browser = require('./browser');
+const desktop = require('./desktop');
 const safety = require('./safety');
 
 /** Injected by the host so the agent can send WhatsApp messages to contacts. */
@@ -127,6 +128,54 @@ const TOOLS = {
     description: 'Launch an application or open a file/folder by command or path (Windows).',
     parameters: { type: 'object', properties: { command: { type: 'string' } }, required: ['command'] },
     run: (a) => input.launchApp(a),
+  },
+
+  // ── Desktop apps (Phase 7) ──────────────────────────────────────────────────
+  shell_run: {
+    description:
+      'Run a PowerShell command on this PC and return its output. Use for PowerShell/terminal-style tasks (e.g. checking the date, listing the largest files). Prefer read-only commands unless the user explicitly asks otherwise.',
+    parameters: {
+      type: 'object',
+      properties: {
+        command: { type: 'string', description: 'The PowerShell command to run.' },
+        cwd: { type: 'string', description: 'Optional working directory; ~ allowed.' },
+        timeoutMs: { type: 'number', description: 'Optional timeout in milliseconds (default 30000).' },
+      },
+      required: ['command'],
+    },
+    run: (a) => desktop.shellRun(a),
+  },
+  window_list: {
+    description: 'List the windows currently open on this PC (title, process name and pid).',
+    parameters: { type: 'object', properties: {} },
+    run: () => desktop.windowList(),
+  },
+  window_focus: {
+    description: 'Bring an application window to the foreground by matching part of its title.',
+    parameters: { type: 'object', properties: { title: { type: 'string', description: 'Part of the window title, e.g. "Excel".' } }, required: ['title'] },
+    run: (a) => desktop.windowFocus(a),
+  },
+  open_in_app: {
+    description:
+      'Open a file or folder in a specific desktop app. Supported apps: code (VS Code), explorer, notepad, word, excel, powerpoint, outlook, powershell, terminal, cmd, chrome, edge, paint, calculator.',
+    parameters: {
+      type: 'object',
+      properties: {
+        path: { type: 'string', description: 'File or folder path to open; ~ allowed.' },
+        app: { type: 'string', description: 'App name or alias, e.g. "excel" or "explorer".' },
+      },
+      required: ['path', 'app'],
+    },
+    run: (a) => desktop.openInApp(a),
+  },
+  vscode_open: {
+    description: 'Open a file or folder in VS Code (optionally jump to a specific line).',
+    parameters: {
+      type: 'object',
+      properties: { path: { type: 'string', description: 'File or folder path; ~ allowed.' }, line: { type: 'number', description: 'Optional line number to jump to.' } },
+      required: ['path'],
+    },
+    run: (a) => desktop.vscodeOpen(a),
   },
 
   // ── Browser ───────────────────────────────────────────────────────────────

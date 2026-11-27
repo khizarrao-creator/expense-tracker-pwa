@@ -272,13 +272,15 @@ async function sendToContact(accountId, query, text) {
   return { sent: true, to: match.name, jid: match.jid };
 }
 
+const verifyFirebaseToken = require('./middleware/auth');
+
 const agent = createAgent({
   db,
   getSessionIds: () => Object.keys(sessions),
   sendMessage: sendAgentMessage,
   sendToContact,
 });
-app.use('/api/agent', agent.router);
+app.use('/api/agent', verifyFirebaseToken, agent.router);
 console.log('[Agent] Computer Use Agent mounted at /api/agent');
 const contactsStore = {};
 const messageStore = {};
@@ -1372,7 +1374,6 @@ app.post('/api/admin/send-emails', async (req, res) => {
 
 // ── EXTENDED BACKEND API GATEWAY ENDPOINTS ─────────────────────────────────
 
-const verifyFirebaseToken = require('./middleware/auth');
 const aiRateLimit = require('./middleware/rateLimit');
 const { updateDoc } = require('firebase/firestore');
 
